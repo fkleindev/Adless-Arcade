@@ -124,7 +124,7 @@ fun GateRushScreen(
             Hud(hud = hud, best = viewModel.best, modifier = Modifier.align(Alignment.TopCenter))
             StatBar(hud = hud, modifier = Modifier.align(Alignment.BottomCenter))
 
-            if (!viewModel.started && !viewModel.gameOver) {
+            if (viewModel.loaded && !viewModel.started && !viewModel.gameOver) {
                 StartHint(Modifier.align(Alignment.Center))
             }
 

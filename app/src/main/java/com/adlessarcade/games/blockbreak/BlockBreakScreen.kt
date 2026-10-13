@@ -190,6 +190,7 @@ fun BlockBreakScreen(
             }
         },
     ) {
+        if (!viewModel.loaded) return@ArcadeScaffold
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()

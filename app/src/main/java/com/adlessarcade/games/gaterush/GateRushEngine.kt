@@ -44,7 +44,7 @@ enum class GateType(val title: String, val hitsPerStep: Int) {
  * Eine Torhälfte. Jeder Treffer bringt sie näher an den nächsthöheren Wert; jede weitere Stufe kostet
  * mehr Treffer (hitsPerStep · 1, 2, 3 …) und es gibt maximal [MAX_SHOT_STEPS] Stufen, damit es nicht eskaliert.
  */
-class GateSide(val type: GateType, private val baseValue: Int) {
+class GateSide(val type: GateType, val baseValue: Int) {
     companion object {
         const val MAX_SHOT_STEPS = 8
     }
@@ -161,6 +161,58 @@ class GateRushEngine(
         val minutes = time / 60f
         return 1f + minutes * 1.2f + minutes * minutes * 1.5f
     }
+
+    // --- Spielstand ---
+
+    /** Momentaufnahme für Speichern/Fortsetzen. Projektile und Restzeit des Fixed-Steps sind flüchtig. */
+    fun snapshot(): GateRushSnapshot = GateRushSnapshot(
+        playerX = playerX,
+        time = time,
+        distance = distance,
+        killScore = killScore,
+        nextId = nextId,
+        fireCooldown = fireCooldown,
+        enemyTimer = enemyTimer,
+        gateTimer = gateTimer,
+        crateTimer = crateTimer,
+        bossTimer = bossTimer,
+        stats = StatsSnapshot(stats.damage, stats.fireRate, stats.multishot, stats.pierce, stats.hearts),
+        enemies = enemies.map { EnemySnapshot(it.id, it.type, it.x, it.z, it.hp, it.maxHp) },
+        gates = gates.map { GateSnapshot(it.z, it.left?.toSnapshot(), it.right?.toSnapshot()) },
+        crates = crates.map { CrateSnapshot(it.x, it.z, it.maxHits, it.hitsLeft, it.reward) },
+    )
+
+    /** Übernimmt einen gespeicherten Zustand (nur direkt nach dem Erzeugen der Engine sinnvoll). */
+    fun restore(s: GateRushSnapshot) {
+        playerX = s.playerX.coerceIn(-MAX_X, MAX_X)
+        time = s.time
+        distance = s.distance
+        killScore = s.killScore
+        nextId = s.nextId
+        fireCooldown = s.fireCooldown
+        enemyTimer = s.enemyTimer
+        gateTimer = s.gateTimer
+        crateTimer = s.crateTimer
+        bossTimer = s.bossTimer
+        stats.damage = s.stats.damage
+        stats.fireRate = s.stats.fireRate
+        stats.multishot = s.stats.multishot
+        stats.pierce = s.stats.pierce
+        stats.hearts = s.stats.hearts
+        enemies.clear()
+        s.enemies.forEach { enemies += Enemy(it.id, it.type, it.x, it.z, it.maxHp).apply { hp = it.hp } }
+        gates.clear()
+        s.gates.forEach { gates += GatePair(it.z, it.left?.toSide(), it.right?.toSide()) }
+        crates.clear()
+        s.crates.forEach { crates += Crate(it.x, it.z, it.maxHits, it.reward).apply { hitsLeft = it.hitsLeft } }
+        bullets.clear()
+        events.clear()
+        accumulator = 0f
+        isGameOver = stats.hearts <= 0
+    }
+
+    private fun GateSide.toSnapshot() = GateSideSnapshot(type, baseValue, hits)
+    private fun GateSideSnapshot.toSide() = GateSide(type, baseValue).also { it.hits = hits }
 
     fun movePlayer(dx: Float) {
         if (isGameOver) return

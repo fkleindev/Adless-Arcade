@@ -40,6 +40,7 @@ private val BadColor = Color(0xFFFF5C6C)
 
 class GateRushViewModel(app: Application) : AndroidViewModel(app) {
     private val highscores = app.arcadeApp.highscores
+    private val saves = app.arcadeApp.saves
     private val modeId = GateRush.MODE_ENDLESS
     private var bestAtStart = 0
 
@@ -73,20 +74,45 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
     var damageFlash = 0f
         private set
 
+    /** false, bis Highscore und ggf. gespeicherter Lauf geladen sind. */
+    var loaded by mutableStateOf(false)
+        private set
+
     init {
         viewModelScope.launch {
-            bestAtStart = highscores.highscore(GateRush.GAME_ID, modeId).first()
-            best = maxOf(best, bestAtStart)
+            val stored = highscores.highscore(GateRush.GAME_ID, modeId).first()
+            val json = saves.load(GateRush.GAME_ID, modeId)
+            val saved = json?.let(GateRushSaves::decode)
+            if (json != null && saved == null) saves.clear(GateRush.GAME_ID, modeId) // defekt/inkompatibel
+            if (saved != null) {
+                engine.restore(saved.snapshot)
+                bestAtStart = minOf(saved.bestAtStart, stored)
+                best = maxOf(stored, engine.score)
+                isNewBest = engine.score > bestAtStart
+                refreshHud()
+                // Fortgesetzter Lauf startet pausiert, damit man in Ruhe weitermachen kann.
+                started = true
+                paused = true
+            } else {
+                bestAtStart = stored
+                best = maxOf(best, stored)
+            }
+            loaded = true
+            frame++
         }
     }
 
-    fun step(dt: Float) {
-        if (!started || paused || gameOver) return
-        engine.update(dt)
-        handleEvents()
-        updateEffects(dt)
-        damageFlash = (damageFlash - dt * 2.5f).coerceAtLeast(0f)
+    override fun onCleared() {
+        // Absicherung, falls der Screen ohne ON_PAUSE verlassen wird.
+        saveRun()
+    }
 
+    private fun saveRun() {
+        if (!started || gameOver || engine.isGameOver) return
+        saves.save(GateRush.GAME_ID, modeId, GateRushSaves.encode(engine.snapshot(), bestAtStart), engine.score)
+    }
+
+    private fun refreshHud() {
         val stats = engine.stats
         hud = GateRushHud(
             score = engine.score,
@@ -96,17 +122,28 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
             multishot = stats.multishot,
             pierce = stats.pierce,
         )
+    }
+
+    fun step(dt: Float) {
+        if (!started || paused || gameOver) return
+        engine.update(dt)
+        handleEvents()
+        updateEffects(dt)
+        damageFlash = (damageFlash - dt * 2.5f).coerceAtLeast(0f)
+
+        refreshHud()
         if (engine.score > best) best = engine.score
         isNewBest = engine.score > bestAtStart
         if (engine.isGameOver) {
             gameOver = true
             submitScore()
+            saves.clear(GateRush.GAME_ID, modeId)
         }
         frame++
     }
 
     fun movePlayer(dx: Float) {
-        if (paused || gameOver) return
+        if (!loaded || paused || gameOver) return
         started = true
         engine.movePlayer(dx)
         frame++
@@ -116,6 +153,7 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
         if (!started || gameOver) return
         paused = true
         submitScore()
+        saveRun()
     }
 
     fun resume() {
@@ -123,6 +161,7 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun restart() {
+        saves.clear(GateRush.GAME_ID, modeId)
         bestAtStart = best
         engine = GateRushEngine(Random(System.nanoTime()))
         effects.clear()

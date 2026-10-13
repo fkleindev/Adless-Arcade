@@ -116,6 +116,7 @@ fun ModeCard(
     best: Int?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    savedScore: Int? = null,
 ) {
     val shape = RoundedCornerShape(20.dp)
     Row(
@@ -149,6 +150,18 @@ fun ModeCard(
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(mode.title, style = MaterialTheme.typography.titleMedium, color = ArcadeText)
             Text(mode.description, style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
+            if (mode.available && savedScore != null) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Gespeicherter Lauf · $savedScore Punkte",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = game.accentSecondary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(game.accentSecondary.copy(alpha = 0.12f))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                )
+            }
         }
         if (mode.available && best != null) {
             Spacer(Modifier.width(12.dp))

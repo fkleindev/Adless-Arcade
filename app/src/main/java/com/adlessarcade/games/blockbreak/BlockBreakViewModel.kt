@@ -30,6 +30,7 @@ data class BlockBreakUiState(
 
 class BlockBreakViewModel(app: Application) : AndroidViewModel(app) {
     private val highscores = app.arcadeApp.highscores
+    private val saves = app.arcadeApp.saves
     private val modeId = BlockBreak.MODE_ENDLESS
     private val random = Random(System.nanoTime())
     private var eventCounter = 0L
@@ -40,13 +41,28 @@ class BlockBreakViewModel(app: Application) : AndroidViewModel(app) {
     var state by mutableStateOf(BlockBreakUiState(game = BlockBreakEngine.newGame(random)))
         private set
 
+    /** false, bis Highscore und ggf. gespeicherter Lauf geladen sind (verhindert ein kurz falsches Brett). */
+    var loaded by mutableStateOf(false)
+        private set
+
     init {
         viewModelScope.launch {
-            bestAtStart = highscores.highscore(BlockBreak.GAME_ID, modeId).first()
-            state = state.copy(
-                best = maxOf(state.best, bestAtStart),
-                isNewBest = state.game.score > bestAtStart,
-            )
+            val best = highscores.highscore(BlockBreak.GAME_ID, modeId).first()
+            val json = saves.load(BlockBreak.GAME_ID, modeId)
+            val saved = json?.let(BlockBreakSaves::decode)
+            if (json != null && saved == null) saves.clear(BlockBreak.GAME_ID, modeId) // defekt/inkompatibel
+            if (saved != null) {
+                bestAtStart = minOf(saved.bestAtStart, best)
+                state = BlockBreakUiState(
+                    game = saved.game,
+                    best = maxOf(best, saved.game.score),
+                    isNewBest = saved.game.score > bestAtStart,
+                )
+            } else {
+                bestAtStart = best
+                state = state.copy(best = best)
+            }
+            loaded = true
         }
     }
 
@@ -74,11 +90,17 @@ class BlockBreakViewModel(app: Application) : AndroidViewModel(app) {
         if (score > bestAtStart) {
             viewModelScope.launch { highscores.submit(BlockBreak.GAME_ID, modeId, score) }
         }
+        if (result.state.isGameOver) {
+            saves.clear(BlockBreak.GAME_ID, modeId)
+        } else {
+            saves.save(BlockBreak.GAME_ID, modeId, BlockBreakSaves.encode(result.state, bestAtStart), score)
+        }
         return result
     }
 
     fun restart() {
         bestAtStart = state.best
         state = BlockBreakUiState(game = BlockBreakEngine.newGame(random), best = state.best)
+        saves.clear(BlockBreak.GAME_ID, modeId)
     }
 }

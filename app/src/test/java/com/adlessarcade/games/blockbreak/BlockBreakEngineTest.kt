@@ -127,6 +127,29 @@ class BlockBreakEngineTest {
     }
 
     @Test
+    fun save_roundTripRestoresIdenticalState() {
+        var state = BlockBreakEngine.newGame(Random(3))
+        // Einige gültige Züge machen, damit Brett, Tray und Score nicht trivial sind.
+        repeat(5) {
+            val slot = state.tray.indexOfFirst { it != null }
+            val piece = state.tray[slot]!!
+            val pos = (0 until SIZE * SIZE).first { BlockBreakEngine.canPlace(state.board, piece.shape, it / SIZE, it % SIZE) }
+            state = requireNotNull(BlockBreakEngine.place(state, slot, pos / SIZE, pos % SIZE, random)).state
+        }
+        val decoded = requireNotNull(BlockBreakSaves.decode(BlockBreakSaves.encode(state, bestAtStart = 42)))
+        assertEquals(state, decoded.game)
+        assertEquals(42, decoded.bestAtStart)
+    }
+
+    @Test
+    fun save_rejectsBrokenOrFinishedGames() {
+        assertNull(BlockBreakSaves.decode("kein json"))
+        assertNull(BlockBreakSaves.decode("""{"version":999,"game":{"board":[],"tray":[]}}"""))
+        val over = BlockBreakEngine.newGame(Random(1)).copy(isGameOver = true)
+        assertNull(BlockBreakSaves.decode(BlockBreakSaves.encode(over, 0)))
+    }
+
+    @Test
     fun catalog_containsOnlyValidUniqueShapes() {
         val shapes = PieceCatalog.allShapes
         assertEquals(shapes.size, shapes.toSet().size)

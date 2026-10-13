@@ -12,12 +12,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,7 +34,9 @@ import com.adlessarcade.core.GameInfo
 import com.adlessarcade.core.ModeInfo
 import com.adlessarcade.ui.components.ArcadeScaffold
 import com.adlessarcade.ui.components.ModeCard
+import com.adlessarcade.ui.theme.ArcadeSurface
 import com.adlessarcade.ui.theme.ArcadeTextMuted
+import kotlinx.coroutines.launch
 
 /** Generisches Modus-Menü, das jedes Spiel aus seiner [GameInfo] bekommt. */
 @Composable
@@ -38,7 +45,11 @@ fun ModeSelectScreen(
     onBack: () -> Unit,
     onModeClick: (ModeInfo) -> Unit,
 ) {
-    val highscores = LocalContext.current.arcadeApp.highscores
+    val app = LocalContext.current.arcadeApp
+    val scope = rememberCoroutineScope()
+    /** Modus mit gespeichertem Lauf, für den gerade der Fortsetzen-Dialog offen ist. */
+    var resumeMode by remember { mutableStateOf<Pair<ModeInfo, Int>?>(null) }
+
     ArcadeScaffold(title = game.title, subtitle = "Modus wählen", onBack = onBack) {
         Column(
             Modifier
@@ -67,12 +78,52 @@ fun ModeSelectScreen(
             Spacer(Modifier.height(10.dp))
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 game.modes.forEach { mode ->
-                    val bestFlow = remember(mode.id) { highscores.highscore(game.id, mode.id) }
+                    val bestFlow = remember(mode.id) { app.highscores.highscore(game.id, mode.id) }
                     val best by bestFlow.collectAsState(initial = null)
-                    ModeCard(mode = mode, game = game, best = best, onClick = { onModeClick(mode) })
+                    val savedFlow = remember(mode.id) { app.saves.savedScore(game.id, mode.id) }
+                    val saved by savedFlow.collectAsState(initial = null)
+                    ModeCard(
+                        mode = mode,
+                        game = game,
+                        best = best,
+                        savedScore = saved,
+                        onClick = {
+                            val savedScore = saved
+                            if (savedScore != null) resumeMode = mode to savedScore else onModeClick(mode)
+                        },
+                    )
                 }
             }
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    resumeMode?.let { (mode, score) ->
+        AlertDialog(
+            onDismissRequest = { resumeMode = null },
+            containerColor = ArcadeSurface,
+            title = { Text("Lauf fortsetzen?") },
+            text = {
+                Text(
+                    "Du hast einen unterbrochenen ${mode.title}-Lauf mit $score Punkten.",
+                    color = ArcadeTextMuted,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    resumeMode = null
+                    onModeClick(mode)
+                }) { Text("Fortsetzen", color = game.accentSecondary) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    resumeMode = null
+                    scope.launch {
+                        app.saves.clear(game.id, mode.id).join()
+                        onModeClick(mode)
+                    }
+                }) { Text("Neues Spiel", color = ArcadeTextMuted) }
+            },
+        )
     }
 }

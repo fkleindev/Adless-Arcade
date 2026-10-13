@@ -135,6 +135,33 @@ class GateRushEngineTest {
     }
 
     @Test
+    fun save_roundTripRestoresIdenticalSnapshot() {
+        val e = engine(autoSpawn = true)
+        e.stats.hearts = 99 // Lauf soll sicher nicht vorher enden
+        e.movePlayer(0.3f)
+        e.run(20f)
+        val snapshot = e.snapshot()
+        val decoded = requireNotNull(GateRushSaves.decode(GateRushSaves.encode(snapshot, bestAtStart = 7)))
+        assertEquals(7, decoded.bestAtStart)
+
+        val restored = GateRushEngine(Random(99))
+        restored.restore(decoded.snapshot)
+        assertEquals(snapshot, restored.snapshot())
+        assertEquals(e.score, restored.score)
+
+        // Der wiederhergestellte Lauf spielt normal weiter.
+        val before = restored.time
+        restored.run(2f)
+        assertTrue(restored.time > before)
+    }
+
+    @Test
+    fun save_rejectsBrokenData() {
+        assertTrue(GateRushSaves.decode("{}") == null)
+        assertTrue(GateRushSaves.decode("kaputt") == null)
+    }
+
+    @Test
     fun autoSpawn_producesEnemiesGatesAndCrates() {
         val e = engine(autoSpawn = true)
         var sawGate = false

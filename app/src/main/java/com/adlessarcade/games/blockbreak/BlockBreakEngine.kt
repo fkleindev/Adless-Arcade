@@ -1,17 +1,22 @@
 package com.adlessarcade.games.blockbreak
 
+import kotlinx.serialization.Serializable
 import kotlin.random.Random
 
+@Serializable
 data class Cell(val row: Int, val col: Int)
 
 /** Normalisierte Form: alle Zellen relativ zu (0,0) oben links. */
+@Serializable
 data class Shape(val cells: List<Cell>) {
-    val width: Int = cells.maxOf { it.col } + 1
-    val height: Int = cells.maxOf { it.row } + 1
+    val width: Int get() = cells.maxOf { it.col } + 1
+    val height: Int get() = cells.maxOf { it.row } + 1
 }
 
+@Serializable
 data class Piece(val id: Long, val shape: Shape, val color: Int)
 
+@Serializable
 data class GameState(
     /** SIZE*SIZE Felder, 0 = leer, sonst Farbindex 1..COLOR_COUNT. */
     val board: List<Int>,
