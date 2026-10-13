@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2x2-Blockraster im Arcade-Neon-Look; sichere Zone = mittlere 66dp. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#8B5CF6"
+        android:pathData="M38,32h12a4,4 0 0,1 4,4v12a4,4 0 0,1 -4,4h-12a4,4 0 0,1 -4,-4v-12a4,4 0 0,1 4,-4z" />
+    <path
+        android:fillColor="#22D3EE"
+        android:pathData="M60,32h12a4,4 0 0,1 4,4v12a4,4 0 0,1 -4,4h-12a4,4 0 0,1 -4,-4v-12a4,4 0 0,1 4,-4z" />
+    <path
+        android:fillColor="#F472B6"
+        android:pathData="M38,56h12a4,4 0 0,1 4,4v12a4,4 0 0,1 -4,4h-12a4,4 0 0,1 -4,-4v-12a4,4 0 0,1 4,-4z" />
+    <path
+        android:fillColor="#FFD43B"
+        android:pathData="M60,56h12a4,4 0 0,1 4,4v12a4,4 0 0,1 -4,4h-12a4,4 0 0,1 -4,-4v-12a4,4 0 0,1 4,-4z" />
+</vector>
