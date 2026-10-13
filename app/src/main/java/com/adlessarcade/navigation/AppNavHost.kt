@@ -15,6 +15,8 @@ import androidx.navigation.compose.rememberNavController
 import com.adlessarcade.core.GameRegistry
 import com.adlessarcade.games.blockbreak.BlockBreak
 import com.adlessarcade.games.blockbreak.BlockBreakScreen
+import com.adlessarcade.games.gaterush.GateRush
+import com.adlessarcade.games.gaterush.GateRushScreen
 import com.adlessarcade.ui.home.HomeScreen
 import com.adlessarcade.ui.modes.ModeSelectScreen
 
@@ -68,5 +70,6 @@ private fun NavHostController.popIfCurrent(entry: NavBackStackEntry) {
 private fun GameHost(gameId: String, modeId: String, onExit: () -> Unit) {
     when (gameId) {
         BlockBreak.GAME_ID -> BlockBreakScreen(modeId = modeId, onExit = onExit)
+        GateRush.GAME_ID -> GateRushScreen(modeId = modeId, onExit = onExit)
     }
 }

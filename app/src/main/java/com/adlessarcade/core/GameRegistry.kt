@@ -5,8 +5,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.adlessarcade.games.blockbreak.BlockBreak
 import com.adlessarcade.games.blockbreak.BlockBreakPreview
+import com.adlessarcade.games.gaterush.GateRush
+import com.adlessarcade.games.gaterush.GateRushPreview
 import com.adlessarcade.ui.theme.NeonCyan
+import com.adlessarcade.ui.theme.NeonPink
 import com.adlessarcade.ui.theme.NeonViolet
+import com.adlessarcade.ui.theme.NeonYellow
 
 data class ModeInfo(
     val id: String,
@@ -51,6 +55,30 @@ object GameRegistry {
                 ),
             ),
             preview = { modifier -> BlockBreakPreview(modifier) },
+        ),
+        GameInfo(
+            id = GateRush.GAME_ID,
+            title = "Gate Rush",
+            tagline = "Ballern, Tore wählen, Linie halten",
+            description = "Bewege deinen Helden nach links und rechts, er schießt automatisch. " +
+                "Lauf durch die richtigen Tore, schieß Kisten auf und werde stärker – " +
+                "kein Gegner darf deine Linie erreichen. Tipp: Schüsse auf ein Tor erhöhen seinen Wert.",
+            accent = NeonPink,
+            accentSecondary = NeonYellow,
+            modes = listOf(
+                ModeInfo(
+                    id = GateRush.MODE_ENDLESS,
+                    title = "Endless",
+                    description = "Immer mehr und stärkere Gegner. Wie weit kommst du?",
+                ),
+                ModeInfo(
+                    id = "coming_soon",
+                    title = "Weitere Modi",
+                    description = "Kommen bald.",
+                    available = false,
+                ),
+            ),
+            preview = { modifier -> GateRushPreview(modifier) },
         ),
     )
 

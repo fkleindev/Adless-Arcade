@@ -5,6 +5,9 @@ Eine werbefreie Sammlung kleiner Spiele für Android – offline, ohne Tracking,
 **Spiele**
 - **Block Break**: Blöcke auf ein 8×8-Feld ziehen, volle Reihen und Spalten löschen, Combos aufbauen.
   - Modus *Endless*: Spielen, bis nichts mehr passt, mit gespeichertem Highscore.
+- **Gate Rush**: Held auf einer Pseudo-3D-Straße links/rechts steuern, automatisch schießen, durch Upgrade-Tore laufen,
+  Kisten freischießen – kein Gegner darf die Linie erreichen.
+  - Modus *Endless*: Gegner werden immer zahlreicher und stärker, Boss alle 60 Sekunden.
 
 ## Bauen & Starten
 
