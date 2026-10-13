@@ -1,6 +1,5 @@
 package com.adlessarcade.games.blockbreak
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -332,7 +331,8 @@ private fun ScoreHeader(score: Int, best: Int, streak: Int) {
         }
         Text("$animatedScore", style = MaterialTheme.typography.displayMedium, color = ArcadeText)
         Box(Modifier.height(22.dp), contentAlignment = Alignment.Center) {
-            AnimatedVisibility(visible = streak > 1, enter = fadeIn() + scaleIn(), exit = fadeOut()) {
+            // Voll qualifiziert, da sonst die ColumnScope-Variante der äußeren Column gewählt wird.
+            androidx.compose.animation.AnimatedVisibility(visible = streak > 1, enter = fadeIn() + scaleIn(), exit = fadeOut()) {
                 Text("COMBO x$streak", style = MaterialTheme.typography.labelLarge, color = NeonPink)
             }
         }
