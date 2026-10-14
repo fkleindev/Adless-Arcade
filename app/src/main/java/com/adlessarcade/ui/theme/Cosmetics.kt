@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.Color
 import com.adlessarcade.core.shop.ProfileState
 import com.adlessarcade.core.shop.ShopCatalog
 import com.adlessarcade.core.shop.ShopCategory
+import com.adlessarcade.games.survivors.HeroClass
 
 enum class BlockStyle { BEVEL, FLAT, OUTLINE, GEM }
 
@@ -33,6 +34,21 @@ data class ArcadePalette(val accent: Color, val accent2: Color, val backgroundTo
         get() = Brush.verticalGradient(listOf(backgroundTop, ArcadeBackground, ArcadeBackground))
 }
 
+enum class DecorStyle { MEADOW, FROST, VOLCANO, GRAVEYARD, NEON }
+
+/** Optik einer Survivors-Welt: Boden, Deko und Einfärbung der Gegner. */
+@Immutable
+data class SurvivorTheme(
+    val ground: Color,
+    val groundAlt: Color,
+    val detail: Color,
+    val accent: Color,
+    val decor: DecorStyle,
+    val enemyTint: Color = Color.Transparent,
+    val tintAmount: Float = 0f,
+    val vignette: Color = Color.Black,
+)
+
 /** Aktuell ausgerüstete Kosmetik – per [LocalCosmetics] überall verfügbar. */
 @Immutable
 data class Cosmetics(
@@ -41,6 +57,7 @@ data class Cosmetics(
     val palette: ArcadePalette,
     val avatar: String,
     val title: String,
+    val survivorTheme: SurvivorTheme,
 )
 
 object CosmeticRegistry {
@@ -85,9 +102,37 @@ object CosmeticRegistry {
         "theme_gold" to ArcadePalette(Color(0xFFB45309), Color(0xFFFACC15), Color(0xFF241A0B)),
     )
 
+    private val survivorThemes = mapOf(
+        "world_meadow" to SurvivorTheme(
+            ground = Color(0xFF1F3B24), groundAlt = Color(0xFF244530), detail = Color(0xFF4ADE80),
+            accent = Color(0xFFFDE047), decor = DecorStyle.MEADOW,
+        ),
+        "world_frost" to SurvivorTheme(
+            ground = Color(0xFF1E3A52), groundAlt = Color(0xFF23445F), detail = Color(0xFFBAE6FD),
+            accent = Color(0xFFE0F2FE), decor = DecorStyle.FROST,
+            enemyTint = Color(0xFF93C5FD), tintAmount = 0.25f, vignette = Color(0xFF0C1A2B),
+        ),
+        "world_volcano" to SurvivorTheme(
+            ground = Color(0xFF2A1410), groundAlt = Color(0xFF331A13), detail = Color(0xFFF97316),
+            accent = Color(0xFFFACC15), decor = DecorStyle.VOLCANO,
+            enemyTint = Color(0xFFFF5C3A), tintAmount = 0.2f, vignette = Color(0xFF2A0500),
+        ),
+        "world_graveyard" to SurvivorTheme(
+            ground = Color(0xFF1C1B26), groundAlt = Color(0xFF232131), detail = Color(0xFF6B7280),
+            accent = Color(0xFFA78BFA), decor = DecorStyle.GRAVEYARD,
+            enemyTint = Color(0xFF9CA3AF), tintAmount = 0.3f, vignette = Color(0xFF0A0A12),
+        ),
+        "world_neon" to SurvivorTheme(
+            ground = Color(0xFF0B0B1A), groundAlt = Color(0xFF111129), detail = Color(0xFF22D3EE),
+            accent = Color(0xFFF472B6), decor = DecorStyle.NEON,
+            enemyTint = Color(0xFFE879F9), tintAmount = 0.3f, vignette = Color(0xFF05010F),
+        ),
+    )
+
     fun blockSkin(id: String): BlockSkin = blockSkins[id] ?: blockSkins.getValue("block_classic")
     fun heroSkin(id: String): HeroSkin = heroSkins[id] ?: heroSkins.getValue("hero_default")
     fun palette(id: String): ArcadePalette = palettes[id] ?: palettes.getValue("theme_neon")
+    fun survivorTheme(id: String): SurvivorTheme = survivorThemes[id] ?: survivorThemes.getValue("world_meadow")
 
     fun from(profile: ProfileState): Cosmetics = Cosmetics(
         blockSkin = blockSkin(profile.equipped(ShopCategory.BLOCK_SKIN).id),
@@ -95,6 +140,7 @@ object CosmeticRegistry {
         palette = palette(profile.equipped(ShopCategory.APP_THEME).id),
         avatar = profile.equipped(ShopCategory.AVATAR).symbol ?: "🎮",
         title = profile.equipped(ShopCategory.TITLE).name,
+        survivorTheme = survivorTheme(profile.equipped(ShopCategory.SURVIVOR_THEME).id),
     )
 
     val Default: Cosmetics = from(ProfileState())
@@ -104,6 +150,8 @@ object CosmeticRegistry {
         when (it.category) {
             ShopCategory.BLOCK_SKIN -> it.id !in blockSkins
             ShopCategory.HERO_SKIN -> it.id !in heroSkins
+            ShopCategory.SURVIVOR_CLASS -> HeroClass.fromShopId(it.id) == null
+            ShopCategory.SURVIVOR_THEME -> it.id !in survivorThemes
             ShopCategory.APP_THEME -> it.id !in palettes
             ShopCategory.AVATAR -> it.symbol == null
             ShopCategory.TITLE -> false

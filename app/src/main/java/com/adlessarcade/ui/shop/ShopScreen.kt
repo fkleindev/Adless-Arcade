@@ -54,6 +54,9 @@ import com.adlessarcade.core.shop.ShopCategory
 import com.adlessarcade.core.shop.ShopItem
 import com.adlessarcade.games.gaterush.bulletColor
 import com.adlessarcade.games.gaterush.drawHeroFigure
+import com.adlessarcade.games.survivors.HeroClass
+import com.adlessarcade.games.survivors.drawHeroClass
+import com.adlessarcade.games.survivors.drawSurvivorThemePreview
 import com.adlessarcade.ui.components.ArcadeScaffold
 import com.adlessarcade.ui.components.AvatarCircle
 import com.adlessarcade.ui.components.CoinChip
@@ -284,6 +287,16 @@ private fun ItemPreview(item: ShopItem) {
                     drawCircle(palette.accent2, size.minDimension * 0.16f, Offset(size.width * 0.7f, size.height * 0.35f))
                 }
             }
+        }
+        ShopCategory.SURVIVOR_CLASS -> {
+            val heroClass = HeroClass.fromShopId(item.id) ?: HeroClass.KNIGHT
+            Canvas(Modifier.fillMaxSize().padding(14.dp)) {
+                drawHeroClass(heroClass, center, size.minDimension * 0.7f, 0f)
+            }
+        }
+        ShopCategory.SURVIVOR_THEME -> {
+            val theme = CosmeticRegistry.survivorTheme(item.id)
+            Canvas(Modifier.fillMaxSize()) { drawSurvivorThemePreview(theme) }
         }
         ShopCategory.AVATAR -> AvatarCircle(item.symbol ?: "🎮", size = 72.dp)
         ShopCategory.TITLE -> TitleBadge(item.name)

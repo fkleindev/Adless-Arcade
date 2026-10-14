@@ -8,6 +8,9 @@ import com.adlessarcade.games.blockbreak.BlockBreakPreview
 import com.adlessarcade.games.gaterush.GateRush
 import com.adlessarcade.games.gaterush.GateRushMode
 import com.adlessarcade.games.gaterush.GateRushPreview
+import com.adlessarcade.games.survivors.Survivors
+import com.adlessarcade.games.survivors.SurvivorsMode
+import com.adlessarcade.games.survivors.SurvivorsPreview
 import com.adlessarcade.ui.theme.NeonCyan
 import com.adlessarcade.ui.theme.NeonPink
 import com.adlessarcade.ui.theme.NeonViolet
@@ -87,6 +90,28 @@ object GameRegistry {
                 ),
             ),
             preview = { modifier -> GateRushPreview(modifier) },
+        ),
+        GameInfo(
+            id = Survivors.GAME_ID,
+            title = "Rune Survivors",
+            tagline = "Überlebe die Horden",
+            description = "Lauf mit dem Joystick durch die Welt – deine Waffen kämpfen von selbst. Sammle Seelenkristalle, " +
+                "steige auf und kombiniere Waffen und Talente. Neue Klassen und Welten gibt es im Shop.",
+            accent = Color(0xFF16A34A),
+            accentSecondary = Color(0xFFFACC15),
+            modes = listOf(
+                ModeInfo(
+                    id = SurvivorsMode.TIMED.id,
+                    title = "15 Minuten",
+                    description = "Überlebe 15 Minuten und besiege den Dämonenfürsten.",
+                ),
+                ModeInfo(
+                    id = SurvivorsMode.ENDLESS.id,
+                    title = "Endlos",
+                    description = "Kein Ende, nur immer stärkere Horden. Wie lange hältst du durch?",
+                ),
+            ),
+            preview = { modifier -> SurvivorsPreview(modifier) },
         ),
     )
 

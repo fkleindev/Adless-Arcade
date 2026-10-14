@@ -17,6 +17,8 @@ import com.adlessarcade.games.blockbreak.BlockBreak
 import com.adlessarcade.games.blockbreak.BlockBreakScreen
 import com.adlessarcade.games.gaterush.GateRush
 import com.adlessarcade.games.gaterush.GateRushScreen
+import com.adlessarcade.games.survivors.Survivors
+import com.adlessarcade.games.survivors.SurvivorsScreen
 import com.adlessarcade.ui.home.HomeScreen
 import com.adlessarcade.ui.shop.ShopScreen
 import com.adlessarcade.ui.modes.ModeSelectScreen
@@ -79,5 +81,6 @@ private fun GameHost(gameId: String, modeId: String, onExit: () -> Unit) {
     when (gameId) {
         BlockBreak.GAME_ID -> BlockBreakScreen(modeId = modeId, onExit = onExit)
         GateRush.GAME_ID -> GateRushScreen(modeId = modeId, onExit = onExit)
+        Survivors.GAME_ID -> SurvivorsScreen(onExit = onExit)
     }
 }
