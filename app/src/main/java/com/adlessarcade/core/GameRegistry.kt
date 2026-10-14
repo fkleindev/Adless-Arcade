@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.Color
 import com.adlessarcade.games.blockbreak.BlockBreak
 import com.adlessarcade.games.blockbreak.BlockBreakPreview
 import com.adlessarcade.games.gaterush.GateRush
+import com.adlessarcade.games.gaterush.GateRushMode
 import com.adlessarcade.games.gaterush.GateRushPreview
 import com.adlessarcade.ui.theme.NeonCyan
 import com.adlessarcade.ui.theme.NeonPink
@@ -17,6 +18,8 @@ data class ModeInfo(
     val title: String,
     val description: String,
     val available: Boolean = true,
+    /** Schlüssel für Highscore und Spielstand; z. B. pro Tag bei der Täglichen Challenge. */
+    val scoreKey: () -> String = { id },
 )
 
 data class GameInfo(
@@ -61,21 +64,26 @@ object GameRegistry {
             title = "Gate Rush",
             tagline = "Ballern, Tore wählen, Linie halten",
             description = "Bewege deinen Helden nach links und rechts, er schießt automatisch. " +
-                "Lauf durch die richtigen Tore, schieß Kisten auf und werde stärker – " +
-                "kein Gegner darf deine Linie erreichen. Tipp: Schüsse auf ein Tor erhöhen seinen Wert.",
+                "Lauf durch die richtigen Tore, schieß Kisten auf, sammle Power-ups und weiche Hindernissen aus – " +
+                "kein Gegner darf deine Linie erreichen. Tipp: Schüsse fliegen durch Tore und erhöhen ihren Wert.",
             accent = NeonPink,
             accentSecondary = NeonYellow,
             modes = listOf(
                 ModeInfo(
-                    id = GateRush.MODE_ENDLESS,
+                    id = GateRushMode.ENDLESS.id,
                     title = "Endless",
                     description = "Immer mehr und stärkere Gegner. Wie weit kommst du?",
                 ),
                 ModeInfo(
-                    id = "coming_soon",
-                    title = "Weitere Modi",
-                    description = "Kommen bald.",
-                    available = false,
+                    id = GateRushMode.BOSS_RUSH.id,
+                    title = "Boss Rush",
+                    description = "Rüsten, Boss besiegen, nächste Welle. Jeder Boss ist stärker als der letzte.",
+                ),
+                ModeInfo(
+                    id = GateRushMode.DAILY.id,
+                    title = "Tägliche Challenge",
+                    description = "Jeden Tag ein neues, festes Level – gleicher Aufbau für alle. Eigener Tagesrekord.",
+                    scoreKey = { DailyChallenge.scoreKey(GateRushMode.DAILY.id) },
                 ),
             ),
             preview = { modifier -> GateRushPreview(modifier) },

@@ -27,11 +27,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -56,6 +65,7 @@ import com.adlessarcade.ui.theme.ArcadeTextMuted
 import com.adlessarcade.ui.theme.NeonPink
 import com.adlessarcade.ui.theme.NeonYellow
 import kotlinx.coroutines.isActive
+import kotlin.math.roundToInt
 
 @Composable
 fun GateRushScreen(
@@ -125,7 +135,9 @@ fun GateRushScreen(
                 drawGateRush(viewModel.engine, viewModel.effects, viewModel.damageFlash, textMeasurer, heroSkin)
             }
 
-            Hud(hud = hud, best = viewModel.best, modifier = Modifier.align(Alignment.TopCenter))
+            Hud(hud = hud, best = viewModel.best, mode = viewModel.mode, modifier = Modifier.align(Alignment.TopCenter))
+            PowerUpTimers(hud, Modifier.align(Alignment.TopCenter).padding(top = 64.dp))
+            Banner(viewModel.banner, Modifier.align(Alignment.Center))
             StatBar(hud = hud, modifier = Modifier.align(Alignment.BottomCenter))
 
             if (viewModel.loaded && !viewModel.started && !viewModel.gameOver) {
@@ -156,7 +168,7 @@ fun GateRushScreen(
 }
 
 @Composable
-private fun Hud(hud: GateRushHud, best: Int, modifier: Modifier = Modifier) {
+private fun Hud(hud: GateRushHud, best: Int, mode: GateRushMode, modifier: Modifier = Modifier) {
     Row(
         modifier
             .fillMaxWidth()
@@ -167,8 +179,20 @@ private fun Hud(hud: GateRushHud, best: Int, modifier: Modifier = Modifier) {
             repeat(hud.hearts) {
                 Icon(Icons.Filled.Favorite, contentDescription = null, tint = NeonPink, modifier = Modifier.size(22.dp))
             }
+            repeat(hud.shields) {
+                ShieldGlyph(Modifier.padding(start = 2.dp).size(20.dp))
+            }
         }
-        Text("${hud.score}", style = MaterialTheme.typography.headlineMedium, color = ArcadeText)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("${hud.score}", style = MaterialTheme.typography.headlineMedium, color = ArcadeText)
+            if (mode == GateRushMode.BOSS_RUSH) {
+                Text(
+                    if (hud.bossPhase) "WELLE ${hud.wave} · BOSS" else "WELLE ${hud.wave} · RÜSTEN",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (hud.bossPhase) NeonPink else ArcadeTextMuted,
+                )
+            }
+        }
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(16.dp))
@@ -186,16 +210,110 @@ private fun Hud(hud: GateRushHud, best: Int, modifier: Modifier = Modifier) {
 
 @Composable
 private fun StatBar(hud: GateRushHud, modifier: Modifier = Modifier) {
-    Row(
+    Column(
         modifier
             .fillMaxWidth()
             .padding(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        StatChip("DMG", formatStat(hud.damage))
-        StatChip("RATE", "${formatStat(hud.fireRate)}/s")
-        StatChip("MULTI", "x${hud.multishot}")
-        StatChip("PIERCE", "${hud.pierce}")
+        // Spezial-Upgrades nur anzeigen, sobald man sie hat.
+        val extras = buildList {
+            if (hud.critChance > 0f) add("KRIT" to "${(hud.critChance * 100).roundToInt()}%")
+            if (hud.splash > 0) add("BOOM" to "Lv${hud.splash}")
+            if (hud.frost > 0) add("FROST" to "Lv${hud.frost}")
+            if (hud.drones > 0) add("DROHNE" to "x${hud.drones}")
+            if (hud.weapon != Weapon.BLASTER) add("WAFFE" to hud.weapon.title)
+        }
+        if (extras.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+                extras.forEach { (label, value) -> StatChip(label, value) }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+            StatChip("DMG", formatStat(hud.damage))
+            StatChip("RATE", "${formatStat(hud.fireRate)}/s")
+            StatChip("MULTI", "x${hud.multishot}")
+            StatChip("PIERCE", "${hud.pierce}")
+        }
+    }
+}
+
+/** Aktive Power-ups mit schrumpfendem Restzeit-Balken. */
+@Composable
+private fun PowerUpTimers(hud: GateRushHud, modifier: Modifier = Modifier) {
+    val active = buildList {
+        if (hud.frenzy > 0f) add(Triple(PowerUpKind.FRENZY, hud.frenzy, Color(0xFFFF3B5C)))
+        if (hud.slowmo > 0f) add(Triple(PowerUpKind.SLOWMO, hud.slowmo, Color(0xFF7DD3FC)))
+    }
+    if (active.isEmpty()) return
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        active.forEach { (kind, remaining, color) ->
+            Column(
+                Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(ArcadeSurface.copy(alpha = 0.85f))
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(kind.title, style = MaterialTheme.typography.labelSmall, color = color)
+                Spacer(Modifier.height(3.dp))
+                Box(
+                    Modifier
+                        .size(width = 64.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(ArcadeOutline)
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth((remaining / kind.duration).coerceIn(0f, 1f))
+                            .background(color)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Großer, kurz eingeblendeter Hinweis (Welle, Power-up). */
+@Composable
+private fun Banner(text: String?, modifier: Modifier = Modifier) {
+    androidx.compose.animation.AnimatedVisibility(
+        visible = text != null,
+        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.7f),
+        exit = androidx.compose.animation.fadeOut(),
+        modifier = modifier,
+    ) {
+        // Letzten Text merken, damit er beim Ausblenden nicht verschwindet.
+        var shown by remember { mutableStateOf("") }
+        if (text != null) shown = text
+        Text(
+            shown,
+            style = MaterialTheme.typography.displaySmall.merge(
+                TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.7f), Offset(0f, 4f), 16f))
+            ),
+            color = NeonYellow,
+        )
+    }
+}
+
+/** Schild-Symbol für das HUD (Material-Core-Icons haben keins). */
+@Composable
+private fun ShieldGlyph(modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val shield = Path().apply {
+            moveTo(w * 0.5f, h * 0.05f)
+            lineTo(w * 0.9f, h * 0.2f)
+            lineTo(w * 0.85f, h * 0.55f)
+            quadraticTo(w * 0.75f, h * 0.85f, w * 0.5f, h * 0.97f)
+            quadraticTo(w * 0.25f, h * 0.85f, w * 0.15f, h * 0.55f)
+            lineTo(w * 0.1f, h * 0.2f)
+            close()
+        }
+        drawPath(shield, Color(0xFF38BDF8))
+        drawPath(shield, Color.White.copy(alpha = 0.5f), style = Stroke(width = w * 0.08f))
     }
 }
 

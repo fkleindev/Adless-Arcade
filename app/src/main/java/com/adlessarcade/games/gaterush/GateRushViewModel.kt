@@ -8,24 +8,35 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.adlessarcade.arcadeApp
+import com.adlessarcade.core.DailyChallenge
 import com.adlessarcade.core.shop.CoinRewards
 import com.adlessarcade.ui.theme.NeonCyan
 import com.adlessarcade.ui.theme.NeonPink
 import com.adlessarcade.ui.theme.NeonYellow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlin.random.Random
 
 data class GateRushHud(
     val score: Int = 0,
     val hearts: Int = GateRushEngine.START_HEARTS,
     val damage: Float = 1f,
-    val fireRate: Float = 4f,
+    val fireRate: Float = GateRushEngine.START_FIRE_RATE,
     val multishot: Int = 1,
     val pierce: Int = 0,
     val coins: Int = 0,
+    val critChance: Float = 0f,
+    val splash: Int = 0,
+    val frost: Int = 0,
+    val shields: Int = 0,
+    val drones: Int = 0,
+    val weapon: Weapon = Weapon.BLASTER,
+    val frenzy: Float = 0f,
+    val slowmo: Float = 0f,
+    val wave: Int = 1,
+    val bossPhase: Boolean = false,
 )
 
 /** Rein visuelle Effekte in Weltkoordinaten (Explosionen, schwebende Texte). */
@@ -40,15 +51,24 @@ sealed class GateRushEffect(val x: Float, val z: Float, val color: Color, val li
 
 private val GoodColor = Color(0xFF4ADE80)
 private val BadColor = Color(0xFFFF5C6C)
+private val ExplosionColor = Color(0xFFFF9F43)
+private const val MAX_EFFECTS = 60
 
-class GateRushViewModel(app: Application) : AndroidViewModel(app) {
+class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : AndroidViewModel(app) {
     private val highscores = app.arcadeApp.highscores
     private val saves = app.arcadeApp.saves
     private val profile = app.arcadeApp.profile
-    private val modeId = GateRush.MODE_ENDLESS
+
+    val mode = GateRushMode.fromId(savedStateHandle.get<String>("modeId"))
+
+    /** Schlüssel für Highscore und Spielstand (bei der Täglichen Challenge pro Tag). */
+    private val scoreKey = if (mode == GateRushMode.DAILY) DailyChallenge.scoreKey(mode.id) else mode.id
+
+    private fun newSeed(): Long = if (mode == GateRushMode.DAILY) DailyChallenge.todaySeed() else System.nanoTime()
+
     private var bestAtStart = 0
 
-    var engine = GateRushEngine(Random(System.nanoTime()))
+    var engine = GateRushEngine(newSeed(), mode)
         private set
     val effects = ArrayList<GateRushEffect>()
 
@@ -67,6 +87,11 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var isNewBest by mutableStateOf(false)
         private set
+
+    /** Großer Hinweis in der Bildmitte (z. B. „WELLE 3“, „RASEREI!“), verschwindet nach kurzer Zeit. */
+    var banner by mutableStateOf<String?>(null)
+        private set
+    private var bannerTimer = 0f
 
     /** Zähler für Haptik-Ereignisse, die der Screen beobachtet. */
     var hurtTick by mutableIntStateOf(0)
@@ -92,12 +117,14 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
-            val stored = highscores.highscore(GateRush.GAME_ID, modeId).first()
-            val json = saves.load(GateRush.GAME_ID, modeId)
+            val stored = highscores.highscore(GateRush.GAME_ID, scoreKey).first()
+            val json = saves.load(GateRush.GAME_ID, scoreKey)
             val saved = json?.let(GateRushSaves::decode)
-            if (json != null && saved == null) saves.clear(GateRush.GAME_ID, modeId) // defekt/inkompatibel
+                // Tägliche Challenge: nur Läufe mit dem heutigen Seed fortsetzen.
+                ?.takeIf { mode != GateRushMode.DAILY || it.seed == DailyChallenge.todaySeed() }
+            if (json != null && saved == null) saves.clear(GateRush.GAME_ID, scoreKey) // defekt/inkompatibel/veraltet
             if (saved != null) {
-                engine.restore(saved.snapshot)
+                engine = GateRushEngine(saved.seed, mode).also { it.restore(saved.snapshot) }
                 coinsBooked = engine.coinsEarned // wurden beim Unterbrechen bereits gutgeschrieben
                 bestAtStart = minOf(saved.bestAtStart, stored)
                 best = maxOf(stored, engine.score)
@@ -131,7 +158,8 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun saveRun() {
         if (!started || gameOver || engine.isGameOver) return
-        saves.save(GateRush.GAME_ID, modeId, GateRushSaves.encode(engine.snapshot(), bestAtStart), engine.score)
+        val json = GateRushSaves.encode(engine.snapshot(), bestAtStart, engine.seed)
+        saves.save(GateRush.GAME_ID, scoreKey, json, engine.score)
     }
 
     private fun refreshHud() {
@@ -144,6 +172,16 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
             multishot = stats.multishot,
             pierce = stats.pierce,
             coins = engine.coinsEarned,
+            critChance = stats.critChance,
+            splash = stats.splash,
+            frost = stats.frost,
+            shields = stats.shields,
+            drones = stats.drones,
+            weapon = stats.weapon,
+            frenzy = stats.frenzy,
+            slowmo = stats.slowmo,
+            wave = engine.wave,
+            bossPhase = engine.bossPhase,
         )
     }
 
@@ -153,6 +191,10 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
         handleEvents()
         updateEffects(dt)
         damageFlash = (damageFlash - dt * 2.5f).coerceAtLeast(0f)
+        if (banner != null) {
+            bannerTimer -= dt
+            if (bannerTimer <= 0f) banner = null
+        }
 
         refreshHud()
         if (engine.score > best) best = engine.score
@@ -172,7 +214,7 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
                 recordBonus = CoinRewards.NEW_RECORD_BONUS
                 profile.addCoins(recordBonus)
             }
-            saves.clear(GateRush.GAME_ID, modeId)
+            saves.clear(GateRush.GAME_ID, scoreKey)
         }
         frame++
     }
@@ -198,15 +240,16 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
 
     fun restart() {
         flushCoins()
-        saves.clear(GateRush.GAME_ID, modeId)
+        saves.clear(GateRush.GAME_ID, scoreKey)
         bestAtStart = best
-        engine = GateRushEngine(Random(System.nanoTime()))
+        engine = GateRushEngine(newSeed(), mode)
         coinsBooked = 0
         coinFlushTimer = 0f
         recordBonus = 0
         effects.clear()
         hud = GateRushHud()
         damageFlash = 0f
+        banner = null
         started = false
         paused = false
         gameOver = false
@@ -217,8 +260,13 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
     private fun submitScore() {
         val score = engine.score
         if (score > bestAtStart) {
-            viewModelScope.launch { highscores.submit(GateRush.GAME_ID, modeId, score) }
+            viewModelScope.launch { highscores.submit(GateRush.GAME_ID, scoreKey, score) }
         }
+    }
+
+    private fun showBanner(text: String) {
+        banner = text
+        bannerTimer = 1.6f
     }
 
     private fun handleEvents() {
@@ -226,14 +274,20 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
             when (event) {
                 is GateRushEvent.EnemyKilled -> {
                     val size = if (event.type == EnemyType.BOSS) 0.9f else event.type.radius * 2.5f
-                    effects += GateRushEffect.Burst(event.x, event.z, NeonPink, size)
+                    if (effects.size < MAX_EFFECTS || event.type == EnemyType.BOSS) {
+                        effects += GateRushEffect.Burst(event.x, event.z, NeonPink, size)
+                    }
                     if (event.type == EnemyType.BOSS || event.type == EnemyType.BRUTE) {
                         effects += GateRushEffect.FloatingText(event.x, event.z, NeonYellow, "+${event.type.score}")
                     }
+                    if (event.type == EnemyType.BOSS && mode == GateRushMode.BOSS_RUSH) showBanner("BOSS BESIEGT!")
                 }
                 is GateRushEvent.HeartsLost -> {
                     damageFlash = 1f
                     hurtTick++
+                }
+                is GateRushEvent.ObstacleHit -> {
+                    effects += GateRushEffect.FloatingText(engine.playerX, 0.5f, BadColor, "AUTSCH!")
                 }
                 is GateRushEvent.GatePassed -> {
                     effects += GateRushEffect.FloatingText(
@@ -244,10 +298,31 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
                 is GateRushEvent.CoinsEarned -> {
                     effects += GateRushEffect.CoinPop(event.x, event.z, event.amount)
                 }
+                is GateRushEvent.ShieldBlocked -> {
+                    effects += GateRushEffect.FloatingText(engine.playerX, 0.5f, NeonCyan, "SCHILD!")
+                    hurtTick++
+                }
+                is GateRushEvent.Explosion -> {
+                    // Bei Dauerfeuer entstehen sehr viele Explosionen – Effekte begrenzen.
+                    if (effects.size < MAX_EFFECTS) {
+                        effects += GateRushEffect.Burst(event.x, event.z, ExplosionColor, event.radius * 2f)
+                    }
+                }
                 is GateRushEvent.CrateOpened -> {
                     effects += GateRushEffect.Burst(event.x, event.z, NeonYellow, 0.5f)
                     effects += GateRushEffect.FloatingText(event.x, event.z, NeonCyan, event.text)
                     rewardTick++
+                }
+                is GateRushEvent.PowerUpCollected -> {
+                    showBanner("${event.kind.title}!")
+                    if (event.kind == PowerUpKind.BOMB) {
+                        effects += GateRushEffect.Burst(engine.playerX, 10f, NeonYellow, 3f)
+                    }
+                    rewardTick++
+                }
+                is GateRushEvent.WaveStarted -> {
+                    showBanner("WELLE ${event.wave}")
+                    hurtTick++
                 }
             }
         }

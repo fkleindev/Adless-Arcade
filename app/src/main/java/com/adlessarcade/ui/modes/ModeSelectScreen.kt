@@ -78,9 +78,10 @@ fun ModeSelectScreen(
             Spacer(Modifier.height(10.dp))
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 game.modes.forEach { mode ->
-                    val bestFlow = remember(mode.id) { app.highscores.highscore(game.id, mode.id) }
+                    val key = mode.scoreKey()
+                    val bestFlow = remember(key) { app.highscores.highscore(game.id, key) }
                     val best by bestFlow.collectAsState(initial = null)
-                    val savedFlow = remember(mode.id) { app.saves.savedScore(game.id, mode.id) }
+                    val savedFlow = remember(key) { app.saves.savedScore(game.id, key) }
                     val saved by savedFlow.collectAsState(initial = null)
                     ModeCard(
                         mode = mode,
@@ -119,7 +120,7 @@ fun ModeSelectScreen(
                 TextButton(onClick = {
                     resumeMode = null
                     scope.launch {
-                        app.saves.clear(game.id, mode.id).join()
+                        app.saves.clear(game.id, mode.scoreKey()).join()
                         onModeClick(mode)
                     }
                 }) { Text("Neues Spiel", color = ArcadeTextMuted) }

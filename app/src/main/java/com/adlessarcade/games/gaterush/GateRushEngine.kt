@@ -1,141 +1,68 @@
 package com.adlessarcade.games.gaterush
 
 import kotlin.math.abs
+import kotlin.math.pow
+import kotlin.math.sin
 import kotlin.random.Random
 
-/*
- * Weltkoordinaten: x ∈ [-1, 1] ist die Straßenbreite, z = Distanz vor dem Helden.
- * Gegner, Tore und Kisten starten bei Z_FAR und bewegen sich auf z = 0 (Verteidigungslinie) zu.
- */
-
-enum class EnemyType(
-    val speed: Float,
-    val radius: Float,
-    val baseHp: Float,
-    val score: Int,
-    val heartDamage: Int,
-) {
-    RUNNER(speed = 6.5f, radius = 0.11f, baseHp = 3f, score = 10, heartDamage = 1),
-    SWARM(speed = 5.5f, radius = 0.07f, baseHp = 1.5f, score = 4, heartDamage = 1),
-    BRUTE(speed = 3.8f, radius = 0.2f, baseHp = 14f, score = 40, heartDamage = 2),
-    BOSS(speed = 2.4f, radius = 0.42f, baseHp = 220f, score = 500, heartDamage = 99),
-}
-
-class Enemy(val id: Long, val type: EnemyType, var x: Float, var z: Float, val maxHp: Float) {
-    var hp: Float = maxHp
-    /** 1 → 0 nach einem Treffer, für den weißen Aufblitz-Effekt. */
-    var hitFlash: Float = 0f
-}
-
-class Bullet(var x: Float, var z: Float, val vx: Float, val damage: Float, var pierceLeft: Int) {
-    val hitIds = HashSet<Long>(2)
-    var alive = true
-}
-
-enum class GateType(val title: String, val hitsPerStep: Int) {
-    DAMAGE("SCHADEN", 4),
-    FIRE_RATE("FEUERRATE", 1),
-    MULTISHOT("MULTISCHUSS", 30),
-    PIERCE("DURCHSCHLAG", 30),
-    HEART("LEBEN", 40),
-}
-
-/**
- * Eine Torhälfte. Jeder Treffer bringt sie näher an den nächsthöheren Wert; jede weitere Stufe kostet
- * mehr Treffer (hitsPerStep · 1, 2, 3 …) und es gibt maximal [MAX_SHOT_STEPS] Stufen, damit es nicht eskaliert.
- */
-class GateSide(val type: GateType, val baseValue: Int) {
-    companion object {
-        const val MAX_SHOT_STEPS = 8
-    }
-
-    var hits: Int = 0
-    var hitFlash: Float = 0f
-
-    val shotSteps: Int
-        get() {
-            var steps = 0
-            var cost = type.hitsPerStep
-            var remaining = hits
-            while (steps < MAX_SHOT_STEPS && remaining >= cost) {
-                remaining -= cost
-                steps++
-                cost += type.hitsPerStep
-            }
-            return steps
-        }
-
-    val value: Int get() = baseValue + shotSteps
-
-    val valueText: String
-        get() {
-            val sign = if (value > 0) "+" else ""
-            return if (type == GateType.FIRE_RATE) "$sign$value%" else "$sign$value"
-        }
-}
-
-class GatePair(var z: Float, val left: GateSide?, val right: GateSide?)
-
-enum class CrateReward(val label: String) {
-    MULTISHOT("+1 MULTISCHUSS"),
-    DAMAGE_BOOST("SCHADEN x1.5"),
-    FIRE_BOOST("FEUERRATE x1.3"),
-    HEART("+1 LEBEN"),
-    PIERCE("+1 DURCHSCHLAG"),
-}
-
-class Crate(var x: Float, var z: Float, val maxHits: Int, val reward: CrateReward) {
-    var hitsLeft: Int = maxHits
-    var hitFlash: Float = 0f
-}
-
-class PlayerStats {
-    var damage: Float = 1f
-    var fireRate: Float = 4f
-    var multishot: Int = 1
-    var pierce: Int = 0
-    var hearts: Int = GateRushEngine.START_HEARTS
-}
-
-sealed interface GateRushEvent {
-    data class EnemyKilled(val x: Float, val z: Float, val type: EnemyType) : GateRushEvent
-    data class HeartsLost(val amount: Int) : GateRushEvent
-    data class GatePassed(val text: String, val positive: Boolean) : GateRushEvent
-    data class CrateOpened(val x: Float, val z: Float, val text: String) : GateRushEvent
-    data class CoinsEarned(val x: Float, val z: Float, val amount: Int) : GateRushEvent
-}
-
 class GateRushEngine(
-    private val random: Random,
+    /** Seed für den Levelaufbau (bei der Täglichen Challenge für alle gleich). */
+    val seed: Long,
+    val mode: GateRushMode = GateRushMode.ENDLESS,
     /** Für Tests abschaltbar, damit nur manuell platzierte Objekte existieren. */
     private val autoSpawn: Boolean = true,
 ) {
     companion object {
         const val Z_FAR = 32f
         const val WORLD_SPEED = 6f
-        const val BULLET_SPEED = 30f
         const val MAX_X = 0.9f
         const val START_HEARTS = 3
-        const val MAX_HEARTS = 5
-        const val MAX_MULTISHOT = 7
-        const val MAX_PIERCE = 5
-        const val MIN_FIRE_RATE = 1.5f
-        const val MAX_FIRE_RATE = 18f
-        const val BOSS_INTERVAL = 60f
-        const val BOSS_COINS = 25
-        const val CRATE_COINS = 3
+        const val START_FIRE_RATE = 4.5f
+        const val MAX_HEARTS = 6
+        const val MAX_MULTISHOT = 8
+        const val MAX_PIERCE = 6
+        /** Jeder durchschlagene Gegner verringert den Schaden des Projektils um diesen Anteil. */
+        const val PIERCE_FALLOFF = 0.3f
+        const val MIN_FIRE_RATE = 2f
+        const val MAX_FIRE_RATE = 20f
+        const val MAX_CRIT = 0.75f
+        const val CRIT_MULTIPLIER = 2.5f
+        const val MAX_SPLASH = 10
+        const val MAX_FROST = 10
+        const val MAX_SHIELDS = 5
+        const val MAX_DRONES = 4
+        const val FIRST_BOSS_TIME = 60f
+        const val FIRST_OBSTACLE_TIME = 20f
+        /** In dieser Anfangsphase kommen nur einzelne Läufer. */
+        const val WARMUP_TIME = 15f
+        /** Bis hierhin sind alle Torspuren positiv. */
+        const val FRIENDLY_GATES_TIME = 25f
+        const val BOSS_COINS = 8
+        /** Im Boss Rush kommen Bosse viel öfter – daher weniger Coins pro Boss. */
+        const val BOSS_RUSH_COINS = 4
+        const val CRATE_COINS = 1
+        /** Drohnen-Positionen relativ zum Helden, in Reihenfolge des Freischaltens. */
+        val DRONE_OFFSETS = listOf(-0.24f, 0.24f, -0.44f, 0.44f)
+        const val HERO_HALF_WIDTH = 0.1f
+        const val PICKUP_RADIUS = 0.18f
         private const val STEP = 1f / 120f
         private const val MAX_STEPS_PER_UPDATE = 12
         private const val HIT_DEPTH = 0.45f
+        private const val GATE_DEPTH = 0.3f
         private const val BULLET_RADIUS = 0.03f
         private const val CRATE_RADIUS = 0.15f
+        private const val SLOW_DURATION = 1.2f
+        private const val SHIELDED_DAMAGE = 0.25f
+        private const val ZIGZAG_AMPLITUDE = 0.35f
     }
 
     val stats = PlayerStats()
     val enemies = ArrayList<Enemy>()
     val bullets = ArrayList<Bullet>()
-    val gates = ArrayList<GatePair>()
+    val gates = ArrayList<GateRow>()
     val crates = ArrayList<Crate>()
+    val obstacles = ArrayList<Obstacle>()
+    val pickups = ArrayList<Pickup>()
 
     var playerX = 0f
         private set
@@ -153,20 +80,38 @@ class GateRushEngine(
 
     val score: Int get() = killScore + (distance / 2f).toInt()
 
+    private val combatRandom = Random(seed * 31 + 7)
+    private var spawner = GateRushSpawner(this, Random(seed), SpawnerState())
+
+    /** Boss Rush: aktuelle Welle bzw. ob gerade ein Boss kämpft. */
+    val wave: Int get() = spawner.state.wave
+    val bossPhase: Boolean get() = spawner.state.bossPhase
+
     private val events = ArrayList<GateRushEvent>()
     private var nextId = 0L
     private var accumulator = 0f
     private var fireCooldown = 0f
-    private var enemyTimer = 2.5f
-    private var gateTimer = 3f
-    private var crateTimer = 7f
-    private var bossTimer = BOSS_INTERVAL
+    private var droneCooldown = 0f
 
-    /** HP-Multiplikator für neu erscheinende Gegner: sanfter Start, später deutlich steiler. */
+    // --- Schwierigkeitskurve (Endless) ---
+
+    /**
+     * HP-Multiplikator für neue Gegner: am Anfang flach, danach polynomiell und zusätzlich exponentiell –
+     * so holt das Spiel auch voll aufgerüstete Helden irgendwann ein.
+     */
     fun hpMultiplier(): Float {
-        val minutes = time / 60f
-        return 1f + minutes * 1.2f + minutes * minutes * 1.5f
+        val m = time / 60f
+        return (1f + 0.2f * m + 0.5f * m * m) * 1.5f.pow(m)
     }
+
+    /** Gegner werden über die Zeit schneller (bis +60 %). */
+    fun speedMultiplier(): Float = 1f + (time / 400f).coerceAtMost(0.6f)
+
+    /** Abstand zwischen Spawns: anfangs großzügig, später sehr dicht. */
+    fun spawnInterval(): Float = (2.2f - time / 110f).coerceAtLeast(0.3f)
+
+    /** Fester Schadensbonus der Kiste (wächst mit der Zeit, aber nicht multiplikativ – sonst eskaliert es). */
+    fun damageBoostAmount(): Float = 2f + time / 30f
 
     // --- Spielstand ---
 
@@ -179,14 +124,30 @@ class GateRushEngine(
         coinsEarned = coinsEarned,
         nextId = nextId,
         fireCooldown = fireCooldown,
-        enemyTimer = enemyTimer,
-        gateTimer = gateTimer,
-        crateTimer = crateTimer,
-        bossTimer = bossTimer,
-        stats = StatsSnapshot(stats.damage, stats.fireRate, stats.multishot, stats.pierce, stats.hearts),
-        enemies = enemies.map { EnemySnapshot(it.id, it.type, it.x, it.z, it.hp, it.maxHp) },
-        gates = gates.map { GateSnapshot(it.z, it.left?.toSnapshot(), it.right?.toSnapshot()) },
+        droneCooldown = droneCooldown,
+        spawner = spawner.state.copy(),
+        stats = StatsSnapshot(
+            damage = stats.damage,
+            fireRate = stats.fireRate,
+            multishot = stats.multishot,
+            pierce = stats.pierce,
+            hearts = stats.hearts,
+            critChance = stats.critChance,
+            splash = stats.splash,
+            frost = stats.frost,
+            shields = stats.shields,
+            drones = stats.drones,
+            weapon = stats.weapon,
+            frenzy = stats.frenzy,
+            slowmo = stats.slowmo,
+        ),
+        enemies = enemies.map {
+            EnemySnapshot(it.id, it.type, it.x, it.z, it.hp, it.maxHp, it.speedFactor, it.slowTimer, it.baseX, it.phase)
+        },
+        gates = gates.map { row -> GateSnapshot(row.id, row.z, row.lanes.map { it?.toSnapshot() }) },
         crates = crates.map { CrateSnapshot(it.x, it.z, it.maxHits, it.hitsLeft, it.reward) },
+        obstacles = obstacles.map { ObstacleSnapshot(it.id, it.x, it.z, it.halfWidth, it.kind) },
+        pickups = pickups.map { PickupSnapshot(it.id, it.x, it.z, it.kind) },
     )
 
     /** Übernimmt einen gespeicherten Zustand (nur direkt nach dem Erzeugen der Engine sinnvoll). */
@@ -198,29 +159,47 @@ class GateRushEngine(
         coinsEarned = s.coinsEarned
         nextId = s.nextId
         fireCooldown = s.fireCooldown
-        enemyTimer = s.enemyTimer
-        gateTimer = s.gateTimer
-        crateTimer = s.crateTimer
-        bossTimer = s.bossTimer
-        stats.damage = s.stats.damage
-        stats.fireRate = s.stats.fireRate
-        stats.multishot = s.stats.multishot
-        stats.pierce = s.stats.pierce
-        stats.hearts = s.stats.hearts
+        droneCooldown = s.droneCooldown
+        // Neuer Zufallsstrom ab der Fortsetzung, aber gleiche Timer/Phasen.
+        spawner = GateRushSpawner(this, Random(seed + s.nextId), s.spawner.copy())
+        with(s.stats) {
+            stats.damage = damage
+            stats.fireRate = fireRate
+            stats.multishot = multishot
+            stats.pierce = pierce
+            stats.hearts = hearts
+            stats.critChance = critChance
+            stats.splash = splash
+            stats.frost = frost
+            stats.shields = shields
+            stats.drones = drones
+            stats.weapon = weapon
+            stats.frenzy = frenzy
+            stats.slowmo = slowmo
+        }
         enemies.clear()
-        s.enemies.forEach { enemies += Enemy(it.id, it.type, it.x, it.z, it.maxHp).apply { hp = it.hp } }
+        s.enemies.forEach {
+            enemies += Enemy(it.id, it.type, it.x, it.z, it.maxHp, it.speedFactor, it.baseX, it.phase).apply {
+                hp = it.hp
+                slowTimer = it.slowTimer
+            }
+        }
         gates.clear()
-        s.gates.forEach { gates += GatePair(it.z, it.left?.toSide(), it.right?.toSide()) }
+        s.gates.forEach { row -> gates += GateRow(row.id, row.z, row.lanes.map { it?.toSide() }) }
         crates.clear()
         s.crates.forEach { crates += Crate(it.x, it.z, it.maxHits, it.reward).apply { hitsLeft = it.hitsLeft } }
+        obstacles.clear()
+        s.obstacles.forEach { obstacles += Obstacle(it.id, it.x, it.z, it.halfWidth, it.kind) }
+        pickups.clear()
+        s.pickups.forEach { pickups += Pickup(it.id, it.x, it.z, it.kind) }
         bullets.clear()
         events.clear()
         accumulator = 0f
         isGameOver = stats.hearts <= 0
     }
 
-    private fun GateSide.toSnapshot() = GateSideSnapshot(type, baseValue, hits)
-    private fun GateSideSnapshot.toSide() = GateSide(type, baseValue).also { it.hits = hits }
+    private fun GateSide.toSnapshot() = GateSideSnapshot(type, baseValue, hits, weapon)
+    private fun GateSideSnapshot.toSide() = GateSide(type, baseValue, weapon).also { it.hits = hits }
 
     fun movePlayer(dx: Float) {
         if (isGameOver) return
@@ -232,6 +211,10 @@ class GateRushEngine(
         val copy = events.toList()
         events.clear()
         return copy
+    }
+
+    internal fun emit(event: GateRushEvent) {
+        events += event
     }
 
     fun update(dt: Float) {
@@ -246,58 +229,89 @@ class GateRushEngine(
         if (steps == MAX_STEPS_PER_UPDATE) accumulator = 0f
     }
 
-    // --- Spawning (öffentlich für Tests) ---
+    // --- Spawning (öffentlich für Spawner und Tests) ---
 
-    fun spawnEnemy(type: EnemyType, x: Float, z: Float = Z_FAR): Enemy {
-        val enemy = Enemy(nextId++, type, x.coerceIn(-MAX_X, MAX_X), z, type.baseHp * hpMultiplier())
+    fun spawnEnemy(
+        type: EnemyType,
+        x: Float,
+        z: Float = Z_FAR,
+        hpMultiplier: Float = hpMultiplier(),
+        phase: Float = 0f,
+    ): Enemy {
+        val cx = x.coerceIn(-MAX_X, MAX_X)
+        val enemy = Enemy(nextId++, type, cx, z, type.baseHp * hpMultiplier, speedMultiplier(), cx, phase)
         enemies += enemy
         return enemy
     }
 
-    fun spawnGate(left: GateSide?, right: GateSide?, z: Float = Z_FAR): GatePair =
-        GatePair(z, left, right).also { gates += it }
+    fun spawnGate(lanes: List<GateSide?>, z: Float = Z_FAR): GateRow =
+        GateRow(nextId++, z, lanes).also { gates += it }
 
     fun spawnCrate(x: Float, hits: Int, reward: CrateReward, z: Float = Z_FAR): Crate =
         Crate(x, z, hits, reward).also { crates += it }
+
+    fun spawnObstacle(x: Float, halfWidth: Float, kind: ObstacleKind, z: Float = Z_FAR): Obstacle =
+        Obstacle(nextId++, x, z, halfWidth, kind).also { obstacles += it }
+
+    fun spawnPickup(x: Float, kind: PowerUpKind, z: Float = Z_FAR): Pickup =
+        Pickup(nextId++, x, z, kind).also { pickups += it }
 
     // --- Simulation ---
 
     private fun step(dt: Float) {
         time += dt
         distance += WORLD_SPEED * dt
-        if (autoSpawn) runSpawner(dt)
+        stats.frenzy = (stats.frenzy - dt).coerceAtLeast(0f)
+        stats.slowmo = (stats.slowmo - dt).coerceAtLeast(0f)
+        if (autoSpawn) spawner.update(dt)
         fire(dt)
         moveBullets(dt)
         moveEnemies(dt)
         moveGates(dt)
         moveCrates(dt)
-        bullets.removeAll { !it.alive || it.z > Z_FAR + 2f || abs(it.x) > 1.3f }
+        moveObstacles(dt)
+        movePickups(dt)
+        bullets.removeAll { !it.alive || it.z > it.weapon.range || abs(it.x) > 1.3f }
     }
 
+    /** Aktuelle Positionen der Drohnen. */
+    fun dronePositions(): List<Float> = DRONE_OFFSETS.take(stats.drones).map { playerX + it }
+
     private fun fire(dt: Float) {
+        val weapon = stats.weapon
+        val frenzy = if (stats.frenzy > 0f) 2f else 1f
         fireCooldown -= dt
         while (fireCooldown <= 0f) {
-            val n = stats.multishot
+            val n = stats.multishot + weapon.extraPellets
             for (i in 0 until n) {
-                val offset = (i - (n - 1) / 2f) * 0.07f
+                val offset = (i - (n - 1) / 2f) * weapon.spread
                 bullets += Bullet(
                     x = playerX + offset,
                     z = 0.3f,
-                    vx = offset * 0.5f,
-                    damage = stats.damage,
-                    pierceLeft = stats.pierce,
+                    vx = offset * weapon.fan,
+                    damage = stats.damage * weapon.damageFactor,
+                    pierceLeft = stats.pierce + weapon.extraPierce,
+                    weapon = weapon,
                 )
             }
-            fireCooldown += 1f / stats.fireRate
+            fireCooldown += 1f / (stats.fireRate * weapon.rateFactor * frenzy)
+        }
+        if (stats.drones > 0) {
+            droneCooldown -= dt
+            while (droneCooldown <= 0f) {
+                dronePositions().forEach { x -> bullets += Bullet(x, 0.3f, 0f, stats.damage * 0.6f, stats.pierce) }
+                droneCooldown += 1f / (stats.fireRate * 0.6f * frenzy)
+            }
         }
     }
 
     private fun moveBullets(dt: Float) {
         for (b in bullets) {
             if (!b.alive) continue
-            b.z += BULLET_SPEED * dt
+            b.z += b.weapon.speed * dt
             b.x += b.vx * dt
-            if (hitGate(b) || hitCrate(b)) {
+            passGates(b)
+            if (hitObstacle(b) || hitCrate(b)) {
                 b.alive = false
                 continue
             }
@@ -305,17 +319,21 @@ class GateRushEngine(
         }
     }
 
-    private fun hitGate(b: Bullet): Boolean {
-        if (abs(b.x) > 1f) return false
-        for (gate in gates) {
-            if (abs(b.z - gate.z) > 0.3f) continue
-            val side = (if (b.x < 0f) gate.left else gate.right) ?: continue
-            side.hits++
-            side.hitFlash = 1f
-            return true
+    /** Projektile fliegen durch Tore hindurch und erhöhen dabei den Wert der getroffenen Spur. */
+    private fun passGates(b: Bullet) {
+        if (abs(b.x) > 1f) return
+        for (row in gates) {
+            if (abs(b.z - row.z) > GATE_DEPTH || row.id in b.gateIds) continue
+            b.gateIds += row.id
+            val lane = row.lanes[row.laneAt(b.x)] ?: continue
+            lane.hits++
+            lane.hitFlash = 1f
         }
-        return false
     }
+
+    /** Hindernisse sind unzerstörbar und schlucken Projektile. */
+    private fun hitObstacle(b: Bullet): Boolean =
+        obstacles.any { abs(b.z - it.z) <= GATE_DEPTH && abs(b.x - it.x) <= it.halfWidth }
 
     private fun hitCrate(b: Bullet): Boolean {
         val iterator = crates.iterator()
@@ -336,38 +354,85 @@ class GateRushEngine(
     }
 
     private fun hitEnemy(b: Bullet) {
-        val iterator = enemies.iterator()
-        while (iterator.hasNext()) {
-            val e = iterator.next()
-            if (e.id in b.hitIds) continue
+        for (e in enemies) {
+            if (e.hp <= 0f || e.id in b.hitIds) continue
             if (abs(b.z - e.z) > HIT_DEPTH || abs(b.x - e.x) > e.type.radius + BULLET_RADIUS) continue
-            e.hp -= b.damage
-            e.hitFlash = 1f
+            val crit = stats.critChance > 0f && combatRandom.nextFloat() < stats.critChance
+            var damage = b.damage * if (crit) CRIT_MULTIPLIER else 1f
+            if (e.type == EnemyType.SHIELDED && !b.weapon.armorPiercing) damage *= SHIELDED_DAMAGE
+            damageEnemy(e, damage)
             b.hitIds += e.id
-            if (e.hp <= 0f) {
-                killScore += e.type.score
-                events += GateRushEvent.EnemyKilled(e.x, e.z, e.type)
-                earnCoins(e.x, e.z, coinDrop(e.type))
-                iterator.remove()
+            when {
+                b.weapon.explosive -> explode(e, b.damage, radius = 0.35f + 0.03f * stats.splash, fraction = 0.6f)
+                stats.splash > 0 -> explode(e, damage, radius = 0.1f + 0.03f * stats.splash, fraction = 0.2f + 0.04f * stats.splash)
             }
             if (b.pierceLeft > 0) {
                 b.pierceLeft--
+                b.damage *= 1f - PIERCE_FALLOFF
             } else {
                 b.alive = false
-                return
+                break
             }
         }
+        removeDeadEnemies()
     }
 
-    private fun moveEnemies(dt: Float) {
+    private fun damageEnemy(e: Enemy, damage: Float) {
+        e.hp -= damage
+        e.hitFlash = 1f
+        if (stats.frost > 0) e.slowTimer = SLOW_DURATION
+    }
+
+    /** Flächenschaden um den getroffenen Gegner herum (trifft auch Schildträger voll). */
+    private fun explode(center: Enemy, damage: Float, radius: Float, fraction: Float) {
+        for (other in enemies) {
+            if (other === center || other.hp <= 0f) continue
+            if (abs(other.x - center.x) <= radius + other.type.radius && abs(other.z - center.z) <= radius * 4f) {
+                damageEnemy(other, damage * fraction)
+            }
+        }
+        events += GateRushEvent.Explosion(center.x, center.z, radius)
+    }
+
+    private fun removeDeadEnemies() {
+        var spawned: MutableList<Enemy>? = null
         val iterator = enemies.iterator()
         while (iterator.hasNext()) {
             val e = iterator.next()
-            e.z -= e.type.speed * dt
+            if (e.hp > 0f) continue
+            killScore += e.type.score
+            events += GateRushEvent.EnemyKilled(e.x, e.z, e.type)
+            earnCoins(e.x, e.z, coinDrop(e.type))
+            iterator.remove()
+            if (e.type == EnemyType.SPLITTER) {
+                val list = spawned ?: ArrayList<Enemy>().also { spawned = it }
+                // Kleinlinge erben die Stärke des Splitters.
+                val hpFactor = e.maxHp / EnemyType.SPLITTER.baseHp
+                for (dx in listOf(-0.15f, 0f, 0.15f)) {
+                    val x = (e.x + dx).coerceIn(-MAX_X, MAX_X)
+                    list += Enemy(nextId++, EnemyType.SPLITLING, x, e.z + 0.3f, EnemyType.SPLITLING.baseHp * hpFactor, e.speedFactor, x)
+                }
+            }
+        }
+        spawned?.let { enemies += it }
+    }
+
+    private fun moveEnemies(dt: Float) {
+        val frostFactor = 1f - 0.045f * stats.frost
+        val slowmoFactor = if (stats.slowmo > 0f) 0.5f else 1f
+        val iterator = enemies.iterator()
+        while (iterator.hasNext()) {
+            val e = iterator.next()
+            val slowed = if (e.slowTimer > 0f) frostFactor else 1f
+            e.z -= e.type.speed * e.speedFactor * slowed * slowmoFactor * dt
+            if (e.type == EnemyType.ZIGZAG) {
+                e.x = (e.baseX + sin(time * 2.5f + e.phase) * ZIGZAG_AMPLITUDE).coerceIn(-MAX_X, MAX_X)
+            }
+            e.slowTimer = (e.slowTimer - dt).coerceAtLeast(0f)
             e.hitFlash = (e.hitFlash - dt * 6f).coerceAtLeast(0f)
             if (e.z <= 0f) {
                 iterator.remove()
-                loseHearts(e.type.heartDamage)
+                takeHit(e.type.heartDamage, blockable = e.type != EnemyType.BOSS)
             }
         }
     }
@@ -375,14 +440,12 @@ class GateRushEngine(
     private fun moveGates(dt: Float) {
         val iterator = gates.iterator()
         while (iterator.hasNext()) {
-            val gate = iterator.next()
-            gate.z -= WORLD_SPEED * dt
-            gate.left?.let { it.hitFlash = (it.hitFlash - dt * 6f).coerceAtLeast(0f) }
-            gate.right?.let { it.hitFlash = (it.hitFlash - dt * 6f).coerceAtLeast(0f) }
-            if (gate.z <= 0f) {
+            val row = iterator.next()
+            row.z -= WORLD_SPEED * dt
+            row.lanes.forEach { lane -> lane?.let { it.hitFlash = (it.hitFlash - dt * 6f).coerceAtLeast(0f) } }
+            if (row.z <= 0f) {
                 iterator.remove()
-                val side = if (playerX < 0f) gate.left else gate.right
-                if (side != null) applyGate(side)
+                row.lanes[row.laneAt(playerX)]?.let(::applyGate)
             }
         }
     }
@@ -397,12 +460,64 @@ class GateRushEngine(
         }
     }
 
-    /** Coins, die ein besiegter Gegner fallen lässt (kleine Gegner nur mit gewisser Chance). */
-    private fun coinDrop(type: EnemyType): Int = when (type) {
-        EnemyType.RUNNER -> if (random.nextFloat() < 0.10f) 1 else 0
-        EnemyType.SWARM -> if (random.nextFloat() < 0.05f) 1 else 0
-        EnemyType.BRUTE -> 2
-        EnemyType.BOSS -> BOSS_COINS
+    private fun moveObstacles(dt: Float) {
+        val iterator = obstacles.iterator()
+        while (iterator.hasNext()) {
+            val o = iterator.next()
+            o.z -= WORLD_SPEED * dt
+            if (o.z <= 0.3f && o.z > -0.3f && abs(playerX - o.x) < o.halfWidth + HERO_HALF_WIDTH) {
+                iterator.remove()
+                events += GateRushEvent.ObstacleHit
+                takeHit(1, blockable = true)
+            } else if (o.z <= -0.6f) {
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun movePickups(dt: Float) {
+        val iterator = pickups.iterator()
+        while (iterator.hasNext()) {
+            val p = iterator.next()
+            p.z -= WORLD_SPEED * dt
+            if (p.z <= 0.3f && p.z > -0.3f && abs(playerX - p.x) < PICKUP_RADIUS) {
+                iterator.remove()
+                activate(p.kind)
+            } else if (p.z <= -0.6f) {
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun activate(kind: PowerUpKind) {
+        when (kind) {
+            PowerUpKind.FRENZY -> stats.frenzy = kind.duration
+            PowerUpKind.SLOWMO -> stats.slowmo = kind.duration
+            PowerUpKind.BOMB -> {
+                // Alles Sichtbare: Nicht-Bosse vernichtet, Bosse verlieren ein Viertel ihrer HP.
+                for (e in enemies) {
+                    if (e.z > Z_FAR) continue
+                    if (e.type == EnemyType.BOSS) damageEnemy(e, e.maxHp * 0.25f) else e.hp = 0f
+                }
+                removeDeadEnemies()
+            }
+        }
+        events += GateRushEvent.PowerUpCollected(kind)
+    }
+
+    /** Coins, die ein besiegter Gegner fallen lässt (bewusst knapp, damit es zu Block Break passt). */
+    private fun coinDrop(type: EnemyType): Int {
+        val chance = when (type) {
+            EnemyType.RUNNER -> 0.04f
+            EnemyType.SWARM -> 0.01f
+            EnemyType.SPLITLING -> 0f
+            EnemyType.ZIGZAG -> 0.05f
+            EnemyType.BRUTE -> 0.25f
+            EnemyType.SPLITTER -> 0.15f
+            EnemyType.SHIELDED -> 0.2f
+            EnemyType.BOSS -> return if (mode == GateRushMode.BOSS_RUSH) BOSS_RUSH_COINS else BOSS_COINS
+        }
+        return if (combatRandom.nextFloat() < chance) 1 else 0
     }
 
     private fun earnCoins(x: Float, z: Float, amount: Int) {
@@ -411,8 +526,14 @@ class GateRushEngine(
         events += GateRushEvent.CoinsEarned(x, z, amount)
     }
 
-    private fun loseHearts(amount: Int) {
-        val lost = minOf(amount, stats.hearts)
+    /** Ein Durchbruch oder Hindernis-Treffer; Schilde fangen ihn ab, wenn [blockable]. */
+    private fun takeHit(hearts: Int, blockable: Boolean) {
+        if (blockable && stats.shields > 0) {
+            stats.shields--
+            events += GateRushEvent.ShieldBlocked
+            return
+        }
+        val lost = minOf(hearts, stats.hearts)
         stats.hearts -= lost
         events += GateRushEvent.HeartsLost(lost)
         if (stats.hearts <= 0) isGameOver = true
@@ -420,105 +541,42 @@ class GateRushEngine(
 
     fun applyGate(side: GateSide) {
         val v = side.value
-        when (side.type) {
-            GateType.DAMAGE -> stats.damage = (stats.damage + v).coerceAtLeast(1f)
-            GateType.FIRE_RATE ->
-                stats.fireRate = (stats.fireRate * (1f + v / 100f)).coerceIn(MIN_FIRE_RATE, MAX_FIRE_RATE)
-            GateType.MULTISHOT -> stats.multishot = (stats.multishot + v).coerceIn(1, MAX_MULTISHOT)
-            GateType.PIERCE -> stats.pierce = (stats.pierce + v).coerceIn(0, MAX_PIERCE)
-            GateType.HEART -> stats.hearts = (stats.hearts + v).coerceIn(1, MAX_HEARTS)
+        with(stats) {
+            when (side.type) {
+                GateType.DAMAGE -> damage = (damage + v).coerceAtLeast(1f)
+                GateType.FIRE_RATE -> fireRate = (fireRate * (1f + v / 100f)).coerceIn(MIN_FIRE_RATE, MAX_FIRE_RATE)
+                GateType.MULTISHOT -> multishot = (multishot + v).coerceIn(1, MAX_MULTISHOT)
+                GateType.PIERCE -> pierce = (pierce + v).coerceIn(0, MAX_PIERCE)
+                GateType.HEART -> hearts = (hearts + v).coerceIn(1, MAX_HEARTS)
+                GateType.CRIT -> critChance = (critChance + v / 100f).coerceIn(0f, MAX_CRIT)
+                GateType.SPLASH -> splash = (splash + v).coerceIn(0, MAX_SPLASH)
+                GateType.FROST -> frost = (frost + v).coerceIn(0, MAX_FROST)
+                GateType.SHIELD -> shields = (shields + v).coerceIn(0, MAX_SHIELDS)
+                GateType.DRONE -> drones = (drones + v).coerceIn(0, MAX_DRONES)
+                GateType.WEAPON -> side.weapon?.let { weapon = it }
+            }
         }
-        events += GateRushEvent.GatePassed("${side.valueText} ${side.type.title}", v > 0)
+        val text = if (side.type == GateType.WEAPON) side.valueText else "${side.valueText} ${side.title}"
+        events += GateRushEvent.GatePassed(text, v > 0)
     }
 
     private fun applyReward(reward: CrateReward) {
-        when (reward) {
-            CrateReward.MULTISHOT -> stats.multishot = (stats.multishot + 1).coerceAtMost(MAX_MULTISHOT)
-            CrateReward.DAMAGE_BOOST -> stats.damage *= 1.5f
-            CrateReward.FIRE_BOOST -> stats.fireRate = (stats.fireRate * 1.3f).coerceAtMost(MAX_FIRE_RATE)
-            CrateReward.HEART -> stats.hearts = (stats.hearts + 1).coerceAtMost(MAX_HEARTS)
-            CrateReward.PIERCE -> stats.pierce = (stats.pierce + 1).coerceAtMost(MAX_PIERCE)
-        }
-    }
-
-    // --- Spawner / Schwierigkeitskurve ---
-
-    private fun runSpawner(dt: Float) {
-        val bossAlive = enemies.any { it.type == EnemyType.BOSS }
-
-        bossTimer -= dt
-        if (bossTimer <= 0f) {
-            bossTimer = BOSS_INTERVAL
-            spawnEnemy(EnemyType.BOSS, 0f)
-        }
-
-        enemyTimer -= dt
-        if (enemyTimer <= 0f) {
-            val interval = (2.0f - time / 70f).coerceAtLeast(0.3f)
-            enemyTimer = if (bossAlive) interval * 2f else interval
-            spawnWaveUnit()
-        }
-
-        gateTimer -= dt
-        if (gateTimer <= 0f) {
-            gateTimer = 6f
-            spawnRandomGate()
-        }
-
-        crateTimer -= dt
-        if (crateTimer <= 0f) {
-            crateTimer = 11f
-            val hits = 10 + (time / 2f).toInt()
-            spawnCrate(random.nextFloat() * 1.4f - 0.7f, hits, CrateReward.entries.random(random))
-        }
-    }
-
-    private fun spawnWaveUnit() {
-        val x = random.nextFloat() * 2f * MAX_X - MAX_X
-        val z = Z_FAR + random.nextFloat() * 2f
-        val roll = random.nextFloat()
-        val bruteChance = (time / 300f).coerceAtMost(0.25f)
-        when {
-            roll < bruteChance -> spawnEnemy(EnemyType.BRUTE, x, z)
-            roll < bruteChance + 0.2f -> repeat(5) {
-                spawnEnemy(
-                    EnemyType.SWARM,
-                    x + random.nextFloat() * 0.3f - 0.15f,
-                    z + random.nextFloat() * 1.5f,
-                )
+        with(stats) {
+            when (reward) {
+                CrateReward.MULTISHOT -> multishot = (multishot + 1).coerceAtMost(MAX_MULTISHOT)
+                CrateReward.DAMAGE_BOOST -> damage += damageBoostAmount()
+                CrateReward.FIRE_BOOST -> fireRate = (fireRate * 1.15f).coerceAtMost(MAX_FIRE_RATE)
+                CrateReward.HEART -> hearts = (hearts + 1).coerceAtMost(MAX_HEARTS)
+                CrateReward.PIERCE -> pierce = (pierce + 1).coerceAtMost(MAX_PIERCE)
+                CrateReward.CRIT -> critChance = (critChance + 0.05f).coerceAtMost(MAX_CRIT)
+                CrateReward.SPLASH -> splash = (splash + 1).coerceAtMost(MAX_SPLASH)
+                CrateReward.FROST -> frost = (frost + 1).coerceAtMost(MAX_FROST)
+                CrateReward.SHIELD -> shields = (shields + 1).coerceAtMost(MAX_SHIELDS)
+                CrateReward.DRONE -> drones = (drones + 1).coerceAtMost(MAX_DRONES)
+                CrateReward.SHOTGUN -> weapon = Weapon.SHOTGUN
+                CrateReward.LASER -> weapon = Weapon.LASER
+                CrateReward.ROCKET -> weapon = Weapon.ROCKET
             }
-            else -> spawnEnemy(EnemyType.RUNNER, x, z)
-        }
-    }
-
-    private fun spawnRandomGate() {
-        val first = randomGateType()
-        var second = randomGateType()
-        if (second == first && first != GateType.DAMAGE) second = GateType.DAMAGE
-        // Eine Seite meist positiv, die andere oft negativ – man muss sich entscheiden (oder sie freischießen).
-        val a = GateSide(first, randomGateValue(first, positive = true))
-        val b = GateSide(second, randomGateValue(second, positive = random.nextFloat() < 0.35f))
-        if (random.nextBoolean()) spawnGate(a, b) else spawnGate(b, a)
-    }
-
-    private fun randomGateType(): GateType {
-        val options = buildList {
-            repeat(4) { add(GateType.DAMAGE) }
-            repeat(4) { add(GateType.FIRE_RATE) }
-            if (stats.multishot < MAX_MULTISHOT) repeat(2) { add(GateType.MULTISHOT) }
-            if (stats.pierce < MAX_PIERCE) add(GateType.PIERCE)
-            if (stats.hearts < MAX_HEARTS) add(GateType.HEART)
-        }
-        return options.random(random)
-    }
-
-    private fun randomGateValue(type: GateType, positive: Boolean): Int {
-        val sign = if (positive) 1 else -1
-        return when (type) {
-            GateType.DAMAGE -> sign * random.nextInt(1, 2 + (time / 40f).toInt() + 1)
-            GateType.FIRE_RATE -> sign * random.nextInt(10, 26)
-            GateType.MULTISHOT, GateType.PIERCE -> sign
-            GateType.HEART -> 1
         }
     }
 }
