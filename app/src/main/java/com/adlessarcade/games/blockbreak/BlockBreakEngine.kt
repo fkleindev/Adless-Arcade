@@ -27,6 +27,8 @@ data class GameState(
     val streak: Int = 0,
     val movesWithoutClear: Int = 0,
     val isGameOver: Boolean = false,
+    /** In diesem Lauf verdiente Coins. */
+    val coinsEarned: Int = 0,
 )
 
 data class PlaceResult(
@@ -36,6 +38,8 @@ data class PlaceResult(
     val linesCleared: Int,
     val points: Int,
     val boardCleared: Boolean,
+    /** Durch diesen Zug verdiente Coins. */
+    val coins: Int = 0,
 )
 
 data class FullLines(val rows: List<Int>, val cols: List<Int>) {
@@ -115,6 +119,7 @@ object BlockBreakEngine {
     /** Nach so vielen Zügen ohne Clear endet die Combo-Serie. */
     const val COMBO_WINDOW = 3
     const val BOARD_CLEAR_BONUS = 300
+    const val BOARD_CLEAR_COINS = 10
     private const val GENERATION_ATTEMPTS = 24
 
     private val ORDERS = listOf(
@@ -176,12 +181,17 @@ object BlockBreakEngine {
         val streak: Int
         val movesWithoutClear: Int
         var points = piece.shape.cells.size
+        var coins = 0
         val boardCleared = lines.count > 0 && board.all { it == 0 }
         if (lines.count > 0) {
             streak = state.streak + 1
             movesWithoutClear = 0
             points += lineBonus(lines.count) * streak
-            if (boardCleared) points += BOARD_CLEAR_BONUS
+            coins = lines.count * streak
+            if (boardCleared) {
+                points += BOARD_CLEAR_BONUS
+                coins += BOARD_CLEAR_COINS
+            }
         } else {
             movesWithoutClear = state.movesWithoutClear + 1
             streak = if (movesWithoutClear >= COMBO_WINDOW) 0 else state.streak
@@ -194,6 +204,7 @@ object BlockBreakEngine {
             board = board,
             tray = tray,
             score = state.score + points,
+            coinsEarned = state.coinsEarned + coins,
             streak = streak,
             movesWithoutClear = movesWithoutClear,
             isGameOver = isGameOver(board, tray),
@@ -204,6 +215,7 @@ object BlockBreakEngine {
             linesCleared = lines.count,
             points = points,
             boardCleared = boardCleared,
+            coins = coins,
         )
     }
 

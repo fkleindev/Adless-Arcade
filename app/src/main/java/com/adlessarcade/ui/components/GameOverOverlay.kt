@@ -50,6 +50,9 @@ fun GameOverOverlay(
     onMenu: () -> Unit,
     title: String = "Game Over",
     message: String = "Keine Züge mehr möglich",
+    /** In der Runde verdiente Coins inkl. Bonus; null blendet die Zeile aus. */
+    coinsEarned: Int? = null,
+    bonusCoins: Int = 0,
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -95,6 +98,21 @@ fun GameOverOverlay(
                     }
                 } else {
                     Text("Bester: $best", style = MaterialTheme.typography.bodyMedium, color = ArcadeTextMuted)
+                }
+                if (coinsEarned != null) {
+                    Spacer(Modifier.height(14.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CoinIcon(22.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("+$coinsEarned Coins verdient", style = MaterialTheme.typography.titleMedium, color = CoinGold)
+                    }
+                    if (bonusCoins > 0) {
+                        Text(
+                            "inkl. +$bonusCoins Rekordbonus",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ArcadeTextMuted,
+                        )
+                    }
                 }
                 Spacer(Modifier.height(24.dp))
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {

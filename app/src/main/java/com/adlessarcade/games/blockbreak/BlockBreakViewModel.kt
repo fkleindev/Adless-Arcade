@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.adlessarcade.arcadeApp
+import com.adlessarcade.core.shop.CoinRewards
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.random.Random
@@ -19,6 +20,7 @@ data class ClearEvent(
     val lines: Int,
     val streak: Int,
     val boardCleared: Boolean,
+    val coins: Int,
 )
 
 data class BlockBreakUiState(
@@ -26,11 +28,14 @@ data class BlockBreakUiState(
     val best: Int = 0,
     val isNewBest: Boolean = false,
     val lastClear: ClearEvent? = null,
+    /** Coin-Bonus für einen neuen Rekord, gutgeschrieben bei Game Over. */
+    val recordBonus: Int = 0,
 )
 
 class BlockBreakViewModel(app: Application) : AndroidViewModel(app) {
     private val highscores = app.arcadeApp.highscores
     private val saves = app.arcadeApp.saves
+    private val profile = app.arcadeApp.profile
     private val modeId = BlockBreak.MODE_ENDLESS
     private val random = Random(System.nanoTime())
     private var eventCounter = 0L
@@ -77,17 +82,22 @@ class BlockBreakViewModel(app: Application) : AndroidViewModel(app) {
                 lines = result.linesCleared,
                 streak = result.state.streak,
                 boardCleared = result.boardCleared,
+                coins = result.coins,
             )
         } else {
             state.lastClear
         }
+        val isNewBest = score > bestAtStart
+        val recordBonus = if (result.state.isGameOver && isNewBest) CoinRewards.NEW_RECORD_BONUS else 0
         state = state.copy(
             game = result.state,
             best = maxOf(state.best, score),
-            isNewBest = score > bestAtStart,
+            isNewBest = isNewBest,
             lastClear = clear,
+            recordBonus = recordBonus,
         )
-        if (score > bestAtStart) {
+        profile.addCoins(result.coins + recordBonus)
+        if (isNewBest) {
             viewModelScope.launch { highscores.submit(BlockBreak.GAME_ID, modeId, score) }
         }
         if (result.state.isGameOver) {

@@ -26,7 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import com.adlessarcade.ui.theme.ArcadeBackgroundBrush
+import com.adlessarcade.ui.theme.LocalCosmetics
 import com.adlessarcade.ui.theme.ArcadeSurfaceHigh
 import com.adlessarcade.ui.theme.ArcadeTextMuted
 
@@ -42,7 +42,7 @@ fun ArcadeScaffold(
     Box(
         Modifier
             .fillMaxSize()
-            .background(ArcadeBackgroundBrush)
+            .background(LocalCosmetics.current.palette.backgroundBrush)
     ) {
         Column(Modifier.fillMaxSize().safeDrawingPadding()) {
             if (title != null || onBack != null) {

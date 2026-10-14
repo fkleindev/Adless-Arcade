@@ -14,6 +14,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import com.adlessarcade.games.gaterush.GateRushEngine.Companion.Z_FAR
+import com.adlessarcade.ui.components.CoinGold
+import com.adlessarcade.ui.components.drawCoin
+import com.adlessarcade.ui.theme.HeroSkin
 import com.adlessarcade.ui.theme.ArcadeBackground
 import com.adlessarcade.ui.theme.ArcadeBackgroundTop
 import com.adlessarcade.ui.theme.NeonCyan
@@ -48,6 +51,7 @@ fun DrawScope.drawGateRush(
     effects: List<GateRushEffect>,
     damageFlash: Float,
     textMeasurer: TextMeasurer,
+    heroSkin: HeroSkin,
 ) {
     val p = RoadProjection(size.width, size.height)
     drawEnvironment(p, engine.distance, engine.time)
@@ -61,8 +65,8 @@ fun DrawScope.drawGateRush(
     drawables.sortByDescending { it.z }
     drawables.forEach { it.draw() }
 
-    engine.bullets.forEach { drawBullet(p, it) }
-    drawHero(p, engine.playerX, engine.time)
+    engine.bullets.forEach { drawBullet(p, it, heroSkin, engine.time) }
+    drawHero(p, engine.playerX, engine.time, heroSkin)
     effects.forEach { drawEffect(p, it, textMeasurer) }
 
     if (damageFlash > 0f) {
@@ -268,38 +272,47 @@ private fun DrawScope.drawEnemy(p: RoadProjection, e: Enemy, time: Float) {
     }
 }
 
-private fun DrawScope.drawBullet(p: RoadProjection, b: Bullet) {
+/** Projektilfarbe; beim Regenbogen-Skin wandert der Farbton mit der Flugstrecke. */
+fun HeroSkin.bulletColor(z: Float, time: Float): Color =
+    if (rainbow) Color.hsv(((z * 25f + time * 240f) % 360f + 360f) % 360f, 0.75f, 1f) else bullet
+
+private fun DrawScope.drawBullet(p: RoadProjection, b: Bullet, skin: HeroSkin, time: Float) {
+    val color = skin.bulletColor(b.z, time)
     val r = max(2.5f, p.size(0.025f, b.z))
     val center = Offset(p.x(b.x, b.z), p.y(b.z) - p.size(0.12f, b.z))
     val tail = Offset(p.x(b.x - b.vx * 0.03f, b.z - 0.8f), p.y(b.z - 0.8f) - p.size(0.12f, b.z - 0.8f))
-    drawLine(NeonCyan.copy(alpha = 0.35f), tail, center, strokeWidth = r * 1.4f)
-    drawCircle(NeonCyan.copy(alpha = 0.3f), r * 2.2f, center)
+    drawLine(color.copy(alpha = 0.35f), tail, center, strokeWidth = r * 1.4f)
+    drawCircle(color.copy(alpha = 0.3f), r * 2.2f, center)
     drawCircle(Color.White, r, center)
 }
 
-private fun DrawScope.drawHero(p: RoadProjection, x: Float, time: Float) {
-    val z = 0f
-    val w = p.size(0.2f, z)
+private fun DrawScope.drawHero(p: RoadProjection, x: Float, time: Float, skin: HeroSkin) {
+    val w = p.size(0.2f, 0f)
+    val bob = sin(time * 14f) * w * 1.3f * 0.03f
+    drawHeroFigure(Offset(p.x(x, 0f), p.y(0f) + w * 1.3f * 0.35f), w, skin, bob)
+}
+
+/** Der Held; [bottomCenter] = Fußpunkt, [w] = Körperbreite. Auch für die Shop-Vorschau. */
+fun DrawScope.drawHeroFigure(bottomCenter: Offset, w: Float, skin: HeroSkin, bob: Float = 0f) {
     val h = w * 1.3f
-    val cx = p.x(x, z)
-    val bottom = p.y(z) + h * 0.35f
-    val bob = sin(time * 14f) * h * 0.03f
+    val cx = bottomCenter.x
+    val bottom = bottomCenter.y
     val top = bottom - h + bob
 
     drawOval(Color.Black.copy(alpha = 0.4f), Offset(cx - w * 0.6f, bottom - w * 0.12f), Size(w * 1.2f, w * 0.24f))
-    drawCircle(NeonCyan.copy(alpha = 0.18f), w * 0.9f, Offset(cx, top + h * 0.5f))
+    drawCircle(skin.body.copy(alpha = 0.18f), w * 0.9f, Offset(cx, top + h * 0.5f))
     // Körper
-    drawRoundRect(NeonCyan, Offset(cx - w / 2f, top + h * 0.3f), Size(w, h * 0.7f), CornerRadius(w * 0.3f))
+    drawRoundRect(skin.body, Offset(cx - w / 2f, top + h * 0.3f), Size(w, h * 0.7f), CornerRadius(w * 0.3f))
     drawRoundRect(
         Color.Black.copy(alpha = 0.2f),
         Offset(cx - w / 2f, top + h * 0.75f), Size(w, h * 0.25f), CornerRadius(w * 0.3f),
     )
     // Kopf
-    drawCircle(Color.White, w * 0.26f, Offset(cx, top + h * 0.2f))
-    drawRoundRect(NeonViolet, Offset(cx - w * 0.2f, top + h * 0.12f), Size(w * 0.4f, w * 0.12f), CornerRadius(w * 0.06f))
+    drawCircle(skin.head, w * 0.26f, Offset(cx, top + h * 0.2f))
+    drawRoundRect(skin.visor, Offset(cx - w * 0.2f, top + h * 0.12f), Size(w * 0.4f, w * 0.12f), CornerRadius(w * 0.06f))
     // Waffe
     drawRoundRect(Color(0xFF2A2E40), Offset(cx + w * 0.18f, top + h * 0.05f), Size(w * 0.16f, h * 0.55f), CornerRadius(w * 0.05f))
-    drawCircle(NeonCyan, w * 0.06f, Offset(cx + w * 0.26f, top + h * 0.05f))
+    drawCircle(skin.bullet, w * 0.06f, Offset(cx + w * 0.26f, top + h * 0.05f))
 }
 
 private fun DrawScope.drawEffect(p: RoadProjection, effect: GateRushEffect, textMeasurer: TextMeasurer) {
@@ -329,6 +342,17 @@ private fun DrawScope.drawEffect(p: RoadProjection, effect: GateRushEffect, text
                     base.y - layout.size.height - t * size.height * 0.08f,
                 ),
             )
+        }
+        is GateRushEffect.CoinPop -> {
+            // Münze steigt vom Gegner auf und verblasst.
+            val radius = size.width * 0.028f
+            val base = Offset(p.x(effect.x, effect.z), p.y(effect.z) - p.size(0.3f, effect.z) - t * size.height * 0.1f)
+            drawCoin(base, radius, alpha)
+            val layout = textMeasurer.measure(
+                "+${effect.amount}",
+                TextStyle(color = CoinGold.copy(alpha = alpha), fontSize = (radius * 1.6f).toSp(), fontWeight = FontWeight.Black),
+            )
+            drawText(layout, topLeft = Offset(base.x + radius * 1.3f, base.y - layout.size.height / 2f))
         }
     }
 }

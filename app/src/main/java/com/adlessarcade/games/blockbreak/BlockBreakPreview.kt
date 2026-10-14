@@ -4,10 +4,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import com.adlessarcade.ui.components.drawBlock
+import com.adlessarcade.ui.components.drawSkinBlock
 import com.adlessarcade.ui.components.drawEmptyCell
 import com.adlessarcade.ui.theme.EmptyCell
-import com.adlessarcade.ui.theme.blockColor
+import com.adlessarcade.ui.theme.LocalCosmetics
 
 // Ziffer = Blockfarbe, "." = leeres Feld.
 private val PreviewPattern = listOf(
@@ -21,6 +21,7 @@ private val PreviewPattern = listOf(
 /** Kleine Spielfeld-Illustration für Hauptmenü und Modus-Menü. */
 @Composable
 fun BlockBreakPreview(modifier: Modifier = Modifier) {
+    val skin = LocalCosmetics.current.blockSkin
     Canvas(modifier) {
         val rows = PreviewPattern.size
         val cols = PreviewPattern.first().length
@@ -32,7 +33,7 @@ fun BlockBreakPreview(modifier: Modifier = Modifier) {
                 if (ch == '.') {
                     drawEmptyCell(topLeft, cell, EmptyCell.copy(alpha = 0.6f))
                 } else {
-                    drawBlock(topLeft, cell, blockColor(ch.digitToInt()))
+                    drawSkinBlock(skin, topLeft, cell, ch.digitToInt())
                 }
             }
         }

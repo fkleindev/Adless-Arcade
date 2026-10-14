@@ -5,12 +5,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
 
-private val ArcadeColorScheme = darkColorScheme(
-    primary = NeonViolet,
+private fun colorSchemeFor(palette: ArcadePalette) = darkColorScheme(
+    primary = palette.accent,
     onPrimary = ArcadeText,
-    secondary = NeonCyan,
+    secondary = palette.accent2,
     onSecondary = ArcadeBackground,
     tertiary = NeonPink,
     background = ArcadeBackground,
@@ -29,10 +30,12 @@ private val ArcadeShapes = Shapes(
     large = RoundedCornerShape(24.dp),
 )
 
+/** Dunkles Arcade-Theme; Akzentfarben kommen aus dem im Shop gewählten App-Theme. */
 @Composable
-fun AdlessArcadeTheme(content: @Composable () -> Unit) {
+fun AdlessArcadeTheme(palette: ArcadePalette = LocalCosmetics.current.palette, content: @Composable () -> Unit) {
+    val colorScheme = remember(palette) { colorSchemeFor(palette) }
     MaterialTheme(
-        colorScheme = ArcadeColorScheme,
+        colorScheme = colorScheme,
         typography = ArcadeTypography,
         shapes = ArcadeShapes,
         content = content,

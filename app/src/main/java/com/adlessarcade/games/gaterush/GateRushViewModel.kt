@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.adlessarcade.arcadeApp
+import com.adlessarcade.core.shop.CoinRewards
 import com.adlessarcade.ui.theme.NeonCyan
 import com.adlessarcade.ui.theme.NeonPink
 import com.adlessarcade.ui.theme.NeonYellow
@@ -24,6 +25,7 @@ data class GateRushHud(
     val fireRate: Float = 4f,
     val multishot: Int = 1,
     val pierce: Int = 0,
+    val coins: Int = 0,
 )
 
 /** Rein visuelle Effekte in Weltkoordinaten (Explosionen, schwebende Texte). */
@@ -33,6 +35,7 @@ sealed class GateRushEffect(val x: Float, val z: Float, val color: Color, val li
 
     class Burst(x: Float, z: Float, color: Color, val size: Float) : GateRushEffect(x, z, color, 0.4f)
     class FloatingText(x: Float, z: Float, color: Color, val text: String) : GateRushEffect(x, z, color, 1.2f)
+    class CoinPop(x: Float, z: Float, val amount: Int) : GateRushEffect(x, z, Color.Unspecified, 1.0f)
 }
 
 private val GoodColor = Color(0xFF4ADE80)
@@ -41,6 +44,7 @@ private val BadColor = Color(0xFFFF5C6C)
 class GateRushViewModel(app: Application) : AndroidViewModel(app) {
     private val highscores = app.arcadeApp.highscores
     private val saves = app.arcadeApp.saves
+    private val profile = app.arcadeApp.profile
     private val modeId = GateRush.MODE_ENDLESS
     private var bestAtStart = 0
 
@@ -78,6 +82,14 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
     var loaded by mutableStateOf(false)
         private set
 
+    /** Coin-Bonus für einen neuen Rekord, gutgeschrieben bei Game Over. */
+    var recordBonus by mutableIntStateOf(0)
+        private set
+
+    /** Bereits ins Profil gebuchte Coins dieses Laufs; Gutschriften werden gebündelt. */
+    private var coinsBooked = 0
+    private var coinFlushTimer = 0f
+
     init {
         viewModelScope.launch {
             val stored = highscores.highscore(GateRush.GAME_ID, modeId).first()
@@ -86,6 +98,7 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
             if (json != null && saved == null) saves.clear(GateRush.GAME_ID, modeId) // defekt/inkompatibel
             if (saved != null) {
                 engine.restore(saved.snapshot)
+                coinsBooked = engine.coinsEarned // wurden beim Unterbrechen bereits gutgeschrieben
                 bestAtStart = minOf(saved.bestAtStart, stored)
                 best = maxOf(stored, engine.score)
                 isNewBest = engine.score > bestAtStart
@@ -104,7 +117,16 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         // Absicherung, falls der Screen ohne ON_PAUSE verlassen wird.
+        flushCoins()
         saveRun()
+    }
+
+    private fun flushCoins() {
+        val delta = engine.coinsEarned - coinsBooked
+        if (delta > 0) {
+            profile.addCoins(delta)
+            coinsBooked = engine.coinsEarned
+        }
     }
 
     private fun saveRun() {
@@ -121,6 +143,7 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
             fireRate = stats.fireRate,
             multishot = stats.multishot,
             pierce = stats.pierce,
+            coins = engine.coinsEarned,
         )
     }
 
@@ -134,9 +157,21 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
         refreshHud()
         if (engine.score > best) best = engine.score
         isNewBest = engine.score > bestAtStart
+
+        coinFlushTimer += dt
+        if (coinFlushTimer >= 1f) {
+            coinFlushTimer = 0f
+            flushCoins()
+        }
+
         if (engine.isGameOver) {
             gameOver = true
             submitScore()
+            flushCoins()
+            if (isNewBest) {
+                recordBonus = CoinRewards.NEW_RECORD_BONUS
+                profile.addCoins(recordBonus)
+            }
             saves.clear(GateRush.GAME_ID, modeId)
         }
         frame++
@@ -153,6 +188,7 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
         if (!started || gameOver) return
         paused = true
         submitScore()
+        flushCoins()
         saveRun()
     }
 
@@ -161,9 +197,13 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun restart() {
+        flushCoins()
         saves.clear(GateRush.GAME_ID, modeId)
         bestAtStart = best
         engine = GateRushEngine(Random(System.nanoTime()))
+        coinsBooked = 0
+        coinFlushTimer = 0f
+        recordBonus = 0
         effects.clear()
         hud = GateRushHud()
         damageFlash = 0f
@@ -200,6 +240,9 @@ class GateRushViewModel(app: Application) : AndroidViewModel(app) {
                         engine.playerX, 0.5f, if (event.positive) GoodColor else BadColor, event.text,
                     )
                     if (event.positive) rewardTick++ else hurtTick++
+                }
+                is GateRushEvent.CoinsEarned -> {
+                    effects += GateRushEffect.CoinPop(event.x, event.z, event.amount)
                 }
                 is GateRushEvent.CrateOpened -> {
                     effects += GateRushEffect.Burst(event.x, event.z, NeonYellow, 0.5f)

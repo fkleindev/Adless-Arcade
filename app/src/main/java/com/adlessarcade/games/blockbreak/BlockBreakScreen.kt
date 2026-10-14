@@ -68,7 +68,10 @@ import com.adlessarcade.core.GameRegistry
 import com.adlessarcade.ui.components.ArcadeIconButton
 import com.adlessarcade.ui.components.ArcadeScaffold
 import com.adlessarcade.ui.components.GameOverOverlay
+import com.adlessarcade.ui.components.CoinGold
+import com.adlessarcade.ui.components.CoinIcon
 import com.adlessarcade.ui.components.drawBlock
+import com.adlessarcade.ui.components.drawSkinBlock
 import com.adlessarcade.ui.components.drawEmptyCell
 import com.adlessarcade.ui.theme.ArcadeOutline
 import com.adlessarcade.ui.theme.ArcadeSurface
@@ -79,7 +82,7 @@ import com.adlessarcade.ui.theme.EmptyCell
 import com.adlessarcade.ui.theme.NeonCyan
 import com.adlessarcade.ui.theme.NeonPink
 import com.adlessarcade.ui.theme.NeonYellow
-import com.adlessarcade.ui.theme.blockColor
+import com.adlessarcade.ui.theme.LocalCosmetics
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -117,6 +120,7 @@ fun BlockBreakScreen(
     val ui = viewModel.state
     val game = ui.game
     val haptics = LocalHapticFeedback.current
+    val skin = LocalCosmetics.current.blockSkin
     val liftPx = with(LocalDensity.current) { 56.dp.toPx() }
     val drag = remember { DragController() }
     var showRestartDialog by remember { mutableStateOf(false) }
@@ -203,7 +207,7 @@ fun BlockBreakScreen(
                 Modifier.fillMaxSize().padding(horizontal = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                ScoreHeader(score = game.score, best = ui.best, streak = game.streak)
+                ScoreHeader(score = game.score, best = ui.best, streak = game.streak, coins = game.coinsEarned)
                 Spacer(Modifier.height(12.dp))
                 Box(
                     Modifier
@@ -284,9 +288,9 @@ fun BlockBreakScreen(
                 Canvas(Modifier.fillMaxSize()) {
                     val cell = drag.cellSize
                     val topLeft = drag.pieceTopLeft(draggedPiece.shape, liftPx) - drag.containerOrigin
-                    val color = blockColor(draggedPiece.color)
+                    val color = skin.color(draggedPiece.color)
                     draggedPiece.shape.cells.forEach {
-                        drawBlock(topLeft + Offset(it.col * cell, it.row * cell), cell, color)
+                        drawBlock(topLeft + Offset(it.col * cell, it.row * cell), cell, color, style = skin.style)
                     }
                 }
             }
@@ -298,6 +302,8 @@ fun BlockBreakScreen(
                 isNewBest = ui.isNewBest,
                 onPlayAgain = viewModel::restart,
                 onMenu = onExit,
+                coinsEarned = game.coinsEarned + ui.recordBonus,
+                bonusCoins = ui.recordBonus,
             )
         }
     }
@@ -322,13 +328,17 @@ fun BlockBreakScreen(
 }
 
 @Composable
-private fun ScoreHeader(score: Int, best: Int, streak: Int) {
+private fun ScoreHeader(score: Int, best: Int, streak: Int, coins: Int) {
     val animatedScore by animateIntAsState(score, tween(350), label = "score")
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
             Text("$best", style = MaterialTheme.typography.titleMedium, color = ArcadeTextMuted)
+            Spacer(Modifier.width(16.dp))
+            CoinIcon(16.dp)
+            Spacer(Modifier.width(6.dp))
+            Text("$coins", style = MaterialTheme.typography.titleMedium, color = CoinGold)
         }
         Text("$animatedScore", style = MaterialTheme.typography.displayMedium, color = ArcadeText)
         Box(Modifier.height(22.dp), contentAlignment = Alignment.Center) {
@@ -349,6 +359,7 @@ private fun Board(
     clearEvent: ClearEvent?,
     modifier: Modifier = Modifier,
 ) {
+    val skin = LocalCosmetics.current.blockSkin
     val clearProgress = remember { Animatable(0f) }
     LaunchedEffect(clearEvent?.id) {
         if (clearEvent != null) {
@@ -359,14 +370,14 @@ private fun Board(
 
     Canvas(modifier) {
         val cell = size.width / SIZE
-        val pieceColor = draggedPiece?.let { blockColor(it.color) }
+        val pieceColor = draggedPiece?.let { skin.color(it.color) }
 
         for (i in 0 until BlockBreakEngine.CELL_COUNT) {
             val topLeft = Offset((i % SIZE) * cell, (i / SIZE) * cell)
             val value = board[i]
             when {
-                pieceColor != null && i in previewClear -> drawBlock(topLeft, cell, pieceColor)
-                value != 0 -> drawBlock(topLeft, cell, blockColor(value))
+                pieceColor != null && i in previewClear -> drawBlock(topLeft, cell, pieceColor, style = skin.style)
+                value != 0 -> drawSkinBlock(skin, topLeft, cell, value)
                 else -> drawEmptyCell(topLeft, cell, EmptyCell)
             }
         }
@@ -374,7 +385,7 @@ private fun Board(
         if (draggedPiece != null && target != null && pieceColor != null) {
             draggedPiece.shape.cells.forEach {
                 val topLeft = Offset((target.col + it.col) * cell, (target.row + it.row) * cell)
-                drawBlock(topLeft, cell, pieceColor, alpha = 0.45f)
+                drawBlock(topLeft, cell, pieceColor, alpha = 0.45f, style = skin.style)
             }
         }
 
@@ -385,7 +396,7 @@ private fun Board(
             clearEvent.cells.forEach { (i, color) ->
                 val center = Offset((i % SIZE + 0.5f) * cell, (i / SIZE + 0.5f) * cell)
                 val topLeft = center - Offset(s / 2f, s / 2f)
-                drawBlock(topLeft, s, blockColor(color), alpha = p)
+                drawSkinBlock(skin, topLeft, s, color, alpha = p)
                 drawRoundRect(
                     Color.White,
                     topLeft,
@@ -400,6 +411,7 @@ private fun Board(
 
 @Composable
 private fun TrayPiece(piece: Piece, boardCellSize: Float, enabled: Boolean) {
+    val skin = LocalCosmetics.current.blockSkin
     val appear = remember(piece.id) { Animatable(0f) }
     LaunchedEffect(piece.id) { appear.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 400f)) }
     Canvas(
@@ -417,9 +429,9 @@ private fun TrayPiece(piece: Piece, boardCellSize: Float, enabled: Boolean) {
             (size.width - shape.width * cell) / 2f,
             (size.height - shape.height * cell) / 2f,
         )
-        val color = blockColor(piece.color)
+        val color = skin.color(piece.color)
         shape.cells.forEach {
-            drawBlock(origin + Offset(it.col * cell, it.row * cell), cell, color, alpha = if (enabled) 1f else 0.3f)
+            drawBlock(origin + Offset(it.col * cell, it.row * cell), cell, color, alpha = if (enabled) 1f else 0.3f, style = skin.style)
         }
     }
 }
@@ -463,5 +475,12 @@ private fun ClearPopup(event: ClearEvent?) {
             style = MaterialTheme.typography.displaySmall.merge(textStyle),
             color = ArcadeText,
         )
+        if (event.coins > 0) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CoinIcon(20.dp)
+                Spacer(Modifier.width(6.dp))
+                Text("+${event.coins}", style = MaterialTheme.typography.titleLarge.merge(textStyle), color = CoinGold)
+            }
+        }
     }
 }

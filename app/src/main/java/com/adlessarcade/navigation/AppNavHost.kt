@@ -18,10 +18,12 @@ import com.adlessarcade.games.blockbreak.BlockBreakScreen
 import com.adlessarcade.games.gaterush.GateRush
 import com.adlessarcade.games.gaterush.GateRushScreen
 import com.adlessarcade.ui.home.HomeScreen
+import com.adlessarcade.ui.shop.ShopScreen
 import com.adlessarcade.ui.modes.ModeSelectScreen
 
 private object Routes {
     const val HOME = "home"
+    const val SHOP = "shop"
     const val GAME = "game/{gameId}"
     const val PLAY = "play/{gameId}/{modeId}"
 
@@ -40,7 +42,13 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
         popExitTransition = { fadeOut(tween(180)) + slideOutHorizontally(tween(220)) { it / 10 } },
     ) {
         composable(Routes.HOME) {
-            HomeScreen(onGameClick = { navController.navigate(Routes.game(it.id)) })
+            HomeScreen(
+                onGameClick = { navController.navigate(Routes.game(it.id)) },
+                onShopClick = { navController.navigate(Routes.SHOP) { launchSingleTop = true } },
+            )
+        }
+        composable(Routes.SHOP) { entry ->
+            ShopScreen(onBack = { navController.popIfCurrent(entry) })
         }
         composable(Routes.GAME) { entry ->
             val game = GameRegistry.find(entry.arguments?.getString("gameId")) ?: return@composable

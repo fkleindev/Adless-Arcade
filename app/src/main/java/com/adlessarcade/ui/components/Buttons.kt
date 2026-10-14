@@ -14,7 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import com.adlessarcade.ui.theme.ArcadeAccentBrush
+import com.adlessarcade.ui.theme.LocalCosmetics
 import com.adlessarcade.ui.theme.ArcadeOutline
 import com.adlessarcade.ui.theme.ArcadeSurfaceHigh
 import com.adlessarcade.ui.theme.ArcadeText
@@ -28,7 +28,7 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
             .fillMaxWidth()
             .height(54.dp)
             .clip(ButtonShape)
-            .background(ArcadeAccentBrush)
+            .background(LocalCosmetics.current.palette.accentBrush)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

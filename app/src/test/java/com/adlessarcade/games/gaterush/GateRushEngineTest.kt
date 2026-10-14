@@ -135,6 +135,21 @@ class GateRushEngineTest {
     }
 
     @Test
+    fun killingBoss_andOpeningCrate_earnCoins() {
+        val e = engine()
+        e.stats.damage = 10_000f
+        e.spawnEnemy(EnemyType.BOSS, x = 0f, z = 6f)
+        e.run(0.5f)
+        assertEquals(GateRushEngine.BOSS_COINS, e.coinsEarned)
+
+        e.spawnCrate(x = 0f, hits = 1, reward = CrateReward.HEART, z = 6f)
+        e.run(0.5f)
+        assertEquals(GateRushEngine.BOSS_COINS + GateRushEngine.CRATE_COINS, e.coinsEarned)
+        val coinEvents = e.drainEvents().filterIsInstance<GateRushEvent.CoinsEarned>()
+        assertEquals(e.coinsEarned, coinEvents.sumOf { it.amount })
+    }
+
+    @Test
     fun save_roundTripRestoresIdenticalSnapshot() {
         val e = engine(autoSpawn = true)
         e.stats.hearts = 99 // Lauf soll sicher nicht vorher enden

@@ -1,6 +1,5 @@
 package com.adlessarcade.ui.theme
 
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
 val ArcadeBackground = Color(0xFF0B0C12)
@@ -30,7 +29,4 @@ val BlockColors = listOf(
     Color(0xFFA78BFA),
 )
 
-fun blockColor(value: Int): Color = BlockColors[(value - 1).mod(BlockColors.size)]
 
-val ArcadeBackgroundBrush = Brush.verticalGradient(listOf(ArcadeBackgroundTop, ArcadeBackground, ArcadeBackground))
-val ArcadeAccentBrush = Brush.linearGradient(listOf(NeonViolet, NeonCyan))

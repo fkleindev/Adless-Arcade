@@ -127,6 +127,26 @@ class BlockBreakEngineTest {
     }
 
     @Test
+    fun coins_equalLinesTimesStreak_plusBoardClearBonus() {
+        // Zwei Linien gleichzeitig im zweiten Combo-Zug: 2 × 2 = 4 Coins, Brett danach nicht leer.
+        val filled = rowExcept(0, 0) + (1 until SIZE).map { it to 0 } + listOf(5 to 5)
+        val state = GameState(boardWith(*filled.toTypedArray()), listOf(piece(dot), piece(dot), piece(dot)), streak = 1)
+        val result = requireNotNull(BlockBreakEngine.place(state, 0, 0, 0, random))
+        assertEquals(4, result.coins)
+        assertEquals(4, result.state.coinsEarned)
+
+        // Leeres Brett: 1 Linie × Combo 1 + Bonus.
+        val clearing = GameState(boardWith(*rowExcept(0, 7).toTypedArray()), listOf(piece(dot), piece(dot), piece(dot)))
+        val cleared = requireNotNull(BlockBreakEngine.place(clearing, 0, 0, 7, random))
+        assertEquals(1 + BlockBreakEngine.BOARD_CLEAR_COINS, cleared.coins)
+
+        // Ohne Linie keine Coins.
+        val none = requireNotNull(BlockBreakEngine.place(cleared.state, 1, 4, 4, random))
+        assertEquals(0, none.coins)
+        assertEquals(cleared.state.coinsEarned, none.state.coinsEarned)
+    }
+
+    @Test
     fun save_roundTripRestoresIdenticalState() {
         var state = BlockBreakEngine.newGame(Random(3))
         // Einige gültige Züge machen, damit Brett, Tray und Score nicht trivial sind.

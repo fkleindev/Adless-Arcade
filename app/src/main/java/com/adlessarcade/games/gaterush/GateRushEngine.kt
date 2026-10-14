@@ -102,6 +102,7 @@ sealed interface GateRushEvent {
     data class HeartsLost(val amount: Int) : GateRushEvent
     data class GatePassed(val text: String, val positive: Boolean) : GateRushEvent
     data class CrateOpened(val x: Float, val z: Float, val text: String) : GateRushEvent
+    data class CoinsEarned(val x: Float, val z: Float, val amount: Int) : GateRushEvent
 }
 
 class GateRushEngine(
@@ -121,6 +122,8 @@ class GateRushEngine(
         const val MIN_FIRE_RATE = 1.5f
         const val MAX_FIRE_RATE = 18f
         const val BOSS_INTERVAL = 60f
+        const val BOSS_COINS = 25
+        const val CRATE_COINS = 3
         private const val STEP = 1f / 120f
         private const val MAX_STEPS_PER_UPDATE = 12
         private const val HIT_DEPTH = 0.45f
@@ -143,6 +146,9 @@ class GateRushEngine(
     var killScore = 0
         private set
     var isGameOver = false
+        private set
+    /** In diesem Lauf verdiente Coins. */
+    var coinsEarned = 0
         private set
 
     val score: Int get() = killScore + (distance / 2f).toInt()
@@ -170,6 +176,7 @@ class GateRushEngine(
         time = time,
         distance = distance,
         killScore = killScore,
+        coinsEarned = coinsEarned,
         nextId = nextId,
         fireCooldown = fireCooldown,
         enemyTimer = enemyTimer,
@@ -188,6 +195,7 @@ class GateRushEngine(
         time = s.time
         distance = s.distance
         killScore = s.killScore
+        coinsEarned = s.coinsEarned
         nextId = s.nextId
         fireCooldown = s.fireCooldown
         enemyTimer = s.enemyTimer
@@ -319,6 +327,7 @@ class GateRushEngine(
             if (crate.hitsLeft <= 0) {
                 applyReward(crate.reward)
                 events += GateRushEvent.CrateOpened(crate.x, crate.z, crate.reward.label)
+                earnCoins(crate.x, crate.z, CRATE_COINS)
                 iterator.remove()
             }
             return true
@@ -338,6 +347,7 @@ class GateRushEngine(
             if (e.hp <= 0f) {
                 killScore += e.type.score
                 events += GateRushEvent.EnemyKilled(e.x, e.z, e.type)
+                earnCoins(e.x, e.z, coinDrop(e.type))
                 iterator.remove()
             }
             if (b.pierceLeft > 0) {
@@ -385,6 +395,20 @@ class GateRushEngine(
             crate.hitFlash = (crate.hitFlash - dt * 6f).coerceAtLeast(0f)
             if (crate.z <= 0f) iterator.remove()
         }
+    }
+
+    /** Coins, die ein besiegter Gegner fallen lässt (kleine Gegner nur mit gewisser Chance). */
+    private fun coinDrop(type: EnemyType): Int = when (type) {
+        EnemyType.RUNNER -> if (random.nextFloat() < 0.10f) 1 else 0
+        EnemyType.SWARM -> if (random.nextFloat() < 0.05f) 1 else 0
+        EnemyType.BRUTE -> 2
+        EnemyType.BOSS -> BOSS_COINS
+    }
+
+    private fun earnCoins(x: Float, z: Float, amount: Int) {
+        if (amount <= 0) return
+        coinsEarned += amount
+        events += GateRushEvent.CoinsEarned(x, z, amount)
     }
 
     private fun loseHearts(amount: Int) {

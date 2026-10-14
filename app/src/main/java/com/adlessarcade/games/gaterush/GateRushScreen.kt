@@ -42,6 +42,9 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.adlessarcade.core.GameRegistry
 import com.adlessarcade.ui.components.ArcadeIconButton
+import com.adlessarcade.ui.components.CoinGold
+import com.adlessarcade.ui.components.CoinIcon
+import com.adlessarcade.ui.theme.LocalCosmetics
 import com.adlessarcade.ui.components.ArcadeScaffold
 import com.adlessarcade.ui.components.GameOverOverlay
 import com.adlessarcade.ui.components.PrimaryButton
@@ -62,6 +65,7 @@ fun GateRushScreen(
 ) {
     val haptics = LocalHapticFeedback.current
     val textMeasurer = rememberTextMeasurer(cacheSize = 32)
+    val heroSkin = LocalCosmetics.current.heroSkin
     val hud = viewModel.hud
 
     // Game-Loop: läuft solange der Screen sichtbar ist, das ViewModel ignoriert Frames in Pause.
@@ -118,7 +122,7 @@ fun GateRushScreen(
                     }
             ) {
                 viewModel.frame // Lesen registriert das Neuzeichnen pro Frame
-                drawGateRush(viewModel.engine, viewModel.effects, viewModel.damageFlash, textMeasurer)
+                drawGateRush(viewModel.engine, viewModel.effects, viewModel.damageFlash, textMeasurer, heroSkin)
             }
 
             Hud(hud = hud, best = viewModel.best, modifier = Modifier.align(Alignment.TopCenter))
@@ -144,6 +148,8 @@ fun GateRushScreen(
                 onPlayAgain = viewModel::restart,
                 onMenu = onExit,
                 message = "Die Gegner haben die Linie durchbrochen",
+                coinsEarned = hud.coins + viewModel.recordBonus,
+                bonusCoins = viewModel.recordBonus,
             )
         }
     }
@@ -163,10 +169,17 @@ private fun Hud(hud: GateRushHud, best: Int, modifier: Modifier = Modifier) {
             }
         }
         Text("${hud.score}", style = MaterialTheme.typography.headlineMedium, color = ArcadeText)
-        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(4.dp))
-            Text("$best", style = MaterialTheme.typography.titleMedium, color = ArcadeTextMuted)
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("$best", style = MaterialTheme.typography.titleMedium, color = ArcadeTextMuted)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CoinIcon(16.dp)
+                Spacer(Modifier.width(4.dp))
+                Text("${hud.coins}", style = MaterialTheme.typography.titleMedium, color = CoinGold)
+            }
         }
     }
 }

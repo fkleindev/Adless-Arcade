@@ -30,6 +30,8 @@ data class GateRushSnapshot(
     val time: Float,
     val distance: Float,
     val killScore: Int,
+    /** Default 0: Spielstände aus Versionen ohne Coins bleiben ladbar. */
+    val coinsEarned: Int = 0,
     val nextId: Long,
     val fireCooldown: Float,
     val enemyTimer: Float,
