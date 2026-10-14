@@ -52,7 +52,13 @@ data class FullLines(val rows: List<Int>, val cols: List<Int>) {
 }
 
 object PieceCatalog {
-    private class Family(val orientations: List<Shape>, val weight: Double)
+    private class Family(val orientations: List<Shape>, val weight: Double) {
+        val cellCount = orientations.first().cells.size
+
+        /** Mit steigender Schwierigkeit werden große Teile häufiger und kleine seltener. */
+        fun weightAt(difficulty: Float): Double =
+            weight * (1.0 + difficulty * (cellCount - 3) * 0.3).coerceAtLeast(0.25)
+    }
 
     // "X" = Block, "." = leer, "/" = neue Zeile. Alle Drehungen/Spiegelungen werden erzeugt;
     // der Spieler kann Teile (wie bei Block Blast) selbst nicht drehen.
@@ -71,8 +77,6 @@ object PieceCatalog {
         "XXX/.X." to 2.0,
         "XX./.XX" to 2.0,
     ).map { (pattern, weight) -> Family(orientations(parse(pattern)), weight) }
-
-    private val totalWeight = families.sumOf { it.weight }
 
     val allShapes: List<Shape> get() = families.flatMap { it.orientations }
 
@@ -101,10 +105,12 @@ object PieceCatalog {
         return result.toList()
     }
 
-    fun randomShape(random: Random): Shape {
-        var pick = random.nextDouble() * totalWeight
-        for (family in families) {
-            pick -= family.weight
+    /** Zufällige Form nach Familiengewicht; [difficulty] ∈ [0, 1] verschiebt Richtung große Teile. */
+    fun randomShape(random: Random, difficulty: Float = 0f): Shape {
+        val weights = families.map { it.weightAt(difficulty) }
+        var pick = random.nextDouble() * weights.sum()
+        for ((i, family) in families.withIndex()) {
+            pick -= weights[i]
             if (pick <= 0) return family.orientations.random(random)
         }
         return families.last().orientations.random(random)
@@ -120,7 +126,19 @@ object BlockBreakEngine {
     const val COMBO_WINDOW = 3
     const val BOARD_CLEAR_BONUS = 300
     const val BOARD_CLEAR_COINS = 10
+    /** Ab dieser Punktzahl gibt es keine Starthilfe mehr. */
+    const val ASSIST_FADE_SCORE = 2500
+    /** Über so viele Punkte nach dem Ende der Starthilfe steigt die Schwierigkeit bis zum Maximum. */
+    const val DIFFICULTY_RAMP_SCORE = 6000
     private const val GENERATION_ATTEMPTS = 24
+    private const val ASSISTED_ATTEMPTS = 16
+    /** Bei maximaler Schwierigkeit: Chance, dass ein Set ohne Lösbarkeitsgarantie kommt. */
+    private const val MAX_UNSOLVABLE_CHANCE = 0.15f
+    private const val LINE_VALUE = 12
+    private const val BOARD_CLEAR_VALUE = 60
+    private const val EMPTINESS_WEIGHT = 2
+
+    private val NEIGHBORS = listOf(-1 to 0, 1 to 0, 0 to -1, 0 to 1)
 
     private val ORDERS = listOf(
         listOf(0, 1, 2), listOf(0, 2, 1), listOf(1, 0, 2),
@@ -198,7 +216,7 @@ object BlockBreakEngine {
         }
 
         var tray = state.tray.toMutableList().also { it[slot] = null }.toList()
-        if (tray.all { it == null }) tray = generateTray(board, random)
+        if (tray.all { it == null }) tray = generateTray(board, random, state.score + points)
 
         val newState = GameState(
             board = board,
@@ -219,18 +237,56 @@ object BlockBreakEngine {
         )
     }
 
+    // --- Teile-Erzeugung: Starthilfe & Schwierigkeit ---
+
     /**
-     * Erzeugt ein neues 3er-Set. Bevorzugt Sets, die sich (in irgendeiner Reihenfolge) komplett
-     * setzen lassen, damit das Spiel fair bleibt – schlechte Züge werden trotzdem bestraft.
+     * Starthilfe ∈ [0, 1]: 1 bei Spielbeginn, 0 ab [ASSIST_FADE_SCORE]. Solange sie wirkt, werden bevorzugt Teile
+     * gegeben, die zu den Lücken auf dem Brett passen und Linien bzw. einen Full Clear ermöglichen.
      */
-    fun generateTray(board: List<Int>, random: Random): List<Piece?> {
-        var fallback: List<Shape>? = null
-        repeat(GENERATION_ATTEMPTS) {
-            val shapes = List(TRAY_SIZE) { PieceCatalog.randomShape(random) }
-            if (fitsInSomeOrder(board, shapes)) return shapes.toPieces(random)
-            if (fallback == null && shapes.any { canPlaceAnywhere(board, it) }) fallback = shapes
+    fun assistLevel(score: Int): Float = (1f - score.toFloat() / ASSIST_FADE_SCORE).coerceIn(0f, 1f)
+
+    /** Schwierigkeit ∈ [0, 1]: steigt nach dem Ende der Starthilfe über [DIFFICULTY_RAMP_SCORE] Punkte an. */
+    fun difficultyLevel(score: Int): Float =
+        ((score - ASSIST_FADE_SCORE).toFloat() / DIFFICULTY_RAMP_SCORE).coerceIn(0f, 1f)
+
+    /**
+     * Erzeugt ein neues 3er-Set für den Punktestand [score].
+     * - Starthilfe: Formen werden nach ihrem Nutzen auf dem aktuellen Brett gewichtet, und aus mehreren
+     *   Kandidaten wird das Set mit dem besten Ergebnis (Linien, Full Clear, Passform) gewählt.
+     * - Danach: zufällige Sets, die sich in irgendeiner Reihenfolge komplett setzen lassen.
+     * - Hohe Schwierigkeit: größere Teile, und gelegentlich entfällt die Lösbarkeitsgarantie.
+     */
+    fun generateTray(board: List<Int>, random: Random, score: Int = 0): List<Piece?> {
+        val assist = assistLevel(score)
+        val difficulty = difficultyLevel(score)
+        val grid = board.toIntArray()
+        val helpful = if (assist > 0f) shapeHelpfulness(grid) else emptyList()
+        val optimize = random.nextFloat() < assist
+        val strict = random.nextFloat() >= difficulty * MAX_UNSOLVABLE_CHANCE
+
+        fun randomSet() = List(TRAY_SIZE) {
+            if (helpful.isNotEmpty() && random.nextFloat() < assist) pickWeighted(helpful, random)
+            else PieceCatalog.randomShape(random, difficulty)
         }
-        val shapes = fallback ?: List(TRAY_SIZE) { PieceCatalog.randomShape(random) }
+
+        var best: List<Shape>? = null
+        var bestValue = Int.MIN_VALUE
+        var fallback: List<Shape>? = null
+        repeat(if (optimize) ASSISTED_ATTEMPTS else GENERATION_ATTEMPTS) {
+            val shapes = randomSet()
+            if (!strict && shapes.any { canPlaceAnywhere(board, it) }) return shapes.toPieces(random)
+            val value = evaluateSet(grid, shapes)
+            if (value != null) {
+                if (!optimize) return shapes.toPieces(random)
+                if (value > bestValue) {
+                    best = shapes
+                    bestValue = value
+                }
+            } else if (fallback == null && shapes.any { canPlaceAnywhere(board, it) }) {
+                fallback = shapes
+            }
+        }
+        val shapes = best ?: fallback ?: randomSet()
         return shapes.toPieces(random)
     }
 
@@ -238,33 +294,116 @@ object BlockBreakEngine {
         Piece(id = random.nextLong(), shape = shape, color = random.nextInt(1, COLOR_COUNT + 1))
     }
 
-    private fun fitsInSomeOrder(board: List<Int>, shapes: List<Shape>): Boolean =
-        ORDERS.any { order ->
-            var current = board
-            order.all { i ->
-                val next = bestPlacement(current, shapes[i])
-                if (next != null) current = next
-                next != null
+    /** Alle setzbaren Formen mit Gewicht nach ihrem besten Einzelzug (Linien zählen stark, dann Passform). */
+    private fun shapeHelpfulness(grid: IntArray): List<Pair<Shape, Double>> =
+        PieceCatalog.allShapes.mapNotNull { shape ->
+            bestStep(grid, shape)?.let { step ->
+                val v = 1.0 + step.value + if (step.boardCleared) BOARD_CLEAR_VALUE else 0
+                shape to v * v
             }
         }
 
-    /** Greedy: Position mit den meisten gelöschten Linien, Ergebnis-Board nach dem Clear. */
-    private fun bestPlacement(board: List<Int>, shape: Shape): List<Int>? {
-        var best: List<Int>? = null
-        var bestLines = -1
+    private fun pickWeighted(options: List<Pair<Shape, Double>>, random: Random): Shape {
+        var pick = random.nextDouble() * options.sumOf { it.second }
+        for ((shape, weight) in options) {
+            pick -= weight
+            if (pick <= 0) return shape
+        }
+        return options.last().first
+    }
+
+    /** Bestes Ergebnis über alle Reihenfolgen, oder null, wenn sich das Set in keiner Reihenfolge ganz setzen lässt. */
+    private fun evaluateSet(grid: IntArray, shapes: List<Shape>): Int? {
+        var best: Int? = null
+        for (order in ORDERS) {
+            var current = grid
+            var total = 0
+            var complete = true
+            for (i in order) {
+                val step = bestStep(current, shapes[i])
+                if (step == null) {
+                    complete = false
+                    break
+                }
+                total += step.value + if (step.boardCleared) BOARD_CLEAR_VALUE else 0
+                current = step.board
+            }
+            // Je leerer das Brett danach, desto näher ist der nächste Full Clear.
+            total -= current.count { it != 0 } * EMPTINESS_WEIGHT
+            if (complete && (best == null || total > best)) best = total
+        }
+        return best
+    }
+
+    private class Step(val board: IntArray, val value: Int, val boardCleared: Boolean)
+
+    /**
+     * Greedy-Zug für die Simulation: Position mit den meisten Linien, bei Gleichstand die mit der besten Passform
+     * (Kontakt zu Blöcken und Rand). Liefert das Brett nach dem Löschen.
+     */
+    private fun bestStep(grid: IntArray, shape: Shape): Step? {
+        val rowFill = IntArray(SIZE)
+        val colFill = IntArray(SIZE)
+        for (i in 0 until CELL_COUNT) {
+            if (grid[i] != 0) {
+                rowFill[i / SIZE]++
+                colFill[i % SIZE]++
+            }
+        }
+        var bestValue = -1
+        var bestRow = -1
+        var bestCol = -1
         for (r in 0..SIZE - shape.height) {
             for (c in 0..SIZE - shape.width) {
-                if (!canPlace(board, shape, r, c)) continue
-                val placed = applyPlacement(board, shape, r, c, 1)
-                val lines = fullLines(placed)
-                if (lines.count > bestLines) {
-                    bestLines = lines.count
-                    val cleared = lines.cellIndices()
-                    best = placed.mapIndexed { i, v -> if (i in cleared) 0 else v }
+                if (!fits(grid, shape, r, c)) continue
+                val value = completedLines(shape, r, c, rowFill, colFill) * LINE_VALUE + contact(grid, shape, r, c)
+                if (value > bestValue) {
+                    bestValue = value
+                    bestRow = r
+                    bestCol = c
                 }
             }
         }
-        return best
+        if (bestRow < 0) return null
+
+        val next = grid.copyOf()
+        shape.cells.forEach { next[index(bestRow + it.row, bestCol + it.col)] = 1 }
+        val fullRows = (0 until SIZE).filter { row -> (0 until SIZE).all { next[index(row, it)] != 0 } }
+        val fullCols = (0 until SIZE).filter { col -> (0 until SIZE).all { next[index(it, col)] != 0 } }
+        fullRows.forEach { row -> for (col in 0 until SIZE) next[index(row, col)] = 0 }
+        fullCols.forEach { col -> for (row in 0 until SIZE) next[index(row, col)] = 0 }
+        val cleared = (fullRows.isNotEmpty() || fullCols.isNotEmpty()) && next.all { it == 0 }
+        return Step(next, bestValue, cleared)
+    }
+
+    private fun fits(grid: IntArray, shape: Shape, row: Int, col: Int): Boolean =
+        shape.cells.all { grid[index(row + it.row, col + it.col)] == 0 }
+
+    /** Anzahl der Reihen und Spalten, die durch das Setzen voll würden (ohne das Brett zu kopieren). */
+    private fun completedLines(shape: Shape, row: Int, col: Int, rowFill: IntArray, colFill: IntArray): Int {
+        var lines = 0
+        for (dr in 0 until shape.height) {
+            if (rowFill[row + dr] + shape.cells.count { it.row == dr } == SIZE) lines++
+        }
+        for (dc in 0 until shape.width) {
+            if (colFill[col + dc] + shape.cells.count { it.col == dc } == SIZE) lines++
+        }
+        return lines
+    }
+
+    /** Wie gut das Teil anliegt: Kanten, die an belegte Felder oder den Rand grenzen. */
+    private fun contact(grid: IntArray, shape: Shape, row: Int, col: Int): Int {
+        var touching = 0
+        for (cell in shape.cells) {
+            val r = row + cell.row
+            val c = col + cell.col
+            for ((dr, dc) in NEIGHBORS) {
+                val nr = r + dr
+                val nc = c + dc
+                if (nr !in 0 until SIZE || nc !in 0 until SIZE || grid[index(nr, nc)] != 0) touching++
+            }
+        }
+        return touching
     }
 
     private fun applyPlacement(board: List<Int>, shape: Shape, row: Int, col: Int, color: Int): List<Int> {

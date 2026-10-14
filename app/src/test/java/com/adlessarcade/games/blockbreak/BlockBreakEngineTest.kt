@@ -127,6 +127,42 @@ class BlockBreakEngineTest {
     }
 
     @Test
+    fun assistAndDifficulty_followScore() {
+        assertEquals(1f, BlockBreakEngine.assistLevel(0), 0.001f)
+        assertEquals(0.5f, BlockBreakEngine.assistLevel(BlockBreakEngine.ASSIST_FADE_SCORE / 2), 0.001f)
+        assertEquals(0f, BlockBreakEngine.assistLevel(BlockBreakEngine.ASSIST_FADE_SCORE), 0.001f)
+        assertEquals(0f, BlockBreakEngine.difficultyLevel(BlockBreakEngine.ASSIST_FADE_SCORE), 0.001f)
+        val max = BlockBreakEngine.ASSIST_FADE_SCORE + BlockBreakEngine.DIFFICULTY_RAMP_SCORE
+        assertEquals(1f, BlockBreakEngine.difficultyLevel(max), 0.001f)
+        assertEquals(1f, BlockBreakEngine.difficultyLevel(max * 10), 0.001f)
+    }
+
+    @Test
+    fun startBoost_offersLineClearsMoreOftenThanLateGame() {
+        val rnd = Random(99)
+        var assisted = 0
+        var late = 0
+        repeat(120) { k ->
+            val board = MutableList(SIZE * SIZE) { if (rnd.nextFloat() < 0.45f) 1 else 0 }
+            fun canClear(tray: List<Piece?>) = tray.filterNotNull().any { p ->
+                (0 until SIZE).any { r -> (0 until SIZE).any { c -> BlockBreakEngine.previewClear(board, p.shape, r, c).isNotEmpty() } }
+            }
+            if (canClear(BlockBreakEngine.generateTray(board, Random(k), score = 0))) assisted++
+            if (canClear(BlockBreakEngine.generateTray(board, Random(k), score = 5_000))) late++
+        }
+        assertTrue("mit Starthilfe $assisted, später $late", assisted > late + 20)
+    }
+
+    @Test
+    fun highDifficulty_favorsLargerPieces() {
+        fun averageCells(difficulty: Float): Double {
+            val rnd = Random(5)
+            return List(2_000) { PieceCatalog.randomShape(rnd, difficulty).cells.size }.average()
+        }
+        assertTrue(averageCells(1f) > averageCells(0f) + 0.5)
+    }
+
+    @Test
     fun coins_equalLinesTimesStreak_plusBoardClearBonus() {
         // Zwei Linien gleichzeitig im zweiten Combo-Zug: 2 × 2 = 4 Coins, Brett danach nicht leer.
         val filled = rowExcept(0, 0) + (1 until SIZE).map { it to 0 } + listOf(5 to 5)
