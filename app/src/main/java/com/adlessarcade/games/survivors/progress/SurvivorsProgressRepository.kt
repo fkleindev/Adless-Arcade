@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.adlessarcade.core.SaveJson
 import com.adlessarcade.core.WriteQueue
+import com.adlessarcade.games.survivors.SurvivorsStage
 import com.adlessarcade.games.survivors.WeaponKind
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -28,6 +29,7 @@ class SurvivorsProgressRepository(private val context: Context) {
     private val runesKey = intPreferencesKey("runes")
     private val unlockedKey = stringSetPreferencesKey("unlocked")
     private val selectedKey = stringPreferencesKey("selected_class")
+    private val stageKey = stringPreferencesKey("selected_stage")
     private val statsKey = stringPreferencesKey("stats")
     private val migratedKey = booleanPreferencesKey("legacy_migrated")
     private val statsSerializer = MapSerializer(String.serializer(), Int.serializer())
@@ -40,6 +42,7 @@ class SurvivorsProgressRepository(private val context: Context) {
         runes = this[runesKey] ?: 0,
         unlocked = this[unlockedKey] ?: emptySet(),
         selectedClass = this[selectedKey],
+        selectedStage = this[stageKey],
         stats = stats(),
     )
 
@@ -59,11 +62,17 @@ class SurvivorsProgressRepository(private val context: Context) {
         }
     }
 
+    fun selectStage(stage: SurvivorsStage) {
+        writes.enqueue {
+            context.survivorsStore.edit { it[stageKey] = stage.id }
+        }
+    }
+
     /** Zähler eines beendeten Laufs verbuchen (Sieg, Bosse, Zeit). */
-    fun recordRun(victory: Boolean, bossesKilled: Int, seconds: Int) {
+    fun recordRun(victory: Boolean, bossesKilled: Int, seconds: Int, stage: SurvivorsStage = SurvivorsStage.MEADOW) {
         writes.enqueue {
             context.survivorsStore.edit { prefs ->
-                val updated = UnlockLogic.afterRun(prefs.stats(), victory, bossesKilled, seconds)
+                val updated = UnlockLogic.afterRun(prefs.stats(), victory, bossesKilled, seconds, stage)
                 prefs[statsKey] = SaveJson.encodeToString(statsSerializer, updated)
             }
         }
@@ -91,6 +100,7 @@ class SurvivorsProgressRepository(private val context: Context) {
                 prefs[runesKey] = updated.runes
                 prefs[unlockedKey] = updated.unlocked
                 if (unlock.kind == UnlockKind.CLASS) prefs[selectedKey] = unlock.id
+                if (unlock.kind == UnlockKind.STAGE) SurvivorsStage.entries.firstOrNull { it.unlockId == unlock.id }?.let { prefs[stageKey] = it.id }
                 success = true
             }
         } catch (e: IOException) {

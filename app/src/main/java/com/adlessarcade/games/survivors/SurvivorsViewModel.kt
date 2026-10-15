@@ -67,7 +67,9 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
     private val achievements = AchievementTracker(profile)
 
     val mode = SurvivorsMode.fromId(savedStateHandle.get<String>("modeId"))
-    private val scoreKey = mode.id
+    /** Spielstand-Slot pro Modus; Rekorde pro Modus und Stage. */
+    private val saveKey = mode.id
+    private var scoreKey = mode.id
 
     /** null = Klassenwahl (noch kein Lauf). */
     var engine by mutableStateOf<SurvivorsEngine?>(null)
@@ -120,10 +122,12 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
 
     init {
         viewModelScope.launch {
-            val stored = highscores.highscore(Survivors.GAME_ID, scoreKey).first()
-            val json = saves.load(Survivors.GAME_ID, scoreKey)
+            val json = saves.load(Survivors.GAME_ID, saveKey)
             val saved = json?.let(SurvivorsSaves::decode)
-            if (json != null && saved == null) saves.clear(Survivors.GAME_ID, scoreKey)
+            if (json != null && saved == null) saves.clear(Survivors.GAME_ID, saveKey)
+            // Rekord der Stage des fortgesetzten Laufs (sonst der Wiese bis zum Start)
+            scoreKey = (saved?.state?.stage ?: SurvivorsStage.MEADOW).scoreKey(mode)
+            val stored = highscores.highscore(Survivors.GAME_ID, scoreKey).first()
             if (saved != null) {
                 val restored = SurvivorsEngine(saved.state, System.nanoTime())
                 coinsBooked = saved.state.coinsEarned
@@ -145,9 +149,28 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
     }
 
     /** Startet einen neuen Lauf mit der gewählten Klasse und merkt sie sich als Standard. */
-    fun start(heroClass: HeroClass, availableWeapons: Set<WeaponKind> = WeaponKind.BASE) {
+    fun start(
+        heroClass: HeroClass,
+        availableWeapons: Set<WeaponKind> = WeaponKind.BASE,
+        stage: SurvivorsStage = SurvivorsStage.MEADOW,
+    ) {
         progress.select(heroClass.shopId)
-        engine = SurvivorsEngine.newGame(heroClass, mode, System.nanoTime(), availableWeapons)
+        progress.selectStage(stage)
+        val key = stage.scoreKey(mode)
+        if (key != scoreKey) {
+            // Rekord der gewählten Stage laden; bis dahin zählt kein Lauf als neuer Rekord.
+            scoreKey = key
+            bestAtStart = Int.MAX_VALUE
+            best = 0
+            viewModelScope.launch {
+                val stored = highscores.highscore(Survivors.GAME_ID, key).first()
+                if (scoreKey == key) {
+                    bestAtStart = stored
+                    best = maxOf(best, stored)
+                }
+            }
+        }
+        engine = SurvivorsEngine.newGame(heroClass, mode, System.nanoTime(), availableWeapons, stage)
         effects.clear()
         coinsBooked = 0
         runesBooked = 0
@@ -238,9 +261,9 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
                 recordBonus = CoinRewards.NEW_RECORD_BONUS
                 profile.addCoins(recordBonus)
             }
-            saves.clear(Survivors.GAME_ID, scoreKey)
+            saves.clear(Survivors.GAME_ID, saveKey)
             submitToLeaderboard(e)
-            progress.recordRun(e.state.victory, e.state.bossesKilled, e.state.time.toInt())
+            progress.recordRun(e.state.victory, e.state.bossesKilled, e.state.time.toInt(), e.state.stage)
         }
         frame++
     }
@@ -261,7 +284,7 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
     /** Zurück zur Klassenwahl für einen neuen Lauf. */
     fun restart() {
         flushCoins()
-        saves.clear(Survivors.GAME_ID, scoreKey)
+        saves.clear(Survivors.GAME_ID, saveKey)
         bestAtStart = best
         engine = null
         effects.clear()
@@ -282,7 +305,7 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
     private fun saveRun() {
         val e = engine ?: return
         if (finished || e.isOver) return
-        saves.save(Survivors.GAME_ID, scoreKey, SurvivorsSaves.encode(e.state, bestAtStart), e.score)
+        saves.save(Survivors.GAME_ID, saveKey, SurvivorsSaves.encode(e.state, bestAtStart), e.score)
     }
 
     /** Bucht neu verdiente Coins (Profil) und Runen (Runen-Schmiede) gebündelt. */
@@ -338,7 +361,7 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
         val details = "%d:%02d · %d Kills · Stufe %d".format(seconds / 60, seconds % 60, s.kills, s.level)
         viewModelScope.launch {
             val rank = leaderboards.submit(
-                LeaderboardKey(Survivors.GAME_ID, mode.id, s.heroClass.shopId),
+                LeaderboardKey(Survivors.GAME_ID, mode.id, s.stage.leaderboardVariant(s.heroClass)),
                 LeaderboardEntry(e.score, System.currentTimeMillis(), details, victory = s.victory),
             )
             if (engine === e) leaderboardRank = rank
@@ -369,7 +392,7 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
                 is SurvivorsEvent.Dodged -> if (effects.size < MAX_FX) {
                     effects += SurvivorsFx.Text(event.x, event.y, "Ausgewichen", Color(0xFFCBD5E1))
                 }
-                is SurvivorsEvent.EnemyKilled -> if (event.elite || event.kind == EnemyKind.BOSS || event.kind == EnemyKind.DEMON) {
+                is SurvivorsEvent.EnemyKilled -> if (event.elite || event.kind.isFinalBoss || event.kind.isMidBoss) {
                     effects += SurvivorsFx.Blast(event.x, event.y, 1.5f, Color(0xFFFACC15))
                 }
                 is SurvivorsEvent.PlayerHit -> {
@@ -383,10 +406,14 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
                     effects += SurvivorsFx.Blast(e.state.px, e.state.py, 3f, Color(0xFFFACC15))
                 }
                 is SurvivorsEvent.BossSpawned -> {
-                    showBanner(if (event.kind == EnemyKind.DEMON) "DER ENDBOSS NAHT!" else "${event.kind.title.uppercase()} ERSCHEINT!")
+                    showBanner(if (event.kind.isFinalBoss) "DER ENDBOSS NAHT!" else "${event.kind.title.uppercase()} ERSCHEINT!")
                     hurtTick++
                 }
                 is SurvivorsEvent.Victory -> showBanner("SIEG!")
+                is SurvivorsEvent.Enraged -> {
+                    showBanner("DIE HORDE WIRD RASEND!")
+                    hurtTick++
+                }
                 is SurvivorsEvent.CoinsEarned -> effects += SurvivorsFx.CoinPop(event.x, event.y, event.amount)
                 is SurvivorsEvent.RunesEarned -> effects += SurvivorsFx.RunePop(event.x, event.y, event.amount)
                 is SurvivorsEvent.Healed -> effects += SurvivorsFx.Text(e.state.px, e.state.py, "+${event.amount.toInt()}", Color(0xFF4ADE80))
@@ -397,6 +424,13 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
                 is SurvivorsEvent.Nova -> effects += SurvivorsFx.Nova(event.x, event.y, event.radius, event.freeze)
                 is SurvivorsEvent.Smash -> effects += SurvivorsFx.Smash(event.x, event.y, event.angle, event.range, event.ring)
                 is SurvivorsEvent.Thorns -> if (effects.size < MAX_FX) effects += SurvivorsFx.ThornPulse(event.x, event.y, event.radius, event.evolved)
+                is SurvivorsEvent.AttackImpact -> {
+                    val a = event.attack
+                    effects += when (a.shape) {
+                        AttackShape.CIRCLE -> SurvivorsFx.Blast(a.x, a.y, a.radius, Color(0xFFA855F7))
+                        AttackShape.LINE -> SurvivorsFx.Beam(a.x, a.y, a.x2, a.y2, a.radius)
+                    }
+                }
                 is SurvivorsEvent.Explosion -> if (effects.size < MAX_FX) {
                     effects += SurvivorsFx.Blast(event.x, event.y, event.radius, Color(0xFFF97316))
                 }

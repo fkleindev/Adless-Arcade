@@ -22,7 +22,12 @@ class LeaderboardRepository(private val context: Context) {
     private val serializer = ListSerializer(LeaderboardEntry.serializer())
     private val migratedKey = booleanPreferencesKey("legacy_migrated")
 
-    private fun key(board: LeaderboardKey) = stringPreferencesKey(board.storageKey)
+    /** Aktuelle App-Version für neue Einträge. */
+    private val appVersion: String? by lazy {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+    }
+
+    private fun key(board: LeaderboardKey) =stringPreferencesKey(board.storageKey)
     private fun lastVariantKey(gameId: String) = stringPreferencesKey("last_variant_$gameId")
 
     /** Zuletzt gespielte Variante (z. B. Klasse) eines Spiels – Vorauswahl in der Bestenliste. */
@@ -43,9 +48,10 @@ class LeaderboardRepository(private val context: Context) {
     /** Trägt einen beendeten Lauf ein; liefert den erreichten Platz oder null (nicht in den Top 10). */
     suspend fun submit(board: LeaderboardKey, entry: LeaderboardEntry): Int? {
         var rank: Int? = null
+        val stamped = if (entry.appVersion == null) entry.copy(appVersion = appVersion) else entry
         try {
             context.leaderboardStore.edit { prefs ->
-                val (updated, place) = Leaderboards.insert(prefs.entries(board), entry)
+                val (updated, place) = Leaderboards.insert(prefs.entries(board), stamped)
                 rank = place
                 if (place != null) prefs[key(board)] = SaveJson.encodeToString(serializer, updated)
                 board.variant?.let { prefs[lastVariantKey(board.gameId)] = it }

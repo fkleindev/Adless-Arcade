@@ -115,7 +115,10 @@ fun SurvivorsScreen(onExit: () -> Unit, onOpenForge: () -> Unit, viewModel: Surv
     ) {
         when {
             !viewModel.loaded -> Unit
-            engine == null -> ClassSelect(onStart = { heroClass, weapons -> viewModel.start(heroClass, weapons) }, onOpenForge = onOpenForge)
+            engine == null -> ClassSelect(
+                onStart = { heroClass, weapons, stage -> viewModel.start(heroClass, weapons, stage) },
+                onOpenForge = onOpenForge,
+            )
             else -> GameView(viewModel, onExit)
         }
     }
@@ -124,19 +127,36 @@ fun SurvivorsScreen(onExit: () -> Unit, onOpenForge: () -> Unit, viewModel: Surv
 // --- Klassenwahl ---
 
 @Composable
-private fun ClassSelect(onStart: (HeroClass, Set<WeaponKind>) -> Unit, onOpenForge: () -> Unit) {
+private fun ClassSelect(onStart: (HeroClass, Set<WeaponKind>, SurvivorsStage) -> Unit, onOpenForge: () -> Unit) {
     val progressFlow = LocalContext.current.arcadeApp.survivorsProgress.state
     val progress by progressFlow.collectAsState(initial = null)
     val loaded = progress ?: return
     val last = UnlockLogic.selectedClass(loaded)
     var selected by remember(last) { mutableStateOf(last) }
+    val lastStage = UnlockLogic.selectedStage(loaded)
+    var stage by remember(lastStage) { mutableStateOf(lastStage) }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("KLASSE WÄHLEN", style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted, modifier = Modifier.weight(1f))
+            Text("STAGE WÄHLEN", style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted, modifier = Modifier.weight(1f))
             RuneChip(loaded.runes, onClick = onOpenForge)
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SurvivorsStage.entries.forEach { s ->
+                val owned = UnlockLogic.isUnlocked(loaded, s)
+                StageChip(
+                    stage = s,
+                    owned = owned,
+                    selected = owned && stage == s,
+                    modifier = Modifier.weight(1f),
+                    onClick = { if (owned) stage = s else onOpenForge() },
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("KLASSE WÄHLEN", style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted)
+        Spacer(Modifier.height(8.dp))
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -163,8 +183,43 @@ private fun ClassSelect(onStart: (HeroClass, Set<WeaponKind>) -> Unit, onOpenFor
             Spacer(Modifier.height(4.dp))
         }
         Spacer(Modifier.height(12.dp))
-        PrimaryButton("Als ${selected.title} starten", onClick = { onStart(selected, UnlockLogic.availableWeapons(loaded)) })
+        PrimaryButton("Als ${selected.title} starten", onClick = { onStart(selected, UnlockLogic.availableWeapons(loaded), stage) })
         Spacer(Modifier.height(16.dp))
+    }
+}
+
+/** Auswahlkarte einer Stage mit Mini-Vorschau; gesperrte Stages zeigen ein Schloss. */
+@Composable
+private fun StageChip(stage: SurvivorsStage, owned: Boolean, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val palette = LocalCosmetics.current.palette
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier
+            .clip(shape)
+            .background(ArcadeSurface)
+            .border(if (selected) 2.dp else 1.dp, if (selected) palette.accent2 else ArcadeOutline, shape)
+            .clickable(onClick = onClick)
+            .padding(8.dp),
+    ) {
+        Box(Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(10.dp)).alpha(if (owned) 1f else 0.4f)) {
+            Canvas(Modifier.fillMaxSize()) { drawSurvivorThemePreview(stage.theme) }
+            if (!owned) {
+                Icon(Icons.Filled.Lock, contentDescription = null, tint = ArcadeText, modifier = Modifier.align(Alignment.Center).size(20.dp))
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "${stage.number}. ${stage.title}",
+            style = MaterialTheme.typography.labelLarge,
+            color = if (owned) ArcadeText else ArcadeTextMuted,
+            maxLines = 1,
+        )
+        Text(
+            if (owned) "Endboss: ${stage.finalBoss.title}" else "In der Runen-Schmiede",
+            style = MaterialTheme.typography.labelSmall,
+            color = ArcadeTextMuted,
+            maxLines = 1,
+        )
     }
 }
 
@@ -243,7 +298,7 @@ internal fun ClassCard(
 @Composable
 private fun GameView(viewModel: SurvivorsViewModel, onExit: () -> Unit) {
     val engine = viewModel.engine ?: return
-    val theme = SurvivorsStages.current
+    val theme = engine.state.stage.theme
     val textMeasurer = rememberTextMeasurer(cacheSize = 48)
     val stickRadius = with(LocalDensity.current) { 56.dp.toPx() }
     var stickOrigin by remember { mutableStateOf<Offset?>(null) }
@@ -328,12 +383,12 @@ private fun GameView(viewModel: SurvivorsViewModel, onExit: () -> Unit) {
             onPlayAgain = viewModel::restart,
             onMenu = onExit,
             title = if (viewModel.victory) "Sieg!" else "Gefallen",
-            message = if (viewModel.victory) "Der Dämonenfürst ist besiegt." else
+            message = if (viewModel.victory) "Der ${engine.state.stage.finalBoss.title} ist besiegt." else
                 "Überlebt: ${formatTime(hud.time)} · ${hud.kills} Gegner besiegt",
             coinsEarned = hud.coins + viewModel.recordBonus,
             bonusCoins = viewModel.recordBonus,
             leaderboardRank = viewModel.leaderboardRank,
-            leaderboardName = "Klasse: ${engine.state.heroClass.title}",
+            leaderboardName = "${engine.state.stage.title} · ${engine.state.heroClass.title}",
             extraReward = if (hud.runes > 0) "$RUNE_SYMBOL +${hud.runes} Runen" else null,
         )
     }
@@ -577,6 +632,11 @@ private fun StatsPanel(engine: SurvivorsEngine) {
         add("Abklingzeit" to "×${"%.2f".format(st.cooldownMultiplier).replace('.', ',')}")
         add("Rüstung" to "${st.armor}")
         if (s.heroClass == HeroClass.NECROMANCER) add("Seelen" to "${s.souls} / ${HeroStats.NECRO_MAX_SOULS}")
+        val rage = engine.enemyScaling()
+        if (rage.speed > 1f) {
+            fun x(v: Float) = "×${"%.1f".format(v).replace('.', ',')}"
+            add("Gegner-Raserei" to "HP ${x(rage.hp)} · Schaden ${x(rage.damage)} · Tempo ${x(rage.speed)}")
+        }
     }
     Column(Modifier.width(260.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(

@@ -112,8 +112,14 @@ fun SurvivorsForgeScreen(onBack: () -> Unit) {
                         }
                     }
                     UnlockKind.STAGE -> {
-                        item { CurrentStage() }
-                        item { ComingSoon("Neue Stages", "Weitere Stages mit eigenen Gegnern und Endbossen folgen.") }
+                        items(SurvivorsStage.entries, key = { it.id }) { stage ->
+                            val unlock = SurvivorsUnlocks.forStage(stage)
+                            val owned = UnlockLogic.isUnlocked(progress, stage)
+                            StageCard(stage, dimmed = !owned, onClick = if (owned || unlock == null) null else ({ pending = unlock })) {
+                                if (unlock != null) UnlockFooter(progress, unlock, owned)
+                            }
+                        }
+                        item { ComingSoon("Weitere Stages", "Weitere Stages mit eigenen Gegnern und Endbossen folgen.") }
                     }
                 }
             }
@@ -258,18 +264,39 @@ private fun Tabs(selected: UnlockKind, onSelect: (UnlockKind) -> Unit) {
     }
 }
 
+/** Karte einer Stage: Vorschau, Endboss, Besonderheiten und Freischaltung. */
 @Composable
-private fun CurrentStage() {
+private fun StageCard(stage: SurvivorsStage, dimmed: Boolean, onClick: (() -> Unit)?, footer: @Composable () -> Unit) {
     val shape = RoundedCornerShape(20.dp)
     Column(
-        Modifier.fillMaxWidth().clip(shape).background(ArcadeSurface).border(1.dp, ArcadeOutline, shape).padding(12.dp),
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(ArcadeSurface)
+            .border(1.dp, ArcadeOutline, shape)
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .padding(12.dp),
     ) {
-        Box(Modifier.fillMaxWidth().height(110.dp).clip(RoundedCornerShape(14.dp))) {
-            Canvas(Modifier.fillMaxSize()) { drawSurvivorThemePreview(SurvivorsStages.MEADOW) }
+        Box(Modifier.fillMaxWidth().height(110.dp).clip(RoundedCornerShape(14.dp)).alpha(if (dimmed) 0.5f else 1f)) {
+            Canvas(Modifier.fillMaxSize()) { drawSurvivorThemePreview(stage.theme) }
         }
         Spacer(Modifier.height(10.dp))
-        Text("Fantasy-Wiese", style = MaterialTheme.typography.titleMedium, color = ArcadeText)
-        Text("Stage 1 · Endboss: Dämonenfürst", style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
+        Text(stage.title, style = MaterialTheme.typography.titleMedium, color = if (dimmed) ArcadeTextMuted else ArcadeText)
+        Text(
+            "Stage ${stage.number} · Boss: ${stage.bossKind.title} · Endboss: ${stage.finalBoss.title}",
+            style = MaterialTheme.typography.bodySmall,
+            color = ArcadeTextMuted,
+        )
+        if (stage == SurvivorsStage.GRAVEYARD) {
+            Text(
+                "Schwerer: Grüfte und Grabsteine versperren den Weg, Knochenschützen und Grabhexen greifen aus der Ferne an, " +
+                    "die Bosse kündigen ihre Attacken an – weiche aus! Dafür +25 % Runen.",
+                style = MaterialTheme.typography.bodySmall,
+                color = RuneViolet,
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        footer()
     }
 }
 

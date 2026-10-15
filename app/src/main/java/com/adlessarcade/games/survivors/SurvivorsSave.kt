@@ -8,9 +8,9 @@ import kotlinx.serialization.Serializable
 class SurvivorsSave(val version: Int, val state: SurvivorsState, val bestAtStart: Int = 0)
 
 object SurvivorsSaves {
-    const val VERSION = 3
+    const val VERSION = 4
     /** Ältere Versionen, die dank Standardwerten weiter geladen werden können (eine offene Kiste verfällt). */
-    private val COMPATIBLE = setOf(1, 2, VERSION)
+    private val COMPATIBLE = setOf(1, 2, 3, VERSION)
 
     fun encode(state: SurvivorsState, bestAtStart: Int): String =
         SaveJson.encodeToString(SurvivorsSave.serializer(), SurvivorsSave(VERSION, state, bestAtStart))

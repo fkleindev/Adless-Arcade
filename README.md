@@ -14,12 +14,14 @@ Eine werbefreie Sammlung kleiner Spiele für Android – offline, ohne Tracking,
   Kristalle sammeln, aufsteigen und aus bis zu 17 Waffen und 9 Talenten einen Build bauen (4 Talente pro Lauf). 4 Klassen und 9 weitere Waffen schaltet man mit Runen in der Runen-Schmiede frei.
   Jede Klasse hat eine eigene Passive; Truhen bieten 3 Belohnungen zur Wahl, darunter stapelbare Items
   (Krit/Superkrit, Gift, Lebensraub, Funken u. v. m.) mit abnehmendem Ertrag.
-  - Modus *15 Minuten*: überleben und den Dämonenfürsten besiegen.
-  - Modus *Endlos*: immer stärkere Horden ohne Ende.
+  - Stages: *Fantasy-Wiese* und *Vergessener Friedhof* (100 Runen, nach dem ersten Sieg über den Dämonenfürsten) mit
+    Hindernissen, Fernkämpfern und Bossen, deren Attacken angekündigt werden und denen man ausweichen muss.
+  - Modus *15 Minuten*: überleben und den Endboss der Stage besiegen.
+  - Modus *Endlos*: immer stärkere Horden ohne Ende, ab Minute 20 werden sie rasend.
 
 **Rund um die Spiele**
 - **Coins & Shop**: In allen Spielen Coins verdienen und gegen Skins, App-Themes, Avatare und Titel tauschen.
-- **Bestenlisten**: Lokale Top 10 pro Modus, bei Rune Survivors zusätzlich pro Klasse.
+- **Bestenlisten**: Lokale Top 10 pro Modus (mit App-Version je Eintrag), bei Rune Survivors zusätzlich pro Stage und Klasse.
 - **Erfolge**: 13 Erfolge über alle Spiele, jeder schaltet einen exklusiven Titel frei, den es nicht im Shop gibt.
 - **Fortsetzen**: Jedes Spiel lässt sich pausieren und später weiterspielen, auch nach einem App-Neustart.
 

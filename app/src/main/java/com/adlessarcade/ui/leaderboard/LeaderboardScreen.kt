@@ -65,12 +65,19 @@ fun LeaderboardScreen(game: GameInfo, onBack: () -> Unit) {
     // Standard-Variante: die zuletzt gespielte (bei Rune Survivors die Klasse des letzten Laufs)
     val lastVariantFlow = remember(game.id) { app.leaderboards.lastVariant(game.id) }
     val lastVariant by lastVariantFlow.collectAsState(initial = null)
-    val equippedVariant = game.leaderboardVariants.firstOrNull { it.id == lastVariant }?.id
+    // Zuletzt gespielte Gruppe (Stage) aus dem gespeicherten Schlüssel ablesen, z. B. „graveyard_class_mage“
+    val lastGroup = game.leaderboardGroups.firstOrNull { it.id.isNotEmpty() && lastVariant?.startsWith("${it.id}_") == true }
+        ?: game.leaderboardGroups.firstOrNull()
+    val lastPlain = lastGroup?.id?.takeIf { it.isNotEmpty() }?.let { lastVariant?.removePrefix("${it}_") } ?: lastVariant
+    val equippedVariant = game.leaderboardVariants.firstOrNull { it.id == lastPlain }?.id
         ?: game.leaderboardVariants.firstOrNull()?.id
     var chosenVariant by rememberSaveable { mutableStateOf<String?>(null) }
     val variant = chosenVariant ?: equippedVariant
+    var chosenGroup by rememberSaveable { mutableStateOf<String?>(null) }
+    val group = chosenGroup ?: lastGroup?.id
 
-    val board = LeaderboardKey(game.id, modeId, variant)
+    val boardVariant = if (group.isNullOrEmpty() || variant == null) variant else "${group}_$variant"
+    val board = LeaderboardKey(game.id, modeId, boardVariant)
     val entriesFlow = remember(board) { app.leaderboards.entries(board) }
     val entries by entriesFlow.collectAsState(initial = null)
 
@@ -81,6 +88,14 @@ fun LeaderboardScreen(game: GameInfo, onBack: () -> Unit) {
                 selected = modeId,
                 onSelect = { modeId = it },
             )
+            if (game.leaderboardGroups.isNotEmpty()) {
+                ChipRow(
+                    options = game.leaderboardGroups.map { it.id to it.title },
+                    selected = group,
+                    onSelect = { chosenGroup = it },
+                    small = true,
+                )
+            }
             if (game.leaderboardVariants.isNotEmpty()) {
                 ChipRow(
                     options = game.leaderboardVariants.map { it.id to it.title },
@@ -184,7 +199,21 @@ private fun EntryRow(rank: Int, entry: LeaderboardEntry) {
             }
             entry.details?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted) }
         }
-        Text(formatDate(entry.timestamp), style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted)
+        Column(horizontalAlignment = Alignment.End) {
+            Text(formatDate(entry.timestamp), style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted)
+            (entry.appVersion?.let { "v$it" } ?: "ältere Version").let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ArcadeTextMuted,
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(ArcadeSurfaceHigh)
+                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                )
+            }
+        }
     }
 }
 

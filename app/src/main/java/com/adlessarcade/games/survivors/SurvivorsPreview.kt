@@ -12,7 +12,7 @@ import com.adlessarcade.ui.theme.LocalCosmetics
 /** Menübild: Held in der ausgewählten Welt, umringt von Gegnern, mit Knochenorbit. */
 @Composable
 fun SurvivorsPreview(modifier: Modifier = Modifier) {
-    val theme = SurvivorsStages.current
+    val theme = SurvivorsStages.MEADOW
     Canvas(modifier) {
         val c = Offset(size.width / 2f, size.height / 2f)
         val u = size.minDimension

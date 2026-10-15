@@ -255,6 +255,69 @@ class SurvivorsItemsTest {
         assertEquals(HeroStats.NECRO_MAX_SOULS, e.state.souls)
     }
 
+    // --- Endlos-Raserei ab Minute 20 ---
+
+    @Test
+    fun enragedScaling_onlyInEndless_afterTwentyMinutes() {
+        val one = EnemyScaling(1f, 1f, 1f)
+        assertEquals(one, SurvivorsSpawner.enemyScaling(SurvivorsMode.TIMED, 3_000f))
+        assertEquals(one, SurvivorsSpawner.enemyScaling(SurvivorsMode.ENDLESS, 1_199f))
+        var previous = one
+        for (minute in 21..60) {
+            val s = SurvivorsSpawner.enemyScaling(SurvivorsMode.ENDLESS, minute * 60f)
+            assertTrue(s.hp > previous.hp && s.damage > previous.damage && s.speed >= previous.speed)
+            assertTrue(s.speed <= SurvivorsSpawner.MAX_ENRAGED_SPEED)
+            previous = s
+        }
+        assertEquals(SurvivorsSpawner.MAX_ENRAGED_SPEED, previous.speed, 0.0001f)
+        assertEquals(4.5f, SurvivorsSpawner.enemyScaling(SurvivorsMode.ENDLESS, 1_800f).hp, 0.001f)
+    }
+
+    private fun endless(time: Float) = SurvivorsEngine.newGame(HeroClass.KNIGHT, SurvivorsMode.ENDLESS, seed = 7).apply {
+        state.enemies.clear()
+        state.spawner.spawnBudget = -1_000_000f
+        state.spawner.eliteTimer = 100_000f
+        state.spawner.swarmTimer = 100_000f
+        state.spawner.nextBossTime = 100_000f
+        state.weapons.clear()
+        state.time = time
+        state.spawner.enraged = time > SurvivorsSpawner.ENDLESS_RAMP_START
+    }
+
+    @Test
+    fun enragedEnemies_moveFaster_hitHarder_andHaveMoreHp() {
+        fun probe(time: Float): Triple<Float, Float, Float> {
+            val e = endless(time)
+            val slime = e.spawnEnemy(EnemyKind.SLIME, 5f, 0f)
+            e.update(1f / 60f)
+            val moved = 5f - slime.x
+            slime.x = e.state.px + 0.3f
+            slime.y = e.state.py
+            val hp = e.state.hp
+            e.update(1f / 60f)
+            return Triple(moved, hp - e.state.hp, e.hpMultiplier())
+        }
+        val calm = probe(19 * 60f)
+        val rage = probe(30 * 60f)
+        assertTrue(rage.first > calm.first * 1.15f)
+        assertTrue(rage.second > calm.second * 1.8f)
+        assertTrue(rage.third > calm.third * 4f)
+        // Im 15-Minuten-Modus gibt es keine Raserei
+        val timed = engine()
+        timed.state.time = 30 * 60f
+        assertEquals(EnemyScaling(1f, 1f, 1f), timed.enemyScaling())
+    }
+
+    @Test
+    fun enraged_isAnnouncedOnce() {
+        val e = endless(SurvivorsSpawner.ENDLESS_RAMP_START - 0.5f)
+        e.state.spawner.enraged = false
+        e.state.invulnerable = 1_000f
+        val events = ArrayList<SurvivorsEvent>()
+        repeat(120) { e.update(1f / 60f); events += e.drainEvents() }
+        assertEquals(1, events.count { it == SurvivorsEvent.Enraged })
+    }
+
     @Test
     fun itemOffers_showNextStackAndSynergy() {
         val e = engine(HeroClass.RANGER)

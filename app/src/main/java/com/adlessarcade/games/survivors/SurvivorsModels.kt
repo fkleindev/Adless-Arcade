@@ -85,6 +85,20 @@ enum class EnemyKind(
     ORC("Ork", hp = 45f, speed = 1.4f, radius = 0.5f, damage = 15f, xp = 5, score = 5),
     BOSS("Höhlentroll", hp = 1200f, speed = 1.35f, radius = 1f, damage = 25f, xp = 40, score = 100),
     DEMON("Dämonenfürst", hp = 6000f, speed = 1.5f, radius = 1.3f, damage = 35f, xp = 0, score = 1000),
+
+    // --- Vergessener Friedhof (Stage 2) ---
+    ZOMBIE("Zombie", hp = 10f, speed = 1.3f, radius = 0.38f, damage = 8f, xp = 1, score = 1),
+    /** Bleibt auf Abstand und schießt Knochenpfeile (mit Ziellinie). */
+    ARCHER("Knochenschütze", hp = 18f, speed = 1.7f, radius = 0.36f, damage = 7f, xp = 3, score = 3),
+    /** Legt Fluchkreise unter den Helden. */
+    WITCH("Grabhexe", hp = 30f, speed = 1.5f, radius = 0.38f, damage = 8f, xp = 4, score = 4),
+    GRAVE_GUARDIAN("Grabwächter", hp = 1200f, speed = 1.3f, radius = 1.05f, damage = 28f, xp = 40, score = 120),
+    LICH("Lichkönig", hp = 6000f, speed = 1.4f, radius = 1.2f, damage = 38f, xp = 0, score = 1500);
+
+    val isFinalBoss: Boolean get() = this == DEMON || this == LICH
+    val isMidBoss: Boolean get() = this == BOSS || this == GRAVE_GUARDIAN
+    /** Fernkämpfer: nähern sich nur bis auf Schussweite. */
+    val keepsDistance: Boolean get() = this == ARCHER || this == WITCH
 }
 
 @Serializable
@@ -117,9 +131,19 @@ class Enemy(
     var poisonTimer: Float = 0f
     /** Waffe, die das Gift verursacht hat (für Kills pro Waffe). */
     var poisonSource: WeaponKind? = null
+    /** Abklingzeit bis zum nächsten eigenen Angriff (Schützen, Hexen, Friedhof-Bosse). */
+    var attackTimer: Float = 2f
+    /** Holt gerade aus bzw. stürmt (steht still bzw. bewegt sich nicht selbst). */
+    var windup: Float = 0f
+    /** Muster-Index der Boss-Attacken. */
+    var attackStep: Int = 0
+    /** Sturmangriff des Grabwächters: Geschwindigkeit, solange [dashTime] läuft. */
+    var dashVx: Float = 0f
+    var dashVy: Float = 0f
+    var dashTime: Float = 0f
 
     val radius: Float get() = kind.radius * if (elite) 1.4f else 1f
-    val isBoss: Boolean get() = kind == EnemyKind.BOSS || kind == EnemyKind.DEMON
+    val isBoss: Boolean get() = kind.isFinalBoss || kind.isMidBoss
 }
 
 @Serializable
@@ -193,6 +217,40 @@ class PendingStrike(
     val y: Float = 0f,
 )
 
+enum class AttackShape { CIRCLE, LINE }
+
+/**
+ * Angekündigter Gegnerangriff mit Warn-Indikator: schlägt nach [delay] Sekunden ein und trifft den Helden nur,
+ * wenn er dann noch im Kreis (Mittelpunkt x/y, [radius]) bzw. Streifen (x/y → x2/y2, Breite 2·[radius]) steht.
+ */
+@Serializable
+class EnemyAttack(
+    val shape: AttackShape,
+    val x: Float,
+    val y: Float,
+    val radius: Float,
+    var delay: Float,
+    val damage: Float,
+    val x2: Float = x,
+    val y2: Float = y,
+) {
+    val maxDelay: Float = delay
+}
+
+/** Gegnerisches Geschoss (Knochenpfeil, Seelenkugel) – wird von Hindernissen aufgehalten. */
+@Serializable
+class EnemyShot(
+    var x: Float,
+    var y: Float,
+    val vx: Float,
+    val vy: Float,
+    val radius: Float,
+    val damage: Float,
+    var life: Float,
+    /** Seelenkugel (Lichkönig) statt Pfeil – nur für die Darstellung. */
+    val soul: Boolean = false,
+)
+
 @Serializable
 class Gem(var x: Float, var y: Float, var value: Int) {
     /** Wird gerade vom Helden angezogen. */
@@ -229,14 +287,23 @@ data class SpawnerState(
     /** Zeitpunkt des nächsten Bosses. */
     var nextBossTime: Float = 300f,
     var finalBossSpawned: Boolean = false,
+    /** Endlos-Modus: Raserei ab Minute 20 bereits angekündigt. */
+    var enraged: Boolean = false,
 )
+
+/** Zusätzliche Gegner-Skalierung (Raserei im Endlos-Modus). */
+data class EnemyScaling(val hp: Float, val damage: Float, val speed: Float)
 
 /** Gesamter Zustand eines Laufs – wird 1:1 als Spielstand gespeichert. */
 @Serializable
 class SurvivorsState(
     val heroClass: HeroClass,
     val mode: SurvivorsMode,
+    val stage: SurvivorsStage = SurvivorsStage.MEADOW,
 ) {
+    /** Angekündigte Gegnerangriffe (Indikatoren) und gegnerische Geschosse. */
+    val enemyAttacks: MutableList<EnemyAttack> = ArrayList()
+    val enemyShots: MutableList<EnemyShot> = ArrayList()
     var time: Float = 0f
     var px: Float = 0f
     var py: Float = 0f
@@ -287,6 +354,7 @@ class SurvivorsState(
     /** Bruchteile von Coins und Erfahrung (Goldene Gans). */
     var coinRemainder: Float = 0f
     var xpRemainder: Float = 0f
+    var runeRemainder: Float = 0f
     val pendingStrikes: MutableList<PendingStrike> = ArrayList()
     val hazards: MutableList<Hazard> = ArrayList()
     /** Drehwinkel des Knochenorbits. */
@@ -314,6 +382,8 @@ sealed interface SurvivorsEvent {
     data class Dodged(val x: Float, val y: Float) : SurvivorsEvent
     data class BossSpawned(val kind: EnemyKind) : SurvivorsEvent
     data object Victory : SurvivorsEvent
+    /** Endlos-Modus: ab Minute 20 werden die Gegner rasend. */
+    data object Enraged : SurvivorsEvent
     data class CoinsEarned(val x: Float, val y: Float, val amount: Int) : SurvivorsEvent
     data class RunesEarned(val x: Float, val y: Float, val amount: Int) : SurvivorsEvent
     data class Healed(val amount: Float) : SurvivorsEvent
@@ -328,4 +398,6 @@ sealed interface SurvivorsEvent {
     data class Smash(val x: Float, val y: Float, val angle: Float, val range: Float, val ring: Boolean) : SurvivorsEvent
     data class Thorns(val x: Float, val y: Float, val radius: Float, val evolved: Boolean) : SurvivorsEvent
     data class Explosion(val x: Float, val y: Float, val radius: Float) : SurvivorsEvent
+    /** Ein angekündigter Gegnerangriff schlägt ein (Effekt). */
+    data class AttackImpact(val attack: EnemyAttack) : SurvivorsEvent
 }

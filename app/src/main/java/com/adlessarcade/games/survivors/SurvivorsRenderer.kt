@@ -56,6 +56,8 @@ sealed class SurvivorsFx(val x: Float, val y: Float, val lifetime: Float) {
     class Smash(x: Float, y: Float, val angle: Float, val range: Float, val ring: Boolean) : SurvivorsFx(x, y, if (ring) 0.4f else 0.25f)
     class ThornPulse(x: Float, y: Float, val radius: Float, val evolved: Boolean) : SurvivorsFx(x, y, 0.35f)
     class Blast(x: Float, y: Float, val radius: Float, val color: Color) : SurvivorsFx(x, y, 0.35f)
+    /** Einschlag eines Linienangriffs (Todesstrahl, Sturmangriff). */
+    class Beam(x: Float, y: Float, val x2: Float, val y2: Float, val halfWidth: Float) : SurvivorsFx(x, y, 0.35f)
     /** [crit]: 0 normal, 1 Krit, 2 Superkrit. */
     class Number(x: Float, y: Float, val amount: Int, val crit: Int = 0) : SurvivorsFx(x, y, if (crit > 0) 0.8f else 0.6f)
     class Text(x: Float, y: Float, val text: String, val color: Color) : SurvivorsFx(x, y, 1.4f)
@@ -113,11 +115,20 @@ fun DrawScope.drawSurvivors(
         drawCircle(Color(0xFFFDE68A), cam.len(0.15f), rock)
     }
 
+    // Warn-Indikatoren der Gegnerangriffe (am Boden, füllen sich bis zum Einschlag)
+    s.enemyAttacks.forEach { drawAttackIndicator(cam, it, s.time) }
+
+    // Hindernisse (Friedhof)
+    if (s.stage.hasObstacles) {
+        SurvivorsObstacles.near(s.px, s.py, cam.halfWorldH + margin).forEach { if (visible(it.x, it.y)) drawObstacle(cam, it, theme) }
+    }
+
     s.gems.forEach { if (visible(it.x, it.y)) drawGem(cam, it, s.time) }
     s.pickups.forEach { if (visible(it.x, it.y)) drawPickup(cam, it, s.time) }
 
     // Gegner nach y sortiert (weiter unten = weiter vorne)
     s.enemies.filter { visible(it.x, it.y) }.sortedBy { it.y }.forEach { drawEnemy(cam, it, theme, s.time) }
+    s.enemyShots.forEach { if (visible(it.x, it.y)) drawEnemyShot(cam, it, s.time) }
 
     s.projectiles.forEach { if (visible(it.x, it.y)) drawProjectile(cam, it, s.time, engine.isEvolved(it.weapon)) }
     val soulVortex = engine.isEvolved(WeaponKind.BONE_ORBIT)
@@ -318,6 +329,109 @@ private fun enemyColor(kind: EnemyKind): Color = when (kind) {
     EnemyKind.ORC -> Color(0xFF65A30D)
     EnemyKind.BOSS -> Color(0xFF78716C)
     EnemyKind.DEMON -> Color(0xFFDC2626)
+    EnemyKind.ZOMBIE -> Color(0xFF84A98C)
+    EnemyKind.ARCHER -> Color(0xFFF5F5F4)
+    EnemyKind.WITCH -> Color(0xFF7C3AED)
+    EnemyKind.GRAVE_GUARDIAN -> Color(0xFF64748B)
+    EnemyKind.LICH -> Color(0xFF312E81)
+}
+
+// --- Friedhof: Hindernisse, Indikatoren, Geschosse ---
+
+private val DangerRed = Color(0xFFF43F5E)
+
+private fun DrawScope.drawObstacle(cam: SurvivorsCamera, o: Obstacle, theme: SurvivorTheme) {
+    val c = cam.at(o.x, o.y)
+    val r = cam.len(o.radius)
+    val stone = Color(0xFF4B5563)
+    val light = Color(0xFF6B7280)
+    drawOval(Color.Black.copy(alpha = 0.35f), c + Offset(-r * 1.05f, r * 0.35f), Size(r * 2.1f, r * 0.8f))
+    when (o.kind) {
+        ObstacleKind.CRYPT -> {
+            // Gruft: Steinhaus mit Giebel und dunkler Tür
+            drawRoundRect(stone, c + Offset(-r, -r * 0.7f), Size(r * 2f, r * 1.4f), CornerRadius(r * 0.1f))
+            val roof = Path().apply {
+                moveTo(c.x - r * 1.12f, c.y - r * 0.65f)
+                lineTo(c.x, c.y - r * 1.35f)
+                lineTo(c.x + r * 1.12f, c.y - r * 0.65f)
+                close()
+            }
+            drawPath(roof, light)
+            drawRoundRect(Color(0xFF111827), c + Offset(-r * 0.3f, -r * 0.2f), Size(r * 0.6f, r * 0.9f), CornerRadius(r * 0.3f, r * 0.3f))
+            drawCircle(theme.accent.copy(alpha = 0.5f), r * 0.08f, c + Offset(0f, -r * 0.95f))
+        }
+        ObstacleKind.GRAVES -> {
+            // Grabsteingruppe
+            listOf(Offset(-0.45f, 0.1f), Offset(0.45f, 0.15f), Offset(0f, -0.25f)).forEach { off ->
+                val p = c + Offset(off.x * r, off.y * r)
+                val w = r * 0.6f
+                val h = r * 0.85f
+                drawRoundRect(light, p - Offset(w / 2f, h * 0.7f), Size(w, h), CornerRadius(w / 2f, w / 2f))
+                drawLine(Color.Black.copy(alpha = 0.4f), p + Offset(0f, -h * 0.5f), p + Offset(0f, -h * 0.05f), strokeWidth = r * 0.06f)
+            }
+        }
+        ObstacleKind.STATUE -> {
+            // Engelsstatue auf Sockel
+            drawRect(stone, c + Offset(-r * 0.7f, -r * 0.1f), Size(r * 1.4f, r * 0.7f))
+            drawRoundRect(light, c + Offset(-r * 0.3f, -r * 1.1f), Size(r * 0.6f, r * 1.05f), CornerRadius(r * 0.25f))
+            drawCircle(light, r * 0.25f, c + Offset(0f, -r * 1.25f))
+            listOf(-1f, 1f).forEach { side ->
+                val wing = Path().apply {
+                    moveTo(c.x + side * r * 0.2f, c.y - r * 0.9f)
+                    lineTo(c.x + side * r * 0.95f, c.y - r * 1.3f)
+                    lineTo(c.x + side * r * 0.6f, c.y - r * 0.45f)
+                    close()
+                }
+                drawPath(wing, Color(0xFF9CA3AF))
+            }
+        }
+        ObstacleKind.DEAD_TREE -> {
+            val brown = Color(0xFF3F2E25)
+            drawCircle(Color(0xFF292524), r * 0.55f, c)
+            drawLine(brown, c, c + Offset(0f, -r * 1.8f), strokeWidth = r * 0.3f)
+            drawLine(brown, c + Offset(0f, -r * 1.1f), c + Offset(r * 0.8f, -r * 1.7f), strokeWidth = r * 0.18f)
+            drawLine(brown, c + Offset(0f, -r * 1.35f), c + Offset(-r * 0.7f, -r * 1.95f), strokeWidth = r * 0.16f)
+        }
+    }
+}
+
+private fun DrawScope.drawAttackIndicator(cam: SurvivorsCamera, a: EnemyAttack, time: Float) {
+    val k = 1f - (a.delay / a.maxDelay).coerceIn(0f, 1f)
+    val blink = 0.75f + 0.25f * sin(time * 18f)
+    when (a.shape) {
+        AttackShape.CIRCLE -> {
+            val c = cam.at(a.x, a.y)
+            val r = cam.len(a.radius)
+            drawCircle(DangerRed.copy(alpha = 0.14f), r, c)
+            drawCircle(DangerRed.copy(alpha = 0.35f), r * k, c)
+            drawCircle(DangerRed.copy(alpha = 0.9f * blink), r, c, style = Stroke(width = cam.len(0.06f)))
+        }
+        AttackShape.LINE -> {
+            val from = cam.at(a.x, a.y)
+            val to = cam.at(a.x2, a.y2)
+            val width = cam.len(a.radius * 2f)
+            drawLine(DangerRed.copy(alpha = 0.16f), from, to, strokeWidth = width)
+            drawLine(DangerRed.copy(alpha = 0.4f), from, from + (to - from) * k, strokeWidth = width)
+            drawLine(DangerRed.copy(alpha = 0.9f * blink), from, to, strokeWidth = cam.len(0.05f))
+        }
+    }
+}
+
+private fun DrawScope.drawEnemyShot(cam: SurvivorsCamera, s: EnemyShot, time: Float) {
+    val c = cam.at(s.x, s.y)
+    if (s.soul) {
+        val r = cam.len(s.radius)
+        drawCircle(Color(0xFF22D3EE).copy(alpha = 0.3f), r * 1.6f, c)
+        drawCircle(Color(0xFFA5F3FC), r, c)
+        drawCircle(Color.White, r * 0.45f, c + Offset(sin(time * 9f) * r * 0.15f, 0f))
+    } else {
+        // Knochenpfeil
+        val angle = atan2(s.vy, s.vx)
+        val dir = Offset(cos(angle), sin(angle))
+        val len = cam.len(0.55f)
+        drawLine(Color(0xFFF5F5F4), c - dir * len, c, strokeWidth = cam.len(0.07f))
+        drawCircle(DangerRed, cam.len(0.1f), c)
+    }
 }
 
 private fun DrawScope.drawEnemy(cam: SurvivorsCamera, e: Enemy, theme: SurvivorTheme, time: Float) {
@@ -331,7 +445,11 @@ private fun DrawScope.drawEnemy(cam: SurvivorsCamera, e: Enemy, theme: SurvivorT
 
     drawOval(Color.Black.copy(alpha = 0.3f), c + Offset(-r, r * 0.6f), Size(r * 2f, r * 0.5f))
     if (e.elite || e.isBoss) {
-        val glow = if (e.kind == EnemyKind.DEMON) Color(0xFFF97316) else CoinGold
+        val glow = when (e.kind) {
+            EnemyKind.DEMON -> Color(0xFFF97316)
+            EnemyKind.LICH -> Color(0xFF22D3EE)
+            else -> CoinGold
+        }
         drawCircle(glow.copy(alpha = 0.25f + 0.1f * sin(time * 5f)), r * 1.35f, c)
     }
     when (e.kind) {
@@ -407,6 +525,92 @@ private fun DrawScope.drawEnemy(cam: SurvivorsCamera, e: Enemy, theme: SurvivorT
             }
             eyes(c + Offset(0f, -r * 0.3f), r, Color(0xFFFDE047))
         }
+        EnemyKind.ZOMBIE -> {
+            // Wankender Zombie mit ausgestreckten Armen
+            val sway = sin(time * 3f + e.phase) * r * 0.12f
+            drawRoundRect(lerp(color, Color(0xFF3F3F46), 0.35f), c + Offset(-r * 0.55f + sway, -r * 0.2f), Size(r * 1.1f, r * 1.1f), CornerRadius(r * 0.25f))
+            drawLine(color, c + Offset(-r * 0.4f + sway, 0f), c + Offset(-r * 1.05f + sway, -r * 0.15f), strokeWidth = r * 0.22f)
+            drawLine(color, c + Offset(r * 0.4f + sway, 0f), c + Offset(r * 1.05f + sway, -r * 0.1f), strokeWidth = r * 0.22f)
+            drawCircle(color, r * 0.55f, c + Offset(sway, -r * 0.6f))
+            eyes(c + Offset(sway, -r * 0.6f), r * 0.55f, Color(0xFFDC2626))
+        }
+        EnemyKind.ARCHER -> {
+            drawRoundRect(color, c + Offset(-r * 0.4f, -r * 0.1f), Size(r * 0.8f, r), CornerRadius(r * 0.2f))
+            drawCircle(color, r * 0.55f, c + Offset(0f, -r * 0.55f))
+            eyes(c + Offset(0f, -r * 0.55f), r * 0.55f, DangerRed)
+            // Bogen in Zielrichtung
+            val aim = if (e.windup > 0f) atan2(e.dashVy, e.dashVx) else 0f
+            val bowCenter = c + Offset(cos(aim) * r * 0.7f, sin(aim) * r * 0.7f)
+            drawArc(
+                Color(0xFF92400E), aim * 180f / PI.toFloat() - 70f, 140f, false,
+                bowCenter - Offset(r * 0.6f, r * 0.6f), Size(r * 1.2f, r * 1.2f), style = Stroke(width = r * 0.14f),
+            )
+        }
+        EnemyKind.WITCH -> {
+            // Hexe mit Spitzhut; leuchtet beim Zaubern
+            if (e.windup > 0f) drawCircle(Color(0xFFC084FC).copy(alpha = 0.4f), r * 1.4f, c)
+            val robe = Path().apply {
+                moveTo(c.x - r * 0.75f, c.y + r * 0.7f)
+                lineTo(c.x, c.y - r * 0.5f)
+                lineTo(c.x + r * 0.75f, c.y + r * 0.7f)
+                close()
+            }
+            drawPath(robe, color)
+            drawCircle(Color(0xFFA3E635), r * 0.38f, c + Offset(0f, -r * 0.55f))
+            val hat = Path().apply {
+                moveTo(c.x - r * 0.6f, c.y - r * 0.7f)
+                lineTo(c.x + r * 0.15f, c.y - r * 1.7f)
+                lineTo(c.x + r * 0.6f, c.y - r * 0.7f)
+                close()
+            }
+            drawPath(hat, Color(0xFF1E1B4B))
+            eyes(c + Offset(0f, -r * 0.55f), r * 0.38f, Color(0xFFFDE047))
+        }
+        EnemyKind.GRAVE_GUARDIAN -> {
+            // Steinerner Wächter mit Schild-Schultern; glüht beim Ausholen
+            if (e.windup > 0f || e.dashTime > 0f) drawCircle(DangerRed.copy(alpha = 0.3f), r * 1.5f, c)
+            drawRoundRect(color, c + Offset(-r, -r * 0.9f), Size(r * 2f, r * 1.9f), CornerRadius(r * 0.35f))
+            drawRoundRect(lerp(color, Color.Black, 0.3f), c + Offset(-r * 1.25f, -r * 0.95f), Size(r * 0.55f, r * 0.8f), CornerRadius(r * 0.15f))
+            drawRoundRect(lerp(color, Color.Black, 0.3f), c + Offset(r * 0.7f, -r * 0.95f), Size(r * 0.55f, r * 0.8f), CornerRadius(r * 0.15f))
+            for (i in 0..2) drawLine(Color(0xFF334155), c + Offset(-r * 0.7f, r * (0.1f + i * 0.25f)), c + Offset(r * 0.7f, r * (0.1f + i * 0.25f)), strokeWidth = r * 0.06f)
+            eyes(c + Offset(0f, -r * 0.4f), r, Color(0xFF22D3EE))
+        }
+        EnemyKind.LICH -> {
+            // Lichkönig: dunkle Robe, Krone, schwebende Seelen
+            for (i in 0 until 4) {
+                val a = time * 1.5f + i * PI.toFloat() / 2f
+                drawCircle(Color(0xFF67E8F9).copy(alpha = 0.6f), r * 0.15f, c + Offset(cos(a) * r * 1.4f, sin(a) * r * 1.4f * 0.6f))
+            }
+            if (e.windup > 0f) drawCircle(Color(0xFF22D3EE).copy(alpha = 0.3f), r * 1.5f, c)
+            val robe = Path().apply {
+                moveTo(c.x - r, c.y + r * 0.9f)
+                lineTo(c.x - r * 0.55f, c.y - r * 0.6f)
+                lineTo(c.x + r * 0.55f, c.y - r * 0.6f)
+                lineTo(c.x + r, c.y + r * 0.9f)
+                close()
+            }
+            drawPath(robe, color)
+            drawCircle(Color(0xFFE7E5E4), r * 0.45f, c + Offset(0f, -r * 0.75f))
+            eyes(c + Offset(0f, -r * 0.75f), r * 0.45f, Color(0xFF22D3EE))
+            val crown = Path().apply {
+                moveTo(c.x - r * 0.45f, c.y - r * 1.1f)
+                lineTo(c.x - r * 0.45f, c.y - r * 1.45f)
+                lineTo(c.x - r * 0.2f, c.y - r * 1.25f)
+                lineTo(c.x, c.y - r * 1.55f)
+                lineTo(c.x + r * 0.2f, c.y - r * 1.25f)
+                lineTo(c.x + r * 0.45f, c.y - r * 1.45f)
+                lineTo(c.x + r * 0.45f, c.y - r * 1.1f)
+                close()
+            }
+            drawPath(crown, CoinGold)
+        }
+    }
+
+    if (e.kind == EnemyKind.ARCHER && e.windup > 0f) {
+        // Ziellinie des Knochenschützen
+        val dir = Offset(e.dashVx, e.dashVy)
+        val k = 1f - (e.windup / SurvivorsEnemyAttacks.ARCHER_AIM_TIME).coerceIn(0f, 1f)
+        drawLine(DangerRed.copy(alpha = 0.25f + 0.5f * k), c, c + dir * cam.len(9f), strokeWidth = cam.len(0.05f + 0.05f * k))
     }
 
     if (e.freezeTimer > 0f) {
@@ -794,6 +998,11 @@ private fun DrawScope.drawFx(cam: SurvivorsCamera, fx: SurvivorsFx, textMeasurer
             val r = cam.len(fx.radius) * (0.4f + 0.6f * t)
             drawCircle(fx.color.copy(alpha = 0.4f * a), r, c)
             drawCircle(Color(0xFFFDE68A).copy(alpha = 0.7f * a), r * 0.5f, c)
+        }
+        is SurvivorsFx.Beam -> {
+            val to = cam.at(fx.x2, fx.y2)
+            drawLine(Color(0xFFA855F7).copy(alpha = 0.5f * a), c, to, strokeWidth = cam.len(fx.halfWidth * 2f) * (1f - 0.4f * t))
+            drawLine(Color.White.copy(alpha = 0.8f * a), c, to, strokeWidth = cam.len(0.12f))
         }
         is SurvivorsFx.Number -> {
             val (label, color, size) = when (fx.crit) {

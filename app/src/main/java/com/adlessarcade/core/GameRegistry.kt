@@ -13,6 +13,7 @@ import com.adlessarcade.games.survivors.HeroClass
 import com.adlessarcade.games.survivors.Survivors
 import com.adlessarcade.games.survivors.SurvivorsMode
 import com.adlessarcade.games.survivors.SurvivorsPreview
+import com.adlessarcade.games.survivors.SurvivorsStage
 import com.adlessarcade.ui.theme.NeonCyan
 import com.adlessarcade.ui.theme.NeonPink
 import com.adlessarcade.ui.theme.NeonViolet
@@ -41,6 +42,11 @@ data class GameInfo(
     val preview: @Composable (Modifier) -> Unit,
     /** Weitere Unterteilung der Bestenlisten innerhalb eines Modus (z. B. Klassen); leer = keine. */
     val leaderboardVariants: List<LeaderboardVariant> = emptyList(),
+    /**
+     * Oberste Unterteilung der Bestenlisten (z. B. Stages). Die erste Gruppe hat die ID "" und nutzt die Varianten-ID
+     * unverändert; weitere Gruppen setzen ihre ID davor ("graveyard_class_mage").
+     */
+    val leaderboardGroups: List<LeaderboardVariant> = emptyList(),
     val extraAction: GameAction? = null,
 )
 
@@ -111,7 +117,7 @@ object GameRegistry {
                 ModeInfo(
                     id = SurvivorsMode.TIMED.id,
                     title = "15 Minuten",
-                    description = "Überlebe 15 Minuten und besiege den Dämonenfürsten.",
+                    description = "Überlebe 15 Minuten und besiege den Endboss der Stage.",
                 ),
                 ModeInfo(
                     id = SurvivorsMode.ENDLESS.id,
@@ -121,6 +127,9 @@ object GameRegistry {
             ),
             preview = { modifier -> SurvivorsPreview(modifier) },
             leaderboardVariants = HeroClass.entries.map { LeaderboardVariant(it.shopId, it.title) },
+            leaderboardGroups = SurvivorsStage.entries.map {
+                LeaderboardVariant(if (it == SurvivorsStage.MEADOW) "" else it.id, it.title)
+            },
             extraAction = GameAction("ᚱ  Runen-Schmiede", "survivors_forge"),
         ),
     )

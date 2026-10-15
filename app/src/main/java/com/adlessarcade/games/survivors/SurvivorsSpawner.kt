@@ -14,6 +14,25 @@ internal class SurvivorsSpawner(private val e: SurvivorsEngine, private val rand
         const val MAX_ENEMIES = 320
         const val TIMED_DURATION = 900f
         const val BOSS_INTERVAL = 300f
+        /** Höchstens so viele Fernkämpfer (Knochenschützen, Grabhexen) gleichzeitig. */
+        const val MAX_RANGED = 5
+        /** Endlos-Modus: ab hier werden die Gegner rasend (HP, Schaden und Tempo steigen stärker). */
+        const val ENDLESS_RAMP_START = 1200f
+        const val MAX_ENRAGED_SPEED = 1.4f
+
+        /** Minuten seit Beginn der Raserei (nur Endlos-Modus, sonst 0). */
+        fun overtime(mode: SurvivorsMode, time: Float): Float =
+            if (mode == SurvivorsMode.ENDLESS) ((time - ENDLESS_RAMP_START) / 60f).coerceAtLeast(0f) else 0f
+
+        /** Zusätzliche Faktoren der Raserei; vor Minute 20 bzw. im 15-Minuten-Modus alle 1. */
+        fun enemyScaling(mode: SurvivorsMode, time: Float): EnemyScaling {
+            val o = overtime(mode, time)
+            return EnemyScaling(
+                hp = 1f + 0.15f * o + 0.02f * o * o,
+                damage = 1f + 0.08f * o + 0.004f * o * o,
+                speed = (1f + 0.02f * o).coerceAtMost(MAX_ENRAGED_SPEED),
+            )
+        }
     }
 
     private val s get() = e.state.spawner
@@ -21,13 +40,14 @@ internal class SurvivorsSpawner(private val e: SurvivorsEngine, private val rand
     /** HP-Faktor für neue Gegner. */
     fun hpMultiplier(time: Float): Float {
         val m = time / 60f
-        return 1f + 0.12f * m + 0.06f * m * m + 0.004f * m * m * m + if (time > TIMED_DURATION) (time - TIMED_DURATION) / 60f * 0.6f else 0f
+        val base = 1f + 0.12f * m + 0.06f * m * m + 0.004f * m * m * m + if (time > TIMED_DURATION) (time - TIMED_DURATION) / 60f * 0.6f else 0f
+        return base * enemyScaling(e.state.mode, time).hp * e.state.stage.hpFactor
     }
 
     /** Neue Gegner pro Sekunde. */
     fun spawnRate(time: Float): Float {
         val m = time / 60f
-        return 0.9f + 0.9f * m + 0.04f * m.pow(2f)
+        return (0.9f + 0.9f * m + 0.04f * m.pow(2f)) * e.state.stage.spawnFactor
     }
 
     fun update(dt: Float) {
@@ -41,22 +61,28 @@ internal class SurvivorsSpawner(private val e: SurvivorsEngine, private val rand
                 state.enemies.removeAll { !it.isBoss } // Bühne frei für den Endkampf
                 // Endboss bewusst nicht voll skaliert, damit ein starker Build ihn in ~1 Minute schafft.
                 // Der Dämonenfürst wächst mit der Macht des Helden: +20 % Leben pro Entwicklung.
-                spawnAround(EnemyKind.DEMON, hpMultiplier(t) * 0.3f * (1f + 0.2f * e.state.evolved.size))
-                e.emit(SurvivorsEvent.BossSpawned(EnemyKind.DEMON))
+                val finalBoss = state.stage.finalBoss
+                spawnAround(finalBoss, hpMultiplier(t) * 0.3f * (1f + 0.2f * e.state.evolved.size))
+                e.emit(SurvivorsEvent.BossSpawned(finalBoss))
             }
             return
         }
 
+        if (!s.enraged && overtime(state.mode, t) > 0f) {
+            s.enraged = true
+            e.emit(SurvivorsEvent.Enraged)
+        }
+
         if (t >= s.nextBossTime) {
             s.nextBossTime += BOSS_INTERVAL
-            spawnAround(EnemyKind.BOSS, hpMultiplier(t))
-            e.emit(SurvivorsEvent.BossSpawned(EnemyKind.BOSS))
+            spawnAround(state.stage.bossKind, hpMultiplier(t))
+            e.emit(SurvivorsEvent.BossSpawned(state.stage.bossKind))
         }
 
         s.eliteTimer -= dt
         if (s.eliteTimer <= 0f) {
             s.eliteTimer = 60f
-            spawnAround(randomKind(t), hpMultiplier(t) * 8f, elite = true)
+            spawnAround(randomKind(t, elite = true), hpMultiplier(t) * 8f, elite = true)
         }
 
         s.swarmTimer -= dt
@@ -73,14 +99,21 @@ internal class SurvivorsSpawner(private val e: SurvivorsEngine, private val rand
     }
 
     /** Welche Gegner es zu welcher Zeit gibt. */
-    private fun randomKind(t: Float): EnemyKind {
+    private fun randomKind(t: Float, elite: Boolean = false): EnemyKind {
+        val graveyard = e.state.stage == SurvivorsStage.GRAVEYARD
         val options = buildList {
-            add(EnemyKind.SLIME to 4f)
+            add((if (graveyard) EnemyKind.ZOMBIE else EnemyKind.SLIME) to 4f)
             add(EnemyKind.BAT to 3f)
             if (t > 120f) add(EnemyKind.SKELETON to 4f)
             if (t > 300f) add(EnemyKind.GHOST to 3f)
             if (t > 480f) add(EnemyKind.ORC to 2f)
             if (t > 600f) add(EnemyKind.SKELETON to 2f)
+            // Friedhof: vereinzelt Gegner mit Fernangriffen (nicht als Elite). Sie halten Abstand und leben daher
+            // länger – deshalb nur wenige gleichzeitig.
+            if (graveyard && !elite && e.state.enemies.count { it.kind.keepsDistance } < MAX_RANGED) {
+                if (t > 180f) add(EnemyKind.ARCHER to 0.35f)
+                if (t > 240f) add(EnemyKind.WITCH to 0.25f)
+            }
         }
         var pick = random.nextFloat() * options.sumOf { it.second.toDouble() }.toFloat()
         for ((kind, weight) in options) {

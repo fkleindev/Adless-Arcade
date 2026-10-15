@@ -1,6 +1,7 @@
 package com.adlessarcade.games.survivors.progress
 
 import com.adlessarcade.games.survivors.HeroClass
+import com.adlessarcade.games.survivors.SurvivorsStage
 import com.adlessarcade.games.survivors.WeaponKind
 
 /** Dauerhafter Fortschritt in Rune Survivors (unabhängig von Coins und dem allgemeinen Shop). */
@@ -9,6 +10,8 @@ data class SurvivorsProgress(
     val unlocked: Set<String> = emptySet(),
     /** Zuletzt gewählte Klasse ([HeroClass.shopId]). */
     val selectedClass: String? = null,
+    /** Zuletzt gewählte Stage ([SurvivorsStage.id]). */
+    val selectedStage: String? = null,
     /** Zähler für Freischalt-Kriterien, z. B. [SurvivorsStats.DEMON_DEFEATED]. */
     val stats: Map<String, Int> = emptyMap(),
 ) {
@@ -19,6 +22,8 @@ data class SurvivorsProgress(
 object SurvivorsStats {
     /** Anzahl Siege über den Dämonenfürsten. */
     const val DEMON_DEFEATED = "demon_defeated"
+    /** Anzahl Siege über den Lichkönig (Stage 2). */
+    const val LICH_DEFEATED = "lich_defeated"
     /** Insgesamt besiegte Höhlentrolle. */
     const val BOSSES_KILLED = "bosses_killed"
     /** Längste Überlebenszeit in Sekunden (beide Modi). */
@@ -67,7 +72,12 @@ object SurvivorsUnlocks {
         SurvivorsUnlock(HeroClass.MAGE.shopId, UnlockKind.CLASS, HeroClass.MAGE.title, runePrice = 80),
         SurvivorsUnlock(HeroClass.RANGER.shopId, UnlockKind.CLASS, HeroClass.RANGER.title, runePrice = 120),
         SurvivorsUnlock(HeroClass.NECROMANCER.shopId, UnlockKind.CLASS, HeroClass.NECROMANCER.title, runePrice = 150),
-    ) + weaponUnlocks()
+    ) + weaponUnlocks() + listOf(
+        SurvivorsUnlock(
+            SurvivorsStage.GRAVEYARD.unlockId!!, UnlockKind.STAGE, SurvivorsStage.GRAVEYARD.title, runePrice = 100,
+            requirements = listOf(StatAtLeast(SurvivorsStats.DEMON_DEFEATED, 1, "Dämonenfürst (Stage 1) besiegt")),
+        ),
+    )
 
     /** Runenpreis der freischaltbaren Waffen (Getter, damit die Reihenfolge der Initialisierung egal ist). */
     private val WEAPON_PRICES: Map<WeaponKind, Int> get() = mapOf(
@@ -113,6 +123,9 @@ object SurvivorsUnlocks {
     fun ofKind(kind: UnlockKind): List<SurvivorsUnlock> = all.filter { it.kind == kind }
 
     fun forClass(heroClass: HeroClass): SurvivorsUnlock = byId.getValue(heroClass.shopId)
+
+    /** Freischaltung einer Stage (null = von Beginn an spielbar). */
+    fun forStage(stage: SurvivorsStage): SurvivorsUnlock? = find(stage.unlockId)
 }
 
 object UnlockLogic {
@@ -142,15 +155,26 @@ object UnlockLogic {
     fun selectedClass(progress: SurvivorsProgress): HeroClass =
         HeroClass.fromShopId(progress.selectedClass)?.takeIf { isUnlocked(progress, it) } ?: HeroClass.KNIGHT
 
-    /** Zähler nach einem beendeten Lauf. */
+    fun isUnlocked(progress: SurvivorsProgress, stage: SurvivorsStage): Boolean =
+        SurvivorsUnlocks.forStage(stage)?.let { isUnlocked(progress, it) } ?: true
+
+    /** Gewählte Stage; fällt auf die Wiese zurück, wenn sie (noch) nicht freigeschaltet ist. */
+    fun selectedStage(progress: SurvivorsProgress): SurvivorsStage =
+        SurvivorsStage.fromId(progress.selectedStage).takeIf { isUnlocked(progress, it) } ?: SurvivorsStage.MEADOW
+
+    /** Zähler nach einem beendeten Lauf; ein Sieg zählt für den Endboss der jeweiligen Stage. */
     fun afterRun(
         stats: Map<String, Int>,
         victory: Boolean,
         bossesKilled: Int,
         seconds: Int,
+        stage: SurvivorsStage = SurvivorsStage.MEADOW,
     ): Map<String, Int> = stats.toMutableMap().apply {
         merge(SurvivorsStats.RUNS, 1, Int::plus)
-        if (victory) merge(SurvivorsStats.DEMON_DEFEATED, 1, Int::plus)
+        if (victory) {
+            val key = if (stage == SurvivorsStage.GRAVEYARD) SurvivorsStats.LICH_DEFEATED else SurvivorsStats.DEMON_DEFEATED
+            merge(key, 1, Int::plus)
+        }
         if (bossesKilled > 0) merge(SurvivorsStats.BOSSES_KILLED, bossesKilled, Int::plus)
         merge(SurvivorsStats.BEST_TIME, seconds, ::maxOf)
     }

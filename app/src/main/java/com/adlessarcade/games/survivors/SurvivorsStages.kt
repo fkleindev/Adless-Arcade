@@ -19,9 +19,45 @@ data class SurvivorTheme(
 )
 
 /**
- * Stages von Rune Survivors. Aktuell gibt es nur die Fantasy-Wiese; die übrigen Optiken sind Vorlagen für
- * spätere Stages, die in der Runen-Schmiede freigeschaltet werden.
+ * Eine spielbare Stage: eigene Optik, Gegnermischung, Bosse und Schwierigkeit.
+ * [unlockId] = Eintrag der Runen-Schmiede (null = von Beginn an spielbar).
  */
+enum class SurvivorsStage(
+    val id: String,
+    val title: String,
+    val number: Int,
+    val bossKind: EnemyKind,
+    val finalBoss: EnemyKind,
+    val unlockId: String?,
+    val hpFactor: Float = 1f,
+    val spawnFactor: Float = 1f,
+    val damageFactor: Float = 1f,
+    val runeFactor: Float = 1f,
+    /** Hindernisse, durch die Held und Gegner nicht laufen können. */
+    val hasObstacles: Boolean = false,
+) {
+    MEADOW("meadow", "Fantasy-Wiese", 1, EnemyKind.BOSS, EnemyKind.DEMON, unlockId = null),
+    GRAVEYARD(
+        "graveyard", "Vergessener Friedhof", 2, EnemyKind.GRAVE_GUARDIAN, EnemyKind.LICH, unlockId = "stage_graveyard",
+        hpFactor = 1.1f, spawnFactor = 1.05f, damageFactor = 1.1f, runeFactor = 1.25f, hasObstacles = true,
+    );
+
+    val theme: SurvivorTheme
+        get() = when (this) {
+            MEADOW -> SurvivorsStages.MEADOW
+            GRAVEYARD -> SurvivorsStages.GRAVEYARD
+        }
+
+    /** Schlüssel für Rekorde/Bestenlisten: die Wiese behält die bisherigen Schlüssel. */
+    fun scoreKey(mode: SurvivorsMode): String = if (this == MEADOW) mode.id else "${mode.id}_$id"
+    fun leaderboardVariant(heroClass: HeroClass): String = if (this == MEADOW) heroClass.shopId else "${id}_${heroClass.shopId}"
+
+    companion object {
+        fun fromId(id: String?): SurvivorsStage = entries.firstOrNull { it.id == id } ?: MEADOW
+    }
+}
+
+/** Optiken der Stages; FROST, VOLCANO und NEON sind Vorlagen für spätere Stages. */
 object SurvivorsStages {
     val MEADOW = SurvivorTheme(
         ground = Color(0xFF1F3B24), groundAlt = Color(0xFF244530), detail = Color(0xFF4ADE80),
@@ -50,7 +86,4 @@ object SurvivorsStages {
         accent = Color(0xFFF472B6), decor = DecorStyle.NEON,
         enemyTint = Color(0xFFE879F9), tintAmount = 0.3f, vignette = Color(0xFF05010F),
     )
-
-    /** Die Stage, auf der aktuell gespielt wird. */
-    val current: SurvivorTheme get() = MEADOW
 }

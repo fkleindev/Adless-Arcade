@@ -67,6 +67,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         private const val MAX_DAMAGE_EVENTS_PER_STEP = 4
         private const val MAX_ENEMY_RADIUS = 1.9f
         private const val RELOCATE_DISTANCE = 24f
+        private const val OBSTACLE_RANGE = 26f
 
         /** [availableWeapons]: Waffen, die angeboten werden dürfen (Grundwaffen + in der Runen-Schmiede freigeschaltete). */
         fun newGame(
@@ -74,8 +75,9 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             mode: SurvivorsMode,
             seed: Long,
             availableWeapons: Set<WeaponKind> = WeaponKind.entries.toSet(),
+            stage: SurvivorsStage = SurvivorsStage.MEADOW,
         ): SurvivorsEngine {
-            val state = SurvivorsState(heroClass, mode)
+            val state = SurvivorsState(heroClass, mode, stage)
             state.weapons[heroClass.startWeapon] = 1
             state.availableWeapons.clear()
             state.availableWeapons += availableWeapons + WeaponKind.BASE
@@ -88,6 +90,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
 
     private val random = Random(seed)
     private val spawner = SurvivorsSpawner(this, Random(seed * 31 + 5))
+    private val enemyAttacks = SurvivorsEnemyAttacks(this, Random(seed * 17 + 11))
     private val events = ArrayList<SurvivorsEvent>()
     private var accumulator = 0f
     private var damageEventsThisStep = 0
@@ -108,6 +111,9 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         get() = state.killScore + state.time.toInt() + if (state.victory) VICTORY_BONUS_SCORE else 0
 
     fun hpMultiplier(): Float = spawner.hpMultiplier(state.time)
+
+    /** Raserei-Faktoren im Endlos-Modus ab Minute 20 (sonst alle 1). */
+    fun enemyScaling(): EnemyScaling = SurvivorsSpawner.enemyScaling(state.mode, state.time)
 
     fun drainEvents(): List<SurvivorsEvent> {
         if (events.isEmpty()) return emptyList()
@@ -194,6 +200,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         }
         state.time += dt
         damageEventsThisStep = 0
+        refreshObstacles()
         movePlayer(dt, st)
         state.invulnerable = (state.invulnerable - dt).coerceAtLeast(0f)
         state.hp = (state.hp + st.regen * dt).coerceAtMost(st.maxHp)
@@ -203,6 +210,8 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         spawner.update(dt)
         buildGrid()
         moveEnemies(dt, st)
+        if (state.dead) return
+        enemyAttacks.update(dt, st)
         if (state.dead) return
         fireWeapons(dt, st)
         pendingStrikes(dt, st)
@@ -232,7 +241,43 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         state.py += ny * magnitude * st.speed * dt
         state.faceX = nx
         state.faceY = ny
+        if (obstacles.isNotEmpty()) {
+            SurvivorsObstacles.pushOut(state.px, state.py, PLAYER_RADIUS, obstacles) { x, y -> state.px = x; state.py = y }
+        }
     }
+
+    /** Hindernisse in der Nähe des Helden (nur auf Stages mit Hindernissen), pro Schritt aktualisiert. */
+    internal val obstacles = ArrayList<Obstacle>()
+
+    private fun refreshObstacles() {
+        if (state.stage.hasObstacles) SurvivorsObstacles.near(state.px, state.py, OBSTACLE_RANGE, obstacles)
+    }
+
+    /**
+     * Schaden am Helden (Kontakt, Geschosse, angekündigte Angriffe): Unverwundbarkeit, Ausweichen und Rüstung
+     * zählen. Liefert true, wenn der Treffer gesessen hat.
+     */
+    internal fun hurtPlayer(raw: Float, st: HeroStats): Boolean {
+        if (state.invulnerable > 0f || state.dead) return false
+        if (st.dodge > 0f && random.nextFloat() < st.dodge) {
+            // Schattenumhang: ausgewichen
+            state.invulnerable = INVULNERABLE_TIME
+            events += SurvivorsEvent.Dodged(state.px, state.py)
+            return false
+        }
+        val damage = (raw - st.armor).coerceAtLeast(1f)
+        state.hp -= damage
+        state.invulnerable = INVULNERABLE_TIME
+        events += SurvivorsEvent.PlayerHit(damage)
+        if (state.hp <= 0f) {
+            state.hp = 0f
+            state.dead = true
+        }
+        return true
+    }
+
+    /** Schadensfaktor gegnerischer Angriffe (Zeit, Raserei, Stage). */
+    internal fun enemyHitScale(): Float = (1f + state.time / 600f) * enemyScaling().damage * state.stage.damageFactor
 
     // --- Raster für schnelle Nachbarschaftssuche ---
 
@@ -310,7 +355,9 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
     // --- Gegner ---
 
     private fun moveEnemies(dt: Float, st: HeroStats) {
-        val hitScale = 1f + state.time / 600f
+        val rage = enemyScaling()
+        val hitScale = enemyHitScale()
+        val blocking = obstacles.isNotEmpty()
         for (e in state.enemies) {
             val dx = state.px - e.x
             val dy = state.py - e.y
@@ -323,15 +370,31 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 continue
             }
             val frozen = e.freezeTimer > 0f || e.stunTimer > 0f
-            val speed = e.kind.speed * (if (e.slowTimer > 0f) 0.5f else 1f) * (if (e.elite) 0.9f else 1f)
-            if (d > 0.01f && !frozen) {
-                e.x += dx / d * speed * dt
-                e.y += dy / d * speed * dt
+            val speed = e.kind.speed * (if (e.slowTimer > 0f) 0.5f else 1f) * (if (e.elite) 0.9f else 1f) * rage.speed
+            if (e.dashTime > 0f && !frozen) {
+                // Sturmangriff des Grabwächters
+                e.x += e.dashVx * dt
+                e.y += e.dashVy * dt
+                e.dashTime = (e.dashTime - dt).coerceAtLeast(0f)
+            } else if (d > 0.01f && !frozen && e.windup <= 0f) {
+                // Fernkämpfer halten Abstand: zu nah → zurückweichen, im Wunschabstand stehen bleiben.
+                val direction = when {
+                    !e.kind.keepsDistance -> 1f
+                    d < SurvivorsEnemyAttacks.KEEP_DISTANCE - 1.5f -> -0.7f
+                    d < SurvivorsEnemyAttacks.KEEP_DISTANCE -> 0f
+                    else -> 1f
+                }
+                e.x += dx / d * speed * dt * direction
+                e.y += dy / d * speed * dt * direction
                 if (e.kind == EnemyKind.BAT) {
                     val wobble = sin(state.time * 4f + e.phase) * 1.2f * dt
                     e.x += -dy / d * wobble
                     e.y += dx / d * wobble
                 }
+            }
+            // Hindernisse: Geister schweben hindurch, alle anderen gleiten an der Kante entlang.
+            if (blocking && e.kind != EnemyKind.GHOST) {
+                SurvivorsObstacles.pushOut(e.x, e.y, e.radius, obstacles) { x, y -> e.x = x; e.y = y }
             }
             e.slowTimer = (e.slowTimer - dt).coerceAtLeast(0f)
             e.freezeTimer = (e.freezeTimer - dt).coerceAtLeast(0f)
@@ -352,23 +415,9 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             }
 
             if (!frozen && d < e.radius + PLAYER_RADIUS && state.invulnerable <= 0f) {
-                if (st.dodge > 0f && random.nextFloat() < st.dodge) {
-                    // Schattenumhang: ausgewichen
-                    state.invulnerable = INVULNERABLE_TIME
-                    events += SurvivorsEvent.Dodged(state.px, state.py)
-                    continue
-                }
                 val raw = e.kind.damage * (if (e.elite) 1.5f else 1f) * hitScale
-                val damage = (raw - st.armor).coerceAtLeast(1f)
-                state.hp -= damage
-                state.invulnerable = INVULNERABLE_TIME
-                events += SurvivorsEvent.PlayerHit(damage)
-                thornsReflect(e, st)
-                if (state.hp <= 0f) {
-                    state.hp = 0f
-                    state.dead = true
-                    return
-                }
+                if (hurtPlayer(raw, st)) thornsReflect(e, st)
+                if (state.dead) return
             }
         }
         separate()
@@ -488,13 +537,13 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             val xp = e.kind.xp * if (e.elite) 5 else 1
             if (xp > 0) dropGem(e.x, e.y, xp)
             when {
-                e.kind == EnemyKind.DEMON -> {
+                e.kind.isFinalBoss -> {
                     demonDefeated = true
                     earnCoins(e.x, e.y, VICTORY_COINS)
                     earnRunes(e.x, e.y, VICTORY_RUNES)
                     events += SurvivorsEvent.Victory
                 }
-                e.kind == EnemyKind.BOSS -> {
+                e.kind.isMidBoss -> {
                     spawnPickup(PickupKind.CHEST, e.x, e.y)
                     earnCoins(e.x, e.y, BOSS_COINS)
                     earnRunes(e.x, e.y, BOSS_RUNES)
@@ -566,7 +615,12 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         state.xp += amount
     }
 
-    private fun earnRunes(x: Float, y: Float, amount: Int) {
+    private fun earnRunes(x: Float, y: Float, base: Int) {
+        // Schwerere Stages geben mehr Runen; Bruchteile sammeln sich an.
+        state.runeRemainder += base * state.stage.runeFactor
+        val amount = state.runeRemainder.toInt()
+        state.runeRemainder -= amount
+        if (amount <= 0) return
         state.runesEarned += amount
         events += SurvivorsEvent.RunesEarned(x, y, amount)
     }
@@ -1342,6 +1396,8 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         state.projectiles.clear()
         state.pendingStrikes.clear()
         state.hazards.clear()
+        state.enemyAttacks.clear()
+        state.enemyShots.clear()
         state.gems.forEach { it.magnetized = true }
         state.pickups.forEach { it.magnetized = true }
     }

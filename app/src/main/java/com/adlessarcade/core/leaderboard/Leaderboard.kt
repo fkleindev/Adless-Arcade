@@ -12,6 +12,8 @@ data class LeaderboardEntry(
     val details: String? = null,
     /** Lauf gewonnen (Rune Survivors, 15-Minuten-Modus). */
     val victory: Boolean = false,
+    /** App-Version, mit der der Lauf gespielt wurde (die Balance ändert sich je Version); null = unbekannt. */
+    val appVersion: String? = null,
 )
 
 /**

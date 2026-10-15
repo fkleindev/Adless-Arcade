@@ -1,5 +1,7 @@
 package com.adlessarcade.core.leaderboard
 
+import com.adlessarcade.core.SaveJson
+import kotlinx.serialization.builtins.ListSerializer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -59,5 +61,14 @@ class LeaderboardTest {
             LeaderboardKey("gaterush", "endless"),
         ).map { it.storageKey }
         assertEquals(keys.size, keys.toSet().size)
+    }
+
+    @Test
+    fun appVersion_isStored_andOldEntriesStillLoad() {
+        val serializer = ListSerializer(LeaderboardEntry.serializer())
+        val list = listOf(LeaderboardEntry(100, 1L, appVersion = "1.15"))
+        assertEquals(list, SaveJson.decodeFromString(serializer, SaveJson.encodeToString(serializer, list)))
+        val old = SaveJson.decodeFromString(serializer, """[{"score":50,"timestamp":2,"details":"x"}]""")
+        assertNull(old.single().appVersion)
     }
 }
