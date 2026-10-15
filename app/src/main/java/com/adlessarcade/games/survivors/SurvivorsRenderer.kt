@@ -16,8 +16,6 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import com.adlessarcade.ui.components.CoinGold
 import com.adlessarcade.ui.components.drawCoin
-import com.adlessarcade.ui.theme.DecorStyle
-import com.adlessarcade.ui.theme.SurvivorTheme
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -30,6 +28,10 @@ import kotlin.math.sin
 /** Sichtbare Breite in Welteinheiten. */
 private const val VIEW_WIDTH = 10f
 private const val DECOR_CELL = 2f
+
+/** Farbe der Runen (Währung der Runen-Schmiede). */
+val RuneViolet = Color(0xFFA78BFA)
+const val RUNE_SYMBOL = "ᚱ"
 
 /** Kamera, die dem Helden folgt: rechnet Welt- in Bildschirmkoordinaten um. */
 class SurvivorsCamera(val width: Float, val height: Float, val cx: Float, val cy: Float) {
@@ -55,6 +57,7 @@ sealed class SurvivorsFx(val x: Float, val y: Float, val lifetime: Float) {
     class Number(x: Float, y: Float, val amount: Int) : SurvivorsFx(x, y, 0.6f)
     class Text(x: Float, y: Float, val text: String, val color: Color) : SurvivorsFx(x, y, 1.4f)
     class CoinPop(x: Float, y: Float, val amount: Int) : SurvivorsFx(x, y, 1f)
+    class RunePop(x: Float, y: Float, val amount: Int) : SurvivorsFx(x, y, 1.2f)
 }
 
 fun DrawScope.drawSurvivors(
@@ -648,6 +651,16 @@ private fun DrawScope.drawFx(cam: SurvivorsCamera, fx: SurvivorsFx, textMeasurer
                     c.y - cam.len(1.2f) - t * cam.len(1f),
                 ),
             )
+        }
+        is SurvivorsFx.RunePop -> {
+            // Leuchtende Rune, die nach oben schwebt (leicht versetzt zu einem gleichzeitigen Coin-Pop)
+            val p = c + Offset(cam.len(0.5f), -cam.len(0.9f) - t * cam.len(1.1f))
+            drawCircle(RuneViolet.copy(alpha = 0.35f * a), cam.len(0.3f), p)
+            val layout = textMeasurer.measure(
+                "ᚱ +${fx.amount}",
+                TextStyle(color = RuneViolet.copy(alpha = a), fontSize = (cam.scale * 0.32f).toSp(), fontWeight = FontWeight.Black),
+            )
+            drawText(layout, topLeft = p + Offset(-layout.size.width / 2f, -layout.size.height / 2f))
         }
         is SurvivorsFx.CoinPop -> {
             val p = c - Offset(0f, cam.len(0.5f) + t * cam.len(1f))

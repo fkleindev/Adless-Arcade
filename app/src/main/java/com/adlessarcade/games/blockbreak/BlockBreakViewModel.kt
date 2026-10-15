@@ -9,6 +9,8 @@ import androidx.lifecycle.viewModelScope
 import com.adlessarcade.arcadeApp
 import com.adlessarcade.core.achievements.AchievementTracker
 import com.adlessarcade.core.achievements.Achievements
+import com.adlessarcade.core.leaderboard.LeaderboardEntry
+import com.adlessarcade.core.leaderboard.LeaderboardKey
 import com.adlessarcade.core.shop.CoinRewards
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -32,11 +34,14 @@ data class BlockBreakUiState(
     val lastClear: ClearEvent? = null,
     /** Coin-Bonus für einen neuen Rekord, gutgeschrieben bei Game Over. */
     val recordBonus: Int = 0,
+    /** Platz in der Bestenliste nach Game Over (null = nicht in den Top 10 bzw. noch offen). */
+    val leaderboardRank: Int? = null,
 )
 
 class BlockBreakViewModel(app: Application) : AndroidViewModel(app) {
     private val highscores = app.arcadeApp.highscores
     private val saves = app.arcadeApp.saves
+    private val leaderboards = app.arcadeApp.leaderboards
     private val profile = app.arcadeApp.profile
     private val achievements = AchievementTracker(profile)
     private val modeId = BlockBreak.MODE_ENDLESS
@@ -105,11 +110,23 @@ class BlockBreakViewModel(app: Application) : AndroidViewModel(app) {
             viewModelScope.launch { highscores.submit(BlockBreak.GAME_ID, modeId, score) }
         }
         if (result.state.isGameOver) {
+            submitToLeaderboard(score)
             saves.clear(BlockBreak.GAME_ID, modeId)
         } else {
             saves.save(BlockBreak.GAME_ID, modeId, BlockBreakSaves.encode(result.state, bestAtStart), score)
         }
         return result
+    }
+
+    private fun submitToLeaderboard(score: Int) {
+        viewModelScope.launch {
+            val rank = leaderboards.submit(
+                LeaderboardKey(BlockBreak.GAME_ID, modeId),
+                LeaderboardEntry(score, System.currentTimeMillis()),
+            )
+            // Nur übernehmen, wenn inzwischen kein neues Spiel gestartet wurde.
+            if (state.game.isGameOver && state.game.score == score) state = state.copy(leaderboardRank = rank)
+        }
     }
 
     private fun checkAchievements(result: PlaceResult) {

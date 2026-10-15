@@ -59,9 +59,8 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.adlessarcade.arcadeApp
 import com.adlessarcade.core.GameRegistry
-import com.adlessarcade.core.shop.ProfileState
-import com.adlessarcade.core.shop.ShopCatalog
-import com.adlessarcade.core.shop.ShopCategory
+import com.adlessarcade.games.survivors.progress.SurvivorsUnlocks
+import com.adlessarcade.games.survivors.progress.UnlockLogic
 import com.adlessarcade.ui.components.ArcadeIconButton
 import com.adlessarcade.ui.components.ArcadeScaffold
 import com.adlessarcade.ui.components.CoinGold
@@ -80,7 +79,7 @@ import kotlinx.coroutines.isActive
 import kotlin.math.hypot
 
 @Composable
-fun SurvivorsScreen(onExit: () -> Unit, viewModel: SurvivorsViewModel = viewModel()) {
+fun SurvivorsScreen(onExit: () -> Unit, onOpenForge: () -> Unit, viewModel: SurvivorsViewModel = viewModel()) {
     val haptics = LocalHapticFeedback.current
     val modeTitle = GameRegistry.find(Survivors.GAME_ID)?.modes?.firstOrNull { it.id == viewModel.mode.id }?.title
     val engine = viewModel.engine
@@ -116,7 +115,7 @@ fun SurvivorsScreen(onExit: () -> Unit, viewModel: SurvivorsViewModel = viewMode
     ) {
         when {
             !viewModel.loaded -> Unit
-            engine == null -> ClassSelect(onStart = viewModel::start)
+            engine == null -> ClassSelect(onStart = viewModel::start, onOpenForge = onOpenForge)
             else -> GameView(viewModel, onExit)
         }
     }
@@ -125,29 +124,41 @@ fun SurvivorsScreen(onExit: () -> Unit, viewModel: SurvivorsViewModel = viewMode
 // --- Klassenwahl ---
 
 @Composable
-private fun ClassSelect(onStart: (HeroClass) -> Unit) {
-    val profileFlow = LocalContext.current.arcadeApp.profile.state
-    val profile by profileFlow.collectAsState(initial = ProfileState())
-    val equipped = HeroClass.fromShopId(profile.equipped(ShopCategory.SURVIVOR_CLASS).id) ?: HeroClass.KNIGHT
-    var selected by remember(equipped) { mutableStateOf(equipped) }
+private fun ClassSelect(onStart: (HeroClass) -> Unit, onOpenForge: () -> Unit) {
+    val progressFlow = LocalContext.current.arcadeApp.survivorsProgress.state
+    val progress by progressFlow.collectAsState(initial = null)
+    val loaded = progress ?: return
+    val last = UnlockLogic.selectedClass(loaded)
+    var selected by remember(last) { mutableStateOf(last) }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-        Text("KLASSE WÄHLEN", style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("KLASSE WÄHLEN", style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted, modifier = Modifier.weight(1f))
+            RuneChip(loaded.runes, onClick = onOpenForge)
+        }
         Spacer(Modifier.height(10.dp))
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             HeroClass.entries.forEach { heroClass ->
-                val item = ShopCatalog.find(heroClass.shopId)
-                val owned = item == null || profile.isOwned(item)
+                val unlock = SurvivorsUnlocks.forClass(heroClass)
+                val owned = UnlockLogic.isUnlocked(loaded, unlock)
                 ClassCard(
                     heroClass = heroClass,
-                    owned = owned,
-                    price = item?.price ?: 0,
-                    selected = selected == heroClass,
-                    onClick = { if (owned) selected = heroClass },
-                )
+                    dimmed = !owned,
+                    selected = owned && selected == heroClass,
+                    onClick = { if (owned) selected = heroClass else onOpenForge() },
+                ) {
+                    if (!owned) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Lock, contentDescription = null, tint = ArcadeTextMuted, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("$RUNE_SYMBOL ${unlock.runePrice}", style = MaterialTheme.typography.labelLarge, color = RuneViolet)
+                            Text(" · In der Runen-Schmiede freischalten", style = MaterialTheme.typography.labelLarge, color = ArcadeTextMuted)
+                        }
+                    }
+                }
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -157,23 +168,48 @@ private fun ClassSelect(onStart: (HeroClass) -> Unit) {
     }
 }
 
+/** Runen-Guthaben als Chip (öffnet die Runen-Schmiede). */
 @Composable
-private fun ClassCard(heroClass: HeroClass, owned: Boolean, price: Int, selected: Boolean, onClick: () -> Unit) {
+internal fun RuneChip(runes: Int, onClick: (() -> Unit)? = null) {
+    val shape = RoundedCornerShape(50)
+    Row(
+        Modifier
+            .clip(shape)
+            .background(RuneViolet.copy(alpha = 0.15f))
+            .border(1.dp, RuneViolet.copy(alpha = 0.6f), shape)
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(RUNE_SYMBOL, style = MaterialTheme.typography.titleMedium, color = RuneViolet)
+        Spacer(Modifier.width(6.dp))
+        Text("$runes", style = MaterialTheme.typography.titleMedium, color = ArcadeText)
+    }
+}
+
+/** Karte einer Klasse – in der Klassenwahl und in der Runen-Schmiede. [footer] zeigt Preis bzw. Status. */
+@Composable
+internal fun ClassCard(
+    heroClass: HeroClass,
+    dimmed: Boolean,
+    selected: Boolean,
+    onClick: (() -> Unit)?,
+    footer: @Composable () -> Unit = {},
+) {
     val palette = LocalCosmetics.current.palette
     val shape = RoundedCornerShape(20.dp)
     Row(
         Modifier
             .fillMaxWidth()
-            .alpha(if (owned) 1f else 0.55f)
             .clip(shape)
             .background(ArcadeSurface)
             .border(if (selected) 2.dp else 1.dp, if (selected) palette.accent2 else ArcadeOutline, shape)
-            .clickable(enabled = owned, onClick = onClick)
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(72.dp).clip(RoundedCornerShape(16.dp)).background(ArcadeSurfaceHigh),
+            Modifier.size(72.dp).alpha(if (dimmed) 0.5f else 1f).clip(RoundedCornerShape(16.dp)).background(ArcadeSurfaceHigh),
             contentAlignment = Alignment.Center,
         ) {
             Canvas(Modifier.fillMaxSize().padding(10.dp)) {
@@ -182,25 +218,16 @@ private fun ClassCard(heroClass: HeroClass, owned: Boolean, price: Int, selected
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(heroClass.title, style = MaterialTheme.typography.titleMedium, color = ArcadeText)
+            Text(heroClass.title, style = MaterialTheme.typography.titleMedium, color = if (dimmed) ArcadeTextMuted else ArcadeText)
             Text(heroClass.description, style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
             Spacer(Modifier.height(4.dp))
             Text(
                 "❤ ${heroClass.maxHp.toInt()}  ·  👟 ${heroClass.speed}  ·  ${heroClass.startWeapon.icon} ${heroClass.startWeapon.title}",
                 style = MaterialTheme.typography.labelLarge,
-                color = ArcadeText,
+                color = if (dimmed) ArcadeTextMuted else ArcadeText,
             )
-            if (!owned) {
-                Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Lock, contentDescription = null, tint = ArcadeTextMuted, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Im Shop freischalten · ", style = MaterialTheme.typography.labelLarge, color = ArcadeTextMuted)
-                    CoinIcon(14.dp)
-                    Spacer(Modifier.width(3.dp))
-                    Text("$price", style = MaterialTheme.typography.labelLarge, color = CoinGold)
-                }
-            }
+            Spacer(Modifier.height(4.dp))
+            footer()
         }
     }
 }
@@ -210,7 +237,7 @@ private fun ClassCard(heroClass: HeroClass, owned: Boolean, price: Int, selected
 @Composable
 private fun GameView(viewModel: SurvivorsViewModel, onExit: () -> Unit) {
     val engine = viewModel.engine ?: return
-    val theme = LocalCosmetics.current.survivorTheme
+    val theme = SurvivorsStages.current
     val textMeasurer = rememberTextMeasurer(cacheSize = 48)
     val stickRadius = with(LocalDensity.current) { 56.dp.toPx() }
     var stickOrigin by remember { mutableStateOf<Offset?>(null) }
@@ -299,6 +326,9 @@ private fun GameView(viewModel: SurvivorsViewModel, onExit: () -> Unit) {
                 "Überlebt: ${formatTime(hud.time)} · ${hud.kills} Gegner besiegt",
             coinsEarned = hud.coins + viewModel.recordBonus,
             bonusCoins = viewModel.recordBonus,
+            leaderboardRank = viewModel.leaderboardRank,
+            leaderboardName = "Klasse: ${engine.state.heroClass.title}",
+            extraReward = if (hud.runes > 0) "$RUNE_SYMBOL +${hud.runes} Runen" else null,
         )
     }
 }
@@ -339,6 +369,10 @@ private fun Hud(hud: SurvivorsHud, mode: SurvivorsMode, modifier: Modifier = Mod
             val timeText = if (mode == SurvivorsMode.TIMED) "${formatTime(hud.time)} / 15:00" else formatTime(hud.time)
             Text(timeText, style = MaterialTheme.typography.titleLarge, color = ArcadeText)
             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                Text(RUNE_SYMBOL, style = MaterialTheme.typography.titleMedium, color = RuneViolet)
+                Spacer(Modifier.width(3.dp))
+                Text("${hud.runes}", style = MaterialTheme.typography.titleMedium, color = RuneViolet)
+                Spacer(Modifier.width(10.dp))
                 CoinIcon(16.dp)
                 Spacer(Modifier.width(4.dp))
                 Text("${hud.coins}", style = MaterialTheme.typography.titleMedium, color = CoinGold)

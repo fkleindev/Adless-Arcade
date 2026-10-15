@@ -5,8 +5,6 @@ import com.adlessarcade.core.achievements.Achievements
 enum class ShopCategory(val title: String) {
     BLOCK_SKIN("Block Break"),
     HERO_SKIN("Gate Rush"),
-    SURVIVOR_CLASS("Survivors-Klassen"),
-    SURVIVOR_THEME("Survivors-Welten"),
     APP_THEME("Themes"),
     AVATAR("Avatare"),
     TITLE("Titel"),
@@ -45,17 +43,6 @@ object ShopCatalog {
         ShopItem("hero_plasma", ShopCategory.HERO_SKIN, "Plasma", 300),
         ShopItem("hero_gold", ShopCategory.HERO_SKIN, "Gold", 500),
         ShopItem("hero_rainbow", ShopCategory.HERO_SKIN, "Regenbogen", 700),
-        // Rune Survivors – Klassen (IDs entsprechen HeroClass.shopId)
-        ShopItem("class_knight", ShopCategory.SURVIVOR_CLASS, "Krieger", 0),
-        ShopItem("class_mage", ShopCategory.SURVIVOR_CLASS, "Magierin", 400),
-        ShopItem("class_ranger", ShopCategory.SURVIVOR_CLASS, "Waldläuferin", 500),
-        ShopItem("class_necro", ShopCategory.SURVIVOR_CLASS, "Nekromant", 600),
-        // Rune Survivors – Welten
-        ShopItem("world_meadow", ShopCategory.SURVIVOR_THEME, "Fantasy-Wiese", 0),
-        ShopItem("world_frost", ShopCategory.SURVIVOR_THEME, "Frostreich", 300),
-        ShopItem("world_volcano", ShopCategory.SURVIVOR_THEME, "Vulkan", 300),
-        ShopItem("world_graveyard", ShopCategory.SURVIVOR_THEME, "Spukfriedhof", 400),
-        ShopItem("world_neon", ShopCategory.SURVIVOR_THEME, "Neon-Dungeon", 500),
         // App-Themes
         ShopItem("theme_neon", ShopCategory.APP_THEME, "Neon", 0),
         ShopItem("theme_ocean", ShopCategory.APP_THEME, "Ozean", 300),

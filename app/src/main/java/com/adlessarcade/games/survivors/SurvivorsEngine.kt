@@ -23,6 +23,11 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         const val ELITE_COINS = 2
         /** Coins für jede überlebte Minute. */
         const val MINUTE_COINS = 3
+        /** Runen (Währung der Runen-Schmiede) – ein starker 15-Minuten-Lauf bringt ca. 45–50. */
+        const val MINUTE_RUNES = 2
+        const val ELITE_RUNES = 1
+        const val BOSS_RUNES = 4
+        const val VICTORY_RUNES = 10
         /** Heilung, wenn man eine Kisten-Belohnung ablehnt. */
         const val CHEST_DECLINE_HEAL = 25f
         /** Lebensraub der Entwicklungen: höchstens so viel Heilung pro Sekunde. */
@@ -223,6 +228,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         if (state.minuteTimer >= 60f) {
             state.minuteTimer -= 60f
             earnCoins(state.px, state.py, MINUTE_COINS)
+            earnRunes(state.px, state.py, MINUTE_RUNES)
         }
     }
 
@@ -415,15 +421,19 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 e.kind == EnemyKind.DEMON -> {
                     demonDefeated = true
                     earnCoins(e.x, e.y, VICTORY_COINS)
+                    earnRunes(e.x, e.y, VICTORY_RUNES)
                     events += SurvivorsEvent.Victory
                 }
                 e.kind == EnemyKind.BOSS -> {
                     spawnPickup(PickupKind.CHEST, e.x, e.y)
                     earnCoins(e.x, e.y, BOSS_COINS)
+                    earnRunes(e.x, e.y, BOSS_RUNES)
+                    state.bossesKilled++
                 }
                 e.elite -> {
                     spawnPickup(PickupKind.CHEST, e.x, e.y)
                     earnCoins(e.x, e.y, ELITE_COINS)
+                    earnRunes(e.x, e.y, ELITE_RUNES)
                 }
                 else -> {
                     val roll = random.nextFloat()
@@ -450,6 +460,11 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
     private fun earnCoins(x: Float, y: Float, amount: Int) {
         state.coinsEarned += amount
         events += SurvivorsEvent.CoinsEarned(x, y, amount)
+    }
+
+    private fun earnRunes(x: Float, y: Float, amount: Int) {
+        state.runesEarned += amount
+        events += SurvivorsEvent.RunesEarned(x, y, amount)
     }
 
     // --- Waffen ---

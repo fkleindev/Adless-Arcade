@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.adlessarcade.ui.theme.ArcadeOutline
 import com.adlessarcade.ui.theme.ArcadeSurface
@@ -53,6 +54,12 @@ fun GameOverOverlay(
     /** In der Runde verdiente Coins inkl. Bonus; null blendet die Zeile aus. */
     coinsEarned: Int? = null,
     bonusCoins: Int = 0,
+    /** Erreichter Platz in der lokalen Bestenliste (1–10); null blendet die Zeile aus. */
+    leaderboardRank: Int? = null,
+    /** Bezeichnung der Bestenliste, z. B. „15 Minuten · Magierin“. */
+    leaderboardName: String? = null,
+    /** Zusätzliche Belohnungszeile, z. B. Runen bei Rune Survivors. */
+    extraReward: String? = null,
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -99,6 +106,15 @@ fun GameOverOverlay(
                 } else {
                     Text("Bester: $best", style = MaterialTheme.typography.bodyMedium, color = ArcadeTextMuted)
                 }
+                if (leaderboardRank != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "🏅 Platz $leaderboardRank in der Bestenliste" + (leaderboardName?.let { "\n$it" } ?: ""),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = ArcadeText,
+                        textAlign = TextAlign.Center,
+                    )
+                }
                 if (coinsEarned != null) {
                     Spacer(Modifier.height(14.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -113,6 +129,10 @@ fun GameOverOverlay(
                             color = ArcadeTextMuted,
                         )
                     }
+                }
+                if (extraReward != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(extraReward, style = MaterialTheme.typography.titleMedium, color = Color(0xFFA78BFA))
                 }
                 Spacer(Modifier.height(24.dp))
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -99,6 +99,40 @@ class ProfileRepository(private val context: Context) {
         }
     }
 
+    /** Besessene Artikel und ausgerüstete IDs direkt aus dem Speicher (für Migrationen). */
+    suspend fun rawOwnedAndEquipped(): Pair<Set<String>, Map<String, String>> {
+        writes.flush()
+        var result: Pair<Set<String>, Map<String, String>> = emptySet<String>() to emptyMap()
+        context.profileStore.edit { prefs ->
+            val equipped = prefs.asMap().mapNotNull { (key, value) ->
+                if (key.name.startsWith("equipped_") && value is String) key.name.removePrefix("equipped_") to value else null
+            }.toMap()
+            result = (prefs[ownedKey] ?: emptySet()) to equipped
+        }
+        return result
+    }
+
+    /**
+     * Entfernt nicht mehr existierende Artikel (z. B. alte Survivors-Klassen und -Welten) samt Ausrüstung und
+     * schreibt [refundFor] gekaufte davon gut – in einem Schritt, damit nichts doppelt erstattet wird.
+     */
+    suspend fun removeItems(ids: Set<String>, equippedCategories: Set<String>, refundFor: Map<String, Int>): Int {
+        writes.flush()
+        var refunded = 0
+        try {
+            context.profileStore.edit { prefs ->
+                val owned = prefs[ownedKey] ?: emptySet()
+                refunded = refundFor.filterKeys { it in owned }.values.sum()
+                prefs[ownedKey] = owned - ids
+                prefs[coinsKey] = (prefs[coinsKey] ?: 0) + refunded
+                equippedCategories.forEach { prefs.remove(stringPreferencesKey("equipped_$it")) }
+            }
+        } catch (e: IOException) {
+            refunded = 0
+        }
+        return refunded
+    }
+
     fun equip(item: ShopItem) {
         writes.enqueue {
             context.profileStore.edit { prefs ->

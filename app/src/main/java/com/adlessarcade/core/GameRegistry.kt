@@ -8,6 +8,8 @@ import com.adlessarcade.games.blockbreak.BlockBreakPreview
 import com.adlessarcade.games.gaterush.GateRush
 import com.adlessarcade.games.gaterush.GateRushMode
 import com.adlessarcade.games.gaterush.GateRushPreview
+import com.adlessarcade.core.leaderboard.LeaderboardVariant
+import com.adlessarcade.games.survivors.HeroClass
 import com.adlessarcade.games.survivors.Survivors
 import com.adlessarcade.games.survivors.SurvivorsMode
 import com.adlessarcade.games.survivors.SurvivorsPreview
@@ -15,6 +17,9 @@ import com.adlessarcade.ui.theme.NeonCyan
 import com.adlessarcade.ui.theme.NeonPink
 import com.adlessarcade.ui.theme.NeonViolet
 import com.adlessarcade.ui.theme.NeonYellow
+
+/** Zusätzlicher Knopf im Modus-Menü eines Spiels (z. B. eigener Shop). */
+data class GameAction(val title: String, val route: String)
 
 data class ModeInfo(
     val id: String,
@@ -34,6 +39,9 @@ data class GameInfo(
     val accentSecondary: Color,
     val modes: List<ModeInfo>,
     val preview: @Composable (Modifier) -> Unit,
+    /** Weitere Unterteilung der Bestenlisten innerhalb eines Modus (z. B. Klassen); leer = keine. */
+    val leaderboardVariants: List<LeaderboardVariant> = emptyList(),
+    val extraAction: GameAction? = null,
 )
 
 /** Zentrale Liste aller Spiele. Neues Spiel: hier eintragen und in GameHost (AppNavHost) verknüpfen. */
@@ -96,7 +104,7 @@ object GameRegistry {
             title = "Rune Survivors",
             tagline = "Überlebe die Horden",
             description = "Lauf mit dem Joystick durch die Welt – deine Waffen kämpfen von selbst. Sammle Seelenkristalle, " +
-                "steige auf und kombiniere Waffen und Talente. Neue Klassen und Welten gibt es im Shop.",
+                "steige auf und kombiniere Waffen und Talente. Mit Runen schaltest du in der Runen-Schmiede neue Klassen frei.",
             accent = Color(0xFF16A34A),
             accentSecondary = Color(0xFFFACC15),
             modes = listOf(
@@ -112,6 +120,8 @@ object GameRegistry {
                 ),
             ),
             preview = { modifier -> SurvivorsPreview(modifier) },
+            leaderboardVariants = HeroClass.entries.map { LeaderboardVariant(it.shopId, it.title) },
+            extraAction = GameAction("ᚱ  Runen-Schmiede", "survivors_forge"),
         ),
     )
 

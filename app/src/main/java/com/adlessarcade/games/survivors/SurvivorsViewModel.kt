@@ -13,8 +13,9 @@ import androidx.lifecycle.viewModelScope
 import com.adlessarcade.arcadeApp
 import com.adlessarcade.core.achievements.AchievementTracker
 import com.adlessarcade.core.achievements.Achievements
+import com.adlessarcade.core.leaderboard.LeaderboardEntry
+import com.adlessarcade.core.leaderboard.LeaderboardKey
 import com.adlessarcade.core.shop.CoinRewards
-import com.adlessarcade.core.shop.ShopCatalog
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -30,6 +31,7 @@ data class SurvivorsHud(
     val time: Float = 0f,
     val kills: Int = 0,
     val coins: Int = 0,
+    val runes: Int = 0,
     val score: Int = 0,
     val weapons: List<BuildSlot> = emptyList(),
     val passives: List<BuildSlot> = emptyList(),
@@ -54,7 +56,9 @@ private const val MAX_FX = 70
 class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) : AndroidViewModel(app) {
     private val highscores = app.arcadeApp.highscores
     private val saves = app.arcadeApp.saves
+    private val leaderboards = app.arcadeApp.leaderboards
     private val profile = app.arcadeApp.profile
+    private val progress = app.arcadeApp.survivorsProgress
     private val achievements = AchievementTracker(profile)
 
     val mode = SurvivorsMode.fromId(savedStateHandle.get<String>("modeId"))
@@ -84,6 +88,9 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
         private set
     var isNewBest by mutableStateOf(false)
         private set
+    /** Platz in der Bestenliste der Klasse nach Spielende (null = nicht in den Top 10 bzw. noch offen). */
+    var leaderboardRank by mutableStateOf<Int?>(null)
+        private set
     var recordBonus by mutableIntStateOf(0)
         private set
     var loaded by mutableStateOf(false)
@@ -101,6 +108,7 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
 
     private var bestAtStart = 0
     private var coinsBooked = 0
+    private var runesBooked = 0
     private var coinFlushTimer = 0f
 
     init {
@@ -112,6 +120,7 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
             if (saved != null) {
                 val restored = SurvivorsEngine(saved.state, System.nanoTime())
                 coinsBooked = saved.state.coinsEarned
+                runesBooked = saved.state.runesEarned
                 bestAtStart = minOf(saved.bestAtStart, stored)
                 best = maxOf(stored, restored.score)
                 engine = restored
@@ -129,12 +138,14 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
 
     /** Startet einen neuen Lauf mit der gewählten Klasse und merkt sie sich als Standard. */
     fun start(heroClass: HeroClass) {
-        ShopCatalog.find(heroClass.shopId)?.let(profile::equip)
+        progress.select(heroClass.shopId)
         engine = SurvivorsEngine.newGame(heroClass, mode, System.nanoTime())
         effects.clear()
         coinsBooked = 0
+        runesBooked = 0
         coinFlushTimer = 0f
         recordBonus = 0
+        leaderboardRank = null
         isNewBest = false
         finished = false
         victory = false
@@ -229,6 +240,8 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
                 profile.addCoins(recordBonus)
             }
             saves.clear(Survivors.GAME_ID, scoreKey)
+            submitToLeaderboard(e)
+            progress.recordRun(e.state.victory, e.state.bossesKilled, e.state.time.toInt())
         }
         frame++
     }
@@ -273,12 +286,18 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
         saves.save(Survivors.GAME_ID, scoreKey, SurvivorsSaves.encode(e.state, bestAtStart), e.score)
     }
 
+    /** Bucht neu verdiente Coins (Profil) und Runen (Runen-Schmiede) gebündelt. */
     private fun flushCoins() {
         val e = engine ?: return
         val delta = e.state.coinsEarned - coinsBooked
         if (delta > 0) {
             profile.addCoins(delta)
             coinsBooked = e.state.coinsEarned
+        }
+        val runes = e.state.runesEarned - runesBooked
+        if (runes > 0) {
+            progress.addRunes(runes)
+            runesBooked = e.state.runesEarned
         }
     }
 
@@ -299,10 +318,24 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
             time = s.time,
             kills = s.kills,
             coins = s.coinsEarned,
+            runes = s.runesEarned,
             score = e.score,
             weapons = s.weapons.map { (w, lv) -> BuildSlot(if (w in s.evolved) w.evolutionIcon else w.icon, w.title, lv, w in s.evolved) },
             passives = s.passives.map { (p, lv) -> BuildSlot(p.icon, p.title, lv, false) },
         )
+    }
+
+    private fun submitToLeaderboard(e: SurvivorsEngine) {
+        val s = e.state
+        val seconds = s.time.toInt()
+        val details = "%d:%02d · %d Kills · Stufe %d".format(seconds / 60, seconds % 60, s.kills, s.level)
+        viewModelScope.launch {
+            val rank = leaderboards.submit(
+                LeaderboardKey(Survivors.GAME_ID, mode.id, s.heroClass.shopId),
+                LeaderboardEntry(e.score, System.currentTimeMillis(), details, victory = s.victory),
+            )
+            if (engine === e) leaderboardRank = rank
+        }
     }
 
     private fun checkAchievements(e: SurvivorsEngine) {
@@ -345,6 +378,7 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
                 }
                 is SurvivorsEvent.Victory -> showBanner("SIEG!")
                 is SurvivorsEvent.CoinsEarned -> effects += SurvivorsFx.CoinPop(event.x, event.y, event.amount)
+                is SurvivorsEvent.RunesEarned -> effects += SurvivorsFx.RunePop(event.x, event.y, event.amount)
                 is SurvivorsEvent.Healed -> effects += SurvivorsFx.Text(e.state.px, e.state.py, "+${event.amount.toInt()}", Color(0xFF4ADE80))
                 is SurvivorsEvent.Swing ->
                     effects += SurvivorsFx.Swing(event.x, event.y, event.angle, event.range, event.fullCircle, event.evolved)

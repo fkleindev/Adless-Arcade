@@ -18,9 +18,11 @@ import com.adlessarcade.games.blockbreak.BlockBreakScreen
 import com.adlessarcade.games.gaterush.GateRush
 import com.adlessarcade.games.gaterush.GateRushScreen
 import com.adlessarcade.games.survivors.Survivors
+import com.adlessarcade.games.survivors.SurvivorsForgeScreen
 import com.adlessarcade.games.survivors.SurvivorsScreen
 import com.adlessarcade.ui.achievements.AchievementsScreen
 import com.adlessarcade.ui.home.HomeScreen
+import com.adlessarcade.ui.leaderboard.LeaderboardScreen
 import com.adlessarcade.ui.shop.ShopScreen
 import com.adlessarcade.ui.modes.ModeSelectScreen
 
@@ -30,9 +32,12 @@ private object Routes {
     const val ACHIEVEMENTS = "achievements"
     const val GAME = "game/{gameId}"
     const val PLAY = "play/{gameId}/{modeId}"
+    const val LEADERBOARD = "leaderboard/{gameId}"
+    const val SURVIVORS_FORGE = "survivors_forge"
 
     fun game(gameId: String) = "game/$gameId"
     fun play(gameId: String, modeId: String) = "play/$gameId/$modeId"
+    fun leaderboard(gameId: String) = "leaderboard/$gameId"
 }
 
 @Composable
@@ -64,13 +69,23 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
                 game = game,
                 onBack = { navController.popIfCurrent(entry) },
                 onModeClick = { navController.navigate(Routes.play(game.id, it.id)) },
+                onLeaderboardClick = { navController.navigate(Routes.leaderboard(game.id)) { launchSingleTop = true } },
+                onExtraActionClick = { route -> navController.navigate(route) { launchSingleTop = true } },
             )
+        }
+        composable(Routes.SURVIVORS_FORGE) { entry ->
+            SurvivorsForgeScreen(onBack = { navController.popIfCurrent(entry) })
+        }
+        composable(Routes.LEADERBOARD) { entry ->
+            val game = GameRegistry.find(entry.arguments?.getString("gameId")) ?: return@composable
+            LeaderboardScreen(game = game, onBack = { navController.popIfCurrent(entry) })
         }
         composable(Routes.PLAY) { entry ->
             GameHost(
                 gameId = entry.arguments?.getString("gameId").orEmpty(),
                 modeId = entry.arguments?.getString("modeId").orEmpty(),
                 onExit = { navController.popIfCurrent(entry) },
+                onOpenForge = { navController.navigate(Routes.SURVIVORS_FORGE) { launchSingleTop = true } },
             )
         }
     }
@@ -83,10 +98,10 @@ private fun NavHostController.popIfCurrent(entry: NavBackStackEntry) {
 
 /** Verknüpft gameId/modeId mit dem jeweiligen Spiel-Screen. */
 @Composable
-private fun GameHost(gameId: String, modeId: String, onExit: () -> Unit) {
+private fun GameHost(gameId: String, modeId: String, onExit: () -> Unit, onOpenForge: () -> Unit) {
     when (gameId) {
         BlockBreak.GAME_ID -> BlockBreakScreen(modeId = modeId, onExit = onExit)
         GateRush.GAME_ID -> GateRushScreen(modeId = modeId, onExit = onExit)
-        Survivors.GAME_ID -> SurvivorsScreen(onExit = onExit)
+        Survivors.GAME_ID -> SurvivorsScreen(onExit = onExit, onOpenForge = onOpenForge)
     }
 }

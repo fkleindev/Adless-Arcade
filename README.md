@@ -11,12 +11,13 @@ Eine werbefreie Sammlung kleiner Spiele für Android – offline, ohne Tracking,
   - Modus *Boss Rush*: Rüstphase und Bosswelle im Wechsel, jeder Boss stärker als der letzte.
   - Modus *Tägliche Challenge*: festes Level pro Tag (gleicher Seed), eigener Tagesrekord.
 - **Rune Survivors**: Survivors-Like im Fantasy-Stil – mit dem Joystick durch die Welt laufen, Waffen kämpfen automatisch,
-  Kristalle sammeln, aufsteigen und aus 8 Waffen und 9 Talenten einen Build bauen. 4 Klassen, 5 Welten (Shop).
+  Kristalle sammeln, aufsteigen und aus 8 Waffen und 9 Talenten einen Build bauen. 4 Klassen, die man mit Runen in der Runen-Schmiede freischaltet.
   - Modus *15 Minuten*: überleben und den Dämonenfürsten besiegen.
   - Modus *Endlos*: immer stärkere Horden ohne Ende.
 
 **Rund um die Spiele**
-- **Coins & Shop**: In allen Spielen Coins verdienen und gegen Skins, App-Themes, Avatare, Titel, Klassen und Welten tauschen.
+- **Coins & Shop**: In allen Spielen Coins verdienen und gegen Skins, App-Themes, Avatare und Titel tauschen.
+- **Bestenlisten**: Lokale Top 10 pro Modus, bei Rune Survivors zusätzlich pro Klasse.
 - **Erfolge**: 13 Erfolge über alle Spiele, jeder schaltet einen exklusiven Titel frei, den es nicht im Shop gibt.
 - **Fortsetzen**: Jedes Spiel lässt sich pausieren und später weiterspielen, auch nach einem App-Neustart.
 

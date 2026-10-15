@@ -516,6 +516,25 @@ class SurvivorsEngineTest {
             e.state.coinsEarned,
         )
         assertTrue(e.state.offers.isEmpty()) // keine Level-up-Karten nach dem Sieg
+        assertTrue(e.state.runesEarned >= SurvivorsEngine.VICTORY_RUNES)
+    }
+
+    @Test
+    fun runes_forMinutesElitesBossesAndVictory() {
+        val e = engine()
+        e.clearSpawns()
+        e.state.invulnerable = 1_000f
+        e.state.minuteTimer = 59.99f
+        e.update(1f / 30f)
+        assertEquals(SurvivorsEngine.MINUTE_RUNES, e.state.runesEarned)
+
+        e.state.weapons[WeaponKind.AURA] = MAX_LEVEL // trifft rundherum
+        e.spawnEnemy(EnemyKind.SLIME, 1f, 0f, elite = true).hp = 0.1f
+        e.spawnEnemy(EnemyKind.BOSS, -1f, 0f).hp = 0.1f
+        e.run(1f)
+        assertEquals(SurvivorsEngine.MINUTE_RUNES + SurvivorsEngine.ELITE_RUNES + SurvivorsEngine.BOSS_RUNES, e.state.runesEarned)
+        assertEquals(1, e.state.bossesKilled)
+        assertTrue(e.drainEvents().any { it is SurvivorsEvent.RunesEarned })
     }
 
     @Test

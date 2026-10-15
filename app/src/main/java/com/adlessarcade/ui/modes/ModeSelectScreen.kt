@@ -34,6 +34,7 @@ import com.adlessarcade.core.GameInfo
 import com.adlessarcade.core.ModeInfo
 import com.adlessarcade.ui.components.ArcadeScaffold
 import com.adlessarcade.ui.components.ModeCard
+import com.adlessarcade.ui.components.SecondaryButton
 import com.adlessarcade.ui.theme.ArcadeSurface
 import com.adlessarcade.ui.theme.ArcadeTextMuted
 import kotlinx.coroutines.launch
@@ -44,6 +45,8 @@ fun ModeSelectScreen(
     game: GameInfo,
     onBack: () -> Unit,
     onModeClick: (ModeInfo) -> Unit,
+    onLeaderboardClick: () -> Unit,
+    onExtraActionClick: (String) -> Unit,
 ) {
     val app = LocalContext.current.arcadeApp
     val scope = rememberCoroutineScope()
@@ -94,6 +97,12 @@ fun ModeSelectScreen(
                         },
                     )
                 }
+            }
+            Spacer(Modifier.height(14.dp))
+            SecondaryButton("🏅  Bestenliste", onLeaderboardClick)
+            game.extraAction?.let { action ->
+                Spacer(Modifier.height(10.dp))
+                SecondaryButton(action.title, { onExtraActionClick(action.route) })
             }
             Spacer(Modifier.height(24.dp))
         }

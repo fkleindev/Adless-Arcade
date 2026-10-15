@@ -304,6 +304,7 @@ fun BlockBreakScreen(
                 onMenu = onExit,
                 coinsEarned = game.coinsEarned + ui.recordBonus,
                 bonusCoins = ui.recordBonus,
+                leaderboardRank = ui.leaderboardRank,
             )
         }
     }

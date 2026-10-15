@@ -192,6 +192,10 @@ class SurvivorsState(
     /** Punkte aus Kills (je nach Gegnertyp). */
     var killScore: Int = 0
     var coinsEarned: Int = 0
+    /** Runen dieses Laufs – Währung der Runen-Schmiede. */
+    var runesEarned: Int = 0
+    /** Besiegte Höhlentrolle (für spätere Freischalt-Kriterien). */
+    var bossesKilled: Int = 0
     /** Unverwundbarkeit nach einem Treffer. */
     var invulnerable: Float = 0f
     var victory: Boolean = false
@@ -241,6 +245,7 @@ sealed interface SurvivorsEvent {
     data class BossSpawned(val kind: EnemyKind) : SurvivorsEvent
     data object Victory : SurvivorsEvent
     data class CoinsEarned(val x: Float, val y: Float, val amount: Int) : SurvivorsEvent
+    data class RunesEarned(val x: Float, val y: Float, val amount: Int) : SurvivorsEvent
     data class Healed(val amount: Float) : SurvivorsEvent
 
     // Rein visuelle Waffeneffekte

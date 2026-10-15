@@ -162,6 +162,7 @@ fun GateRushScreen(
                 message = "Die Gegner haben die Linie durchbrochen",
                 coinsEarned = hud.coins + viewModel.recordBonus,
                 bonusCoins = viewModel.recordBonus,
+                leaderboardRank = viewModel.leaderboardRank,
             )
         }
     }

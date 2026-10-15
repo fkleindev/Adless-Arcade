@@ -14,6 +14,10 @@ import com.adlessarcade.arcadeApp
 import com.adlessarcade.core.DailyChallenge
 import com.adlessarcade.core.achievements.AchievementTracker
 import com.adlessarcade.core.achievements.Achievements
+import com.adlessarcade.core.leaderboard.LeaderboardEntry
+import com.adlessarcade.core.leaderboard.LeaderboardKey
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import com.adlessarcade.core.shop.CoinRewards
 import com.adlessarcade.ui.theme.NeonCyan
 import com.adlessarcade.ui.theme.NeonPink
@@ -59,6 +63,7 @@ private const val MAX_EFFECTS = 60
 class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : AndroidViewModel(app) {
     private val highscores = app.arcadeApp.highscores
     private val saves = app.arcadeApp.saves
+    private val leaderboards = app.arcadeApp.leaderboards
     private val profile = app.arcadeApp.profile
     private val achievements = AchievementTracker(profile)
     /** Zeit seit dem letzten Herzverlust (Erfolg „Unantastbar“). */
@@ -113,6 +118,9 @@ class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : 
         private set
 
     /** Coin-Bonus für einen neuen Rekord, gutgeschrieben bei Game Over. */
+    /** Platz in der Bestenliste nach Game Over (null = nicht in den Top 10 bzw. noch offen). */
+    var leaderboardRank by mutableStateOf<Int?>(null)
+        private set
     var recordBonus by mutableIntStateOf(0)
         private set
 
@@ -222,8 +230,27 @@ class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : 
                 profile.addCoins(recordBonus)
             }
             saves.clear(GateRush.GAME_ID, scoreKey)
+            submitToLeaderboard()
         }
         frame++
+    }
+
+    private fun submitToLeaderboard() {
+        val run = engine
+        val seconds = run.time.toInt()
+        val time = "%d:%02d".format(seconds / 60, seconds % 60)
+        val details = when (mode) {
+            GateRushMode.DAILY -> "Challenge vom ${LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))} · $time"
+            GateRushMode.BOSS_RUSH -> "Welle ${run.wave} · $time"
+            else -> "Überlebt $time"
+        }
+        viewModelScope.launch {
+            val rank = leaderboards.submit(
+                LeaderboardKey(GateRush.GAME_ID, mode.id),
+                LeaderboardEntry(run.score, System.currentTimeMillis(), details),
+            )
+            if (engine === run) leaderboardRank = rank // nicht auf einen inzwischen neuen Lauf übertragen
+        }
     }
 
     private fun checkAchievements() {
@@ -265,6 +292,7 @@ class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : 
         coinsBooked = 0
         coinFlushTimer = 0f
         recordBonus = 0
+        leaderboardRank = null
         effects.clear()
         hud = GateRushHud()
         damageFlash = 0f
