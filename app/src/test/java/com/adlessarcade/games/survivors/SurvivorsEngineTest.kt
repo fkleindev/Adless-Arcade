@@ -464,6 +464,61 @@ class SurvivorsEngineTest {
     }
 
     @Test
+    fun coins_areAttractedByPickupRadius_andMagnet() {
+        val e = engine()
+        e.clearSpawns()
+        // Im Sammelradius (1,5), aber außerhalb der direkten Aufnahme → wird angezogen
+        e.spawnPickup(PickupKind.COIN, 1.3f, 0f)
+        e.run(0.5f)
+        assertEquals(1, e.state.coinsEarned)
+
+        // Weit entfernte Coins holt erst der Magnet
+        val far = e.spawnPickup(PickupKind.COIN, 12f, 0f)
+        e.run(0.3f)
+        assertTrue(far in e.state.pickups)
+        e.spawnPickup(PickupKind.MAGNET, e.state.px, e.state.py)
+        e.run(3f)
+        assertFalse(far in e.state.pickups)
+        assertEquals(2, e.state.coinsEarned)
+    }
+
+    @Test
+    fun victory_collectsAllDrops() {
+        val e = engine(mode = SurvivorsMode.TIMED)
+        e.clearSpawns()
+        e.state.time = 899.9f
+        e.state.invulnerable = 1_000f
+        e.update(0.2f)
+        val boss = e.state.enemies.first { it.kind == EnemyKind.DEMON }
+        // Liegengebliebene Drops weit verstreut
+        e.state.gems += Gem(15f, 4f, 5)
+        e.state.gems += Gem(-9f, -12f, 5)
+        e.spawnPickup(PickupKind.COIN, 20f, 0f)
+        e.spawnPickup(PickupKind.CHEST, -14f, 6f)
+        e.spawnEnemy(EnemyKind.ORC, 8f, 8f, hpMultiplier = 100f)
+        boss.hp = 0.1f
+        boss.x = 1f
+        boss.y = 0f
+        e.state.weapons[WeaponKind.AURA] = MAX_LEVEL
+        val coinsBefore = e.state.coinsEarned
+        e.update(1f / 60f)
+        e.update(1f / 60f)
+        assertTrue("Siegesrunde läuft", e.state.victorySweep)
+        assertFalse(e.isOver)
+        assertTrue(e.state.enemies.isEmpty())
+        e.run(4f)
+        assertTrue(e.state.victory)
+        assertTrue(e.state.gems.isEmpty())
+        assertTrue(e.state.pickups.isEmpty())
+        assertFalse(e.awaitingChest) // Truhe wird nach dem Sieg zu Coins
+        assertEquals(
+            coinsBefore + SurvivorsEngine.VICTORY_COINS + 1 + SurvivorsEngine.ELITE_COINS,
+            e.state.coinsEarned,
+        )
+        assertTrue(e.state.offers.isEmpty()) // keine Level-up-Karten nach dem Sieg
+    }
+
+    @Test
     fun endlessMode_hasNoFinalBoss() {
         val e = engine(mode = SurvivorsMode.ENDLESS)
         e.clearSpawns()

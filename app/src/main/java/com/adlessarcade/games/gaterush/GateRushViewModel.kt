@@ -12,6 +12,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.adlessarcade.arcadeApp
 import com.adlessarcade.core.DailyChallenge
+import com.adlessarcade.core.achievements.AchievementTracker
+import com.adlessarcade.core.achievements.Achievements
 import com.adlessarcade.core.shop.CoinRewards
 import com.adlessarcade.ui.theme.NeonCyan
 import com.adlessarcade.ui.theme.NeonPink
@@ -58,6 +60,9 @@ class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : 
     private val highscores = app.arcadeApp.highscores
     private val saves = app.arcadeApp.saves
     private val profile = app.arcadeApp.profile
+    private val achievements = AchievementTracker(profile)
+    /** Zeit seit dem letzten Herzverlust (Erfolg „Unantastbar“). */
+    private var timeSinceHit = 0f
 
     val mode = GateRushMode.fromId(savedStateHandle.get<String>("modeId"))
 
@@ -188,7 +193,9 @@ class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : 
     fun step(dt: Float) {
         if (!started || paused || gameOver) return
         engine.update(dt)
+        timeSinceHit += dt
         handleEvents()
+        checkAchievements()
         updateEffects(dt)
         damageFlash = (damageFlash - dt * 2.5f).coerceAtLeast(0f)
         if (banner != null) {
@@ -219,6 +226,17 @@ class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : 
         frame++
     }
 
+    private fun checkAchievements() {
+        if (engine.isGameOver) return
+        if (timeSinceHit >= Achievements.GR_UNTOUCHED_SECONDS) achievements.unlock(Achievements.GR_UNTOUCHED)
+        if (mode == GateRushMode.ENDLESS && engine.time >= Achievements.GR_ENDLESS_SECONDS) {
+            achievements.unlock(Achievements.GR_ENDLESS_3MIN)
+        }
+        if (mode == GateRushMode.BOSS_RUSH && engine.wave >= Achievements.GR_BOSS_RUSH_WAVE) {
+            achievements.unlock(Achievements.GR_BOSS_RUSH_5)
+        }
+    }
+
     fun movePlayer(dx: Float) {
         if (!loaded || paused || gameOver) return
         started = true
@@ -243,6 +261,7 @@ class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : 
         saves.clear(GateRush.GAME_ID, scoreKey)
         bestAtStart = best
         engine = GateRushEngine(newSeed(), mode)
+        timeSinceHit = 0f
         coinsBooked = 0
         coinFlushTimer = 0f
         recordBonus = 0
@@ -281,8 +300,10 @@ class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : 
                         effects += GateRushEffect.FloatingText(event.x, event.z, NeonYellow, "+${event.type.score}")
                     }
                     if (event.type == EnemyType.BOSS && mode == GateRushMode.BOSS_RUSH) showBanner("BOSS BESIEGT!")
+                    if (event.type == EnemyType.BOSS) achievements.unlock(Achievements.GR_BOSS)
                 }
                 is GateRushEvent.HeartsLost -> {
+                    timeSinceHit = 0f
                     damageFlash = 1f
                     hurtTick++
                 }

@@ -11,6 +11,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.adlessarcade.arcadeApp
+import com.adlessarcade.core.achievements.AchievementTracker
+import com.adlessarcade.core.achievements.Achievements
 import com.adlessarcade.core.shop.CoinRewards
 import com.adlessarcade.core.shop.ShopCatalog
 import kotlinx.coroutines.flow.first
@@ -53,6 +55,7 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
     private val highscores = app.arcadeApp.highscores
     private val saves = app.arcadeApp.saves
     private val profile = app.arcadeApp.profile
+    private val achievements = AchievementTracker(profile)
 
     val mode = SurvivorsMode.fromId(savedStateHandle.get<String>("modeId"))
     private val scoreKey = mode.id
@@ -201,6 +204,7 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
         }
         e.update(dt)
         handleEvents(e)
+        checkAchievements(e)
         effects.forEach { it.age += dt }
         effects.removeAll { it.age >= it.lifetime }
         damageFlash = (damageFlash - dt * 2.5f).coerceAtLeast(0f)
@@ -299,6 +303,16 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
             weapons = s.weapons.map { (w, lv) -> BuildSlot(if (w in s.evolved) w.evolutionIcon else w.icon, w.title, lv, w in s.evolved) },
             passives = s.passives.map { (p, lv) -> BuildSlot(p.icon, p.title, lv, false) },
         )
+    }
+
+    private fun checkAchievements(e: SurvivorsEngine) {
+        val s = e.state
+        if (s.evolved.isNotEmpty()) achievements.unlock(Achievements.SV_EVOLUTION)
+        if (s.kills >= Achievements.SV_KILLS_TARGET) achievements.unlock(Achievements.SV_KILLS)
+        if (s.mode == SurvivorsMode.TIMED && (s.victory || s.victorySweep)) achievements.unlock(Achievements.SV_VICTORY)
+        if (s.mode == SurvivorsMode.ENDLESS && !s.dead && s.time >= Achievements.SV_ENDLESS_SECONDS) {
+            achievements.unlock(Achievements.SV_ENDLESS_20MIN)
+        }
     }
 
     private fun showBanner(text: String) {

@@ -15,6 +15,11 @@ Eine werbefreie Sammlung kleiner Spiele für Android – offline, ohne Tracking,
   - Modus *15 Minuten*: überleben und den Dämonenfürsten besiegen.
   - Modus *Endlos*: immer stärkere Horden ohne Ende.
 
+**Rund um die Spiele**
+- **Coins & Shop**: In allen Spielen Coins verdienen und gegen Skins, App-Themes, Avatare, Titel, Klassen und Welten tauschen.
+- **Erfolge**: 13 Erfolge über alle Spiele, jeder schaltet einen exklusiven Titel frei, den es nicht im Shop gibt.
+- **Fortsetzen**: Jedes Spiel lässt sich pausieren und später weiterspielen, auch nach einem App-Neustart.
+
 ## Bauen & Starten
 
 1. Den Ordner in **Android Studio** öffnen.

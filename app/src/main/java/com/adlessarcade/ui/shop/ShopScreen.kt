@@ -48,6 +48,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.adlessarcade.arcadeApp
+import com.adlessarcade.core.achievements.Achievements
 import com.adlessarcade.core.shop.ProfileState
 import com.adlessarcade.core.shop.ShopCatalog
 import com.adlessarcade.core.shop.ShopCategory
@@ -82,6 +83,7 @@ fun ShopScreen(onBack: () -> Unit) {
     val profile by repository.state.collectAsState(initial = ProfileState())
     var category by rememberSaveable { mutableStateOf(ShopCategory.BLOCK_SKIN) }
     var pendingPurchase by remember { mutableStateOf<ShopItem?>(null) }
+    var achievementInfo by remember { mutableStateOf<ShopItem?>(null) }
     var purchaseFailed by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -107,7 +109,13 @@ fun ShopScreen(onBack: () -> Unit) {
                         owned = owned,
                         equipped = profile.equipped(item.category).id == item.id,
                         affordable = profile.coins >= item.price,
-                        onClick = { if (owned) repository.equip(item) else pendingPurchase = item },
+                        onClick = {
+                            when {
+                                owned -> repository.equip(item)
+                                !item.purchasable -> achievementInfo = item
+                                else -> pendingPurchase = item
+                            }
+                        },
                     )
                 }
             }
@@ -145,6 +153,23 @@ fun ShopScreen(onBack: () -> Unit) {
                     TextButton(onClick = { pendingPurchase = null }) { Text("Abbrechen", color = ArcadeTextMuted) }
                 }
             },
+        )
+    }
+
+    achievementInfo?.let { item ->
+        val achievement = item.achievementId?.let(Achievements::find)
+        AlertDialog(
+            onDismissRequest = { achievementInfo = null },
+            containerColor = ArcadeSurface,
+            title = { Text("„${item.name}“ – nur als Erfolg") },
+            text = {
+                Text(
+                    "Dieser Titel ist nicht käuflich. Du bekommst ihn für den Erfolg „${achievement?.name}“: " +
+                        "${achievement?.description}",
+                    color = ArcadeTextMuted,
+                )
+            },
+            confirmButton = { TextButton(onClick = { achievementInfo = null }) { Text("OK", color = ArcadeText) } },
         )
     }
 
@@ -227,6 +252,7 @@ private fun ShopItemCard(
                 Text("Ausgerüstet", style = MaterialTheme.typography.labelLarge, color = palette.accent2)
             }
             owned -> Text("Ausrüsten", style = MaterialTheme.typography.labelLarge, color = ArcadeText)
+            !item.purchasable -> Text("🏆 Erfolg", style = MaterialTheme.typography.labelLarge, color = CoinGold)
             else -> Row(
                 Modifier.alpha(if (affordable) 1f else 0.45f),
                 verticalAlignment = Alignment.CenterVertically,

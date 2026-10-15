@@ -19,6 +19,7 @@ import com.adlessarcade.games.gaterush.GateRush
 import com.adlessarcade.games.gaterush.GateRushScreen
 import com.adlessarcade.games.survivors.Survivors
 import com.adlessarcade.games.survivors.SurvivorsScreen
+import com.adlessarcade.ui.achievements.AchievementsScreen
 import com.adlessarcade.ui.home.HomeScreen
 import com.adlessarcade.ui.shop.ShopScreen
 import com.adlessarcade.ui.modes.ModeSelectScreen
@@ -26,6 +27,7 @@ import com.adlessarcade.ui.modes.ModeSelectScreen
 private object Routes {
     const val HOME = "home"
     const val SHOP = "shop"
+    const val ACHIEVEMENTS = "achievements"
     const val GAME = "game/{gameId}"
     const val PLAY = "play/{gameId}/{modeId}"
 
@@ -47,10 +49,14 @@ fun AppNavHost(navController: NavHostController = rememberNavController()) {
             HomeScreen(
                 onGameClick = { navController.navigate(Routes.game(it.id)) },
                 onShopClick = { navController.navigate(Routes.SHOP) { launchSingleTop = true } },
+                onAchievementsClick = { navController.navigate(Routes.ACHIEVEMENTS) { launchSingleTop = true } },
             )
         }
         composable(Routes.SHOP) { entry ->
             ShopScreen(onBack = { navController.popIfCurrent(entry) })
+        }
+        composable(Routes.ACHIEVEMENTS) { entry ->
+            AchievementsScreen(onBack = { navController.popIfCurrent(entry) })
         }
         composable(Routes.GAME) { entry ->
             val game = GameRegistry.find(entry.arguments?.getString("gameId")) ?: return@composable

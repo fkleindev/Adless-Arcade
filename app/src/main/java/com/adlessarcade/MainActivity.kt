@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.adlessarcade.core.shop.ProfileState
 import com.adlessarcade.navigation.AppNavHost
+import com.adlessarcade.ui.components.AchievementToastHost
 import com.adlessarcade.ui.theme.AdlessArcadeTheme
 import com.adlessarcade.ui.theme.ArcadeBackground
 import com.adlessarcade.ui.theme.CosmeticRegistry
@@ -40,7 +41,10 @@ class MainActivity : ComponentActivity() {
             val cosmetics = remember(loaded) { CosmeticRegistry.from(loaded) }
             CompositionLocalProvider(LocalCosmetics provides cosmetics) {
                 AdlessArcadeTheme(cosmetics.palette) {
-                    AppNavHost()
+                    Box(Modifier.fillMaxSize()) {
+                        AppNavHost()
+                        AchievementToastHost(arcadeApp.profile.unlocked)
+                    }
                 }
             }
         }

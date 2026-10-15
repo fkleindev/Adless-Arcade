@@ -146,7 +146,10 @@ class Gem(var x: Float, var y: Float, var value: Int) {
 enum class PickupKind { POTION, CHEST, COIN, MAGNET }
 
 @Serializable
-class Pickup(val id: Long, val kind: PickupKind, var x: Float, var y: Float)
+class Pickup(val id: Long, val kind: PickupKind, var x: Float, var y: Float) {
+    /** Wird gerade vom Helden angezogen (Coins im Sammelradius, Magnet, Sieg). */
+    var magnetized: Boolean = false
+}
 
 /** Eine Karte bei der Level-up-Auswahl oder eine Kisten-Belohnung. Genau eines der Felder ist gesetzt. */
 @Serializable
@@ -192,6 +195,9 @@ class SurvivorsState(
     /** Unverwundbarkeit nach einem Treffer. */
     var invulnerable: Float = 0f
     var victory: Boolean = false
+    /** Siegesrunde nach dem Endboss: alle Drops fliegen zum Helden, danach ist der Lauf gewonnen. */
+    var victorySweep: Boolean = false
+    var victorySweepTime: Float = 0f
     var dead: Boolean = false
     val weapons: MutableMap<WeaponKind, Int> = LinkedHashMap()
     val passives: MutableMap<PassiveKind, Int> = LinkedHashMap()

@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.adlessarcade.arcadeApp
 import com.adlessarcade.core.GameInfo
 import com.adlessarcade.core.GameRegistry
@@ -40,7 +41,7 @@ import com.adlessarcade.ui.theme.ArcadeTextMuted
 import com.adlessarcade.ui.theme.LocalCosmetics
 
 @Composable
-fun HomeScreen(onGameClick: (GameInfo) -> Unit, onShopClick: () -> Unit) {
+fun HomeScreen(onGameClick: (GameInfo) -> Unit, onShopClick: () -> Unit, onAchievementsClick: () -> Unit) {
     val profileFlow = LocalContext.current.arcadeApp.profile.state
     val profile by profileFlow.collectAsState(initial = ProfileState())
 
@@ -52,7 +53,7 @@ fun HomeScreen(onGameClick: (GameInfo) -> Unit, onShopClick: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                TopBar(coins = profile.coins, onShopClick = onShopClick)
+                TopBar(coins = profile.coins, onShopClick = onShopClick, onAchievementsClick = onAchievementsClick)
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Header()
@@ -66,11 +67,15 @@ fun HomeScreen(onGameClick: (GameInfo) -> Unit, onShopClick: () -> Unit) {
 }
 
 @Composable
-private fun TopBar(coins: Int, onShopClick: () -> Unit) {
+private fun TopBar(coins: Int, onShopClick: () -> Unit, onAchievementsClick: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         ProfileBadge(Modifier.weight(1f, fill = false), onClick = onShopClick)
         Spacer(Modifier.weight(1f))
         CoinChip(coins, onClick = onShopClick)
+        Spacer(Modifier.width(8.dp))
+        ArcadeIconButton(onClick = onAchievementsClick) {
+            Text("🏆", fontSize = 18.sp)
+        }
         Spacer(Modifier.width(8.dp))
         ArcadeIconButton(onClick = onShopClick) {
             Icon(Icons.Filled.ShoppingCart, contentDescription = "Shop")

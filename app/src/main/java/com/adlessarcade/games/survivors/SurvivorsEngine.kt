@@ -32,6 +32,11 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         /** Entwicklungen gibt es erst ab dem ersten Boss. */
         const val EVOLUTION_MIN_TIME = 300f
         const val METEOR_DELAY = 0.45f
+        /** Siegesrunde: mindestens/höchstens so lange fliegen die Drops zum Helden. */
+        const val VICTORY_SWEEP_MIN_TIME = 0.6f
+        const val VICTORY_SWEEP_MAX_TIME = 3f
+        private const val PULL_SPEED = 9f
+        private const val SWEEP_PULL_SPEED = 14f
         private const val STORM_BOW_PIERCE = 4
         private const val MAX_HAZARDS = 12
         /** Sichtbarer Bereich (halbe Breite/Höhe) – Blitze treffen nur sichtbare Gegner. */
@@ -190,6 +195,10 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
 
     private fun step(dt: Float) {
         val st = stats
+        if (state.victorySweep) {
+            victorySweepStep(dt, st)
+            return
+        }
         state.time += dt
         damageEventsThisStep = 0
         movePlayer(dt, st)
@@ -388,6 +397,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
     }
 
     private fun removeDeadEnemies(st: HeroStats) {
+        var demonDefeated = false
         val iterator = state.enemies.iterator()
         while (iterator.hasNext()) {
             val e = iterator.next()
@@ -403,7 +413,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             if (xp > 0) dropGem(e.x, e.y, xp)
             when {
                 e.kind == EnemyKind.DEMON -> {
-                    state.victory = true
+                    demonDefeated = true
                     earnCoins(e.x, e.y, VICTORY_COINS)
                     events += SurvivorsEvent.Victory
                 }
@@ -425,6 +435,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 }
             }
         }
+        if (demonDefeated) startVictorySweep()
     }
 
     private fun dropGem(x: Float, y: Float, value: Int) {
@@ -809,41 +820,92 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
 
     // --- Einsammeln & Aufstieg ---
 
+    /** Zieht einen Drop Richtung Held; liefert die Entfernung vor dem Zug. */
+    private inline fun pull(x: Float, y: Float, dt: Float, move: (Float, Float) -> Unit): Float {
+        val dx = state.px - x
+        val dy = state.py - y
+        val d = hypot(dx, dy)
+        if (d > 0.001f) {
+            // In der Siegesrunde fliegen auch weit entfernte Drops zügig heran.
+            val speed = if (state.victorySweep) maxOf(SWEEP_PULL_SPEED, d * 4f) else PULL_SPEED
+            val step = min(d, speed * dt)
+            move(dx / d * step, dy / d * step)
+        }
+        return d
+    }
+
     private fun collect(dt: Float, st: HeroStats) {
         val gems = state.gems.iterator()
         while (gems.hasNext()) {
             val g = gems.next()
-            val dx = state.px - g.x
-            val dy = state.py - g.y
-            val d = hypot(dx, dy)
-            if (d < st.pickupRadius) g.magnetized = true
-            if (g.magnetized && d > 0.001f) {
-                val pull = min(d, 9f * dt)
-                g.x += dx / d * pull
-                g.y += dy / d * pull
-            }
+            val d = hypot(state.px - g.x, state.py - g.y)
+            if (d < st.pickupRadius || state.victorySweep) g.magnetized = true
+            if (g.magnetized) pull(g.x, g.y, dt) { mx, my -> g.x += mx; g.y += my }
             if (d < GEM_PICKUP_DISTANCE) {
                 gems.remove()
                 state.xp += g.value
             }
         }
-        checkLevelUp()
+        // Nach dem Sieg gibt es keine Level-ups mehr (das Spiel ist vorbei).
+        if (!state.victorySweep) checkLevelUp()
 
         val pickups = state.pickups.iterator()
         while (pickups.hasNext()) {
             val p = pickups.next()
-            if (hypot(state.px - p.x, state.py - p.y) > PICKUP_DISTANCE) continue
+            val d = hypot(state.px - p.x, state.py - p.y)
+            // Gold wird wie Kristalle vom Sammelradius angezogen; in der Siegesrunde alles.
+            if (state.victorySweep || (p.kind == PickupKind.COIN && d < st.pickupRadius)) p.magnetized = true
+            if (p.magnetized) pull(p.x, p.y, dt) { mx, my -> p.x += mx; p.y += my }
+            if (d > PICKUP_DISTANCE) continue
             pickups.remove()
             when (p.kind) {
                 PickupKind.POTION -> {
                     val before = state.hp
                     state.hp = (state.hp + 30f).coerceAtMost(st.maxHp)
-                    events += SurvivorsEvent.Healed(state.hp - before)
+                    if (state.hp > before) events += SurvivorsEvent.Healed(state.hp - before)
                 }
                 PickupKind.COIN -> earnCoins(p.x, p.y, 1)
-                PickupKind.MAGNET -> state.gems.forEach { it.magnetized = true }
-                PickupKind.CHEST -> openChest()
+                PickupKind.MAGNET -> {
+                    state.gems.forEach { it.magnetized = true }
+                    state.pickups.forEach { if (it.kind == PickupKind.COIN) it.magnetized = true }
+                }
+                // Nach dem Sieg wird eine Truhe nicht mehr geöffnet, sondern in Coins umgewandelt.
+                PickupKind.CHEST -> if (state.victorySweep) earnCoins(p.x, p.y, ELITE_COINS) else openChest()
             }
+        }
+    }
+
+    /** Endboss besiegt: Bühne räumen und alle Drops einsammeln lassen. */
+    private fun startVictorySweep() {
+        state.victorySweep = true
+        state.victorySweepTime = 0f
+        state.enemies.clear()
+        state.projectiles.clear()
+        state.pendingStrikes.clear()
+        state.hazards.clear()
+        state.gems.forEach { it.magnetized = true }
+        state.pickups.forEach { it.magnetized = true }
+    }
+
+    private fun victorySweepStep(dt: Float, st: HeroStats) {
+        state.victorySweepTime += dt
+        movePlayer(dt, st)
+        collect(dt, st)
+        val done = state.gems.isEmpty() && state.pickups.isEmpty() && state.victorySweepTime >= VICTORY_SWEEP_MIN_TIME
+        if (done || state.victorySweepTime >= VICTORY_SWEEP_MAX_TIME) {
+            // Was bis dahin nicht angekommen ist, wird direkt gutgeschrieben.
+            state.gems.forEach { state.xp += it.value }
+            state.gems.clear()
+            state.pickups.forEach { p ->
+                when (p.kind) {
+                    PickupKind.COIN -> earnCoins(p.x, p.y, 1)
+                    PickupKind.CHEST -> earnCoins(p.x, p.y, ELITE_COINS)
+                    else -> Unit
+                }
+            }
+            state.pickups.clear()
+            state.victorySweep = false
+            state.victory = true
         }
     }
 

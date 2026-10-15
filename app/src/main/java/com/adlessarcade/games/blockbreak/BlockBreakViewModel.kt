@@ -7,6 +7,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.adlessarcade.arcadeApp
+import com.adlessarcade.core.achievements.AchievementTracker
+import com.adlessarcade.core.achievements.Achievements
 import com.adlessarcade.core.shop.CoinRewards
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -36,6 +38,7 @@ class BlockBreakViewModel(app: Application) : AndroidViewModel(app) {
     private val highscores = app.arcadeApp.highscores
     private val saves = app.arcadeApp.saves
     private val profile = app.arcadeApp.profile
+    private val achievements = AchievementTracker(profile)
     private val modeId = BlockBreak.MODE_ENDLESS
     private val random = Random(System.nanoTime())
     private var eventCounter = 0L
@@ -97,6 +100,7 @@ class BlockBreakViewModel(app: Application) : AndroidViewModel(app) {
             recordBonus = recordBonus,
         )
         profile.addCoins(result.coins + recordBonus)
+        checkAchievements(result)
         if (isNewBest) {
             viewModelScope.launch { highscores.submit(BlockBreak.GAME_ID, modeId, score) }
         }
@@ -106,6 +110,15 @@ class BlockBreakViewModel(app: Application) : AndroidViewModel(app) {
             saves.save(BlockBreak.GAME_ID, modeId, BlockBreakSaves.encode(result.state, bestAtStart), score)
         }
         return result
+    }
+
+    private fun checkAchievements(result: PlaceResult) {
+        if (result.boardCleared) achievements.unlock(Achievements.BB_FULL_CLEAR)
+        if (result.linesCleared > 0 && result.state.streak >= Achievements.BB_STREAK_TARGET) {
+            achievements.unlock(Achievements.BB_STREAK)
+        }
+        if (result.state.score >= 2_000) achievements.unlock(Achievements.BB_SCORE_2000)
+        if (result.state.score >= 10_000) achievements.unlock(Achievements.BB_SCORE_10000)
     }
 
     fun restart() {

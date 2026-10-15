@@ -9,6 +9,10 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.adlessarcade.core.WriteQueue
+import com.adlessarcade.core.achievements.Achievement
+import com.adlessarcade.core.achievements.Achievements
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -23,6 +27,7 @@ data class ProfileState(
 ) {
     fun isOwned(item: ShopItem): Boolean = ShopLogic.isOwned(owned, item)
     fun equipped(category: ShopCategory): ShopItem = ShopLogic.equipped(category, equippedIds, owned)
+    fun hasAchievement(achievement: Achievement): Boolean = achievement.titleId in owned
 }
 
 /** Coins, freigeschaltete Shop-Artikel und ausgerüstete Kosmetik. */
@@ -67,6 +72,31 @@ class ProfileRepository(private val context: Context) {
             success = false
         }
         return success
+    }
+
+    private val _unlocked = MutableSharedFlow<Achievement>(extraBufferCapacity = 16)
+
+    /** Neu freigeschaltete Erfolge (für die Einblendung). */
+    val unlocked: SharedFlow<Achievement> = _unlocked
+
+    /**
+     * Schaltet einen Erfolg samt Titel frei. Bereits vorhandene Erfolge werden ignoriert; abgeleitete Erfolge
+     * (z. B. „Allrounder“) werden im selben Schritt mit geprüft.
+     */
+    fun unlockAchievement(id: String) {
+        val achievement = Achievements.find(id) ?: return
+        writes.enqueue {
+            val fresh = ArrayList<Achievement>()
+            context.profileStore.edit { prefs ->
+                fresh.clear()
+                val owned = (prefs[ownedKey] ?: emptySet()).toMutableSet()
+                if (owned.add(achievement.titleId)) fresh += achievement
+                val unlockedIds = Achievements.all.filter { it.titleId in owned }.map { it.id }.toSet()
+                Achievements.derived(unlockedIds).forEach { if (owned.add(it.titleId)) fresh += it }
+                if (fresh.isNotEmpty()) prefs[ownedKey] = owned
+            }
+            fresh.forEach { _unlocked.tryEmit(it) }
+        }
     }
 
     fun equip(item: ShopItem) {

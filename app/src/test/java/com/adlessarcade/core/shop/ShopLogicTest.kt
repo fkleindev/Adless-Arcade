@@ -46,7 +46,7 @@ class ShopLogicTest {
         val ids = ShopCatalog.items.map { it.id }
         assertEquals(ids.size, ids.toSet().size)
         ShopCategory.entries.forEach { category ->
-            assertEquals(1, ShopCatalog.inCategory(category).count { it.price == 0 })
+            assertEquals(1, ShopCatalog.inCategory(category).count { it.isFree })
         }
     }
 

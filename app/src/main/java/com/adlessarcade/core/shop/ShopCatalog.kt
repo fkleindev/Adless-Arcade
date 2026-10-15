@@ -1,5 +1,7 @@
 package com.adlessarcade.core.shop
 
+import com.adlessarcade.core.achievements.Achievements
+
 enum class ShopCategory(val title: String) {
     BLOCK_SKIN("Block Break"),
     HERO_SKIN("Gate Rush"),
@@ -12,7 +14,7 @@ enum class ShopCategory(val title: String) {
 
 /**
  * Ein Shop-Artikel. Die Optik (Farben, Stile) wird in `ui/theme/Cosmetics.kt` über die [id] zugeordnet.
- * [symbol] ist das Emoji bei Avataren.
+ * [symbol] ist das Emoji bei Avataren. [achievementId] gesetzt: nicht kaufbar, nur über diesen Erfolg freischaltbar.
  */
 data class ShopItem(
     val id: String,
@@ -20,7 +22,12 @@ data class ShopItem(
     val name: String,
     val price: Int,
     val symbol: String? = null,
-)
+    val achievementId: String? = null,
+) {
+    /** Kostenloser Standard-Artikel (gehört jedem von Anfang an). */
+    val isFree: Boolean get() = price == 0 && achievementId == null
+    val purchasable: Boolean get() = achievementId == null
+}
 
 object ShopCatalog {
     val items: List<ShopItem> = listOf(
@@ -70,7 +77,7 @@ object ShopCatalog {
         ShopItem("title_comboking", ShopCategory.TITLE, "Combo-König", 250),
         ShopItem("title_collector", ShopCategory.TITLE, "Coin-Sammler", 300),
         ShopItem("title_legend", ShopCategory.TITLE, "Arcade-Legende", 500),
-    )
+    ) + Achievements.all.map { ShopItem(it.titleId, ShopCategory.TITLE, it.titleName, price = 0, achievementId = it.id) }
 
     private val byId = items.associateBy { it.id }
 
@@ -79,7 +86,7 @@ object ShopCatalog {
     fun inCategory(category: ShopCategory): List<ShopItem> = items.filter { it.category == category }
 
     /** Der kostenlose Standard-Artikel einer Kategorie. */
-    fun default(category: ShopCategory): ShopItem = items.first { it.category == category && it.price == 0 }
+    fun default(category: ShopCategory): ShopItem = items.first { it.category == category && it.isFree }
 }
 
 object CoinRewards {
@@ -91,11 +98,11 @@ object CoinRewards {
 data class Wallet(val coins: Int, val owned: Set<String>)
 
 object ShopLogic {
-    fun isOwned(owned: Set<String>, item: ShopItem): Boolean = item.price == 0 || item.id in owned
+    fun isOwned(owned: Set<String>, item: ShopItem): Boolean = item.isFree || item.id in owned
 
     /** Neuer Wallet-Zustand nach dem Kauf, oder null wenn bereits besessen bzw. nicht genug Coins. */
     fun buy(wallet: Wallet, item: ShopItem): Wallet? {
-        if (isOwned(wallet.owned, item) || wallet.coins < item.price) return null
+        if (!item.purchasable || isOwned(wallet.owned, item) || wallet.coins < item.price) return null
         return Wallet(wallet.coins - item.price, wallet.owned + item.id)
     }
 
