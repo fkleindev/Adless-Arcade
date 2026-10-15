@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -98,9 +99,15 @@ fun ProfileBadge(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     ) {
         AvatarCircle(cosmetics.avatar)
         Spacer(Modifier.width(10.dp))
-        Column {
+        Column(Modifier.weight(1f, fill = false)) {
             Text("SPIELER", style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted)
-            Text(cosmetics.title, style = MaterialTheme.typography.titleMedium, color = ArcadeText)
+            Text(
+                cosmetics.title,
+                style = MaterialTheme.typography.titleMedium,
+                color = ArcadeText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

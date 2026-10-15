@@ -1,10 +1,12 @@
 package com.adlessarcade.ui.theme
 
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
 
@@ -38,6 +40,9 @@ fun AdlessArcadeTheme(palette: ArcadePalette = LocalCosmetics.current.palette, c
         colorScheme = colorScheme,
         typography = ArcadeTypography,
         shapes = ArcadeShapes,
-        content = content,
-    )
+    ) {
+        // Ohne umgebende Surface wäre die Standard-Inhaltsfarbe Schwarz – Texte und Icons ohne eigene Farbe
+        // (z. B. Zurück-Pfeil und Überschrift im Header) wären auf dem dunklen Hintergrund kaum lesbar.
+        CompositionLocalProvider(LocalContentColor provides colorScheme.onBackground, content = content)
+    }
 }

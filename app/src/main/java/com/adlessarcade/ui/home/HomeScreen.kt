@@ -69,8 +69,9 @@ fun HomeScreen(onGameClick: (GameInfo) -> Unit, onShopClick: () -> Unit, onAchie
 @Composable
 private fun TopBar(coins: Int, onShopClick: () -> Unit, onAchievementsClick: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        ProfileBadge(Modifier.weight(1f, fill = false), onClick = onShopClick)
-        Spacer(Modifier.weight(1f))
+        // Die Spieler-Anzeige bekommt den gesamten freien Platz, damit lange Titel nicht umbrechen.
+        ProfileBadge(Modifier.weight(1f), onClick = onShopClick)
+        Spacer(Modifier.width(8.dp))
         CoinChip(coins, onClick = onShopClick)
         Spacer(Modifier.width(8.dp))
         ArcadeIconButton(onClick = onAchievementsClick) {
