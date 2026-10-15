@@ -2,8 +2,10 @@ package com.adlessarcade.games.survivors.progress
 
 import com.adlessarcade.core.shop.ShopCatalog
 import com.adlessarcade.games.survivors.HeroClass
+import com.adlessarcade.games.survivors.WeaponKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -44,6 +46,25 @@ class SurvivorsUnlocksTest {
         val stats = UnlockLogic.afterRun(emptyMap(), victory = true, bossesKilled = 2, seconds = 930)
         val after = UnlockLogic.buy(SurvivorsProgress(runes = 50, stats = stats), gated)!!
         assertEquals(40, after.runes)
+    }
+
+    @Test
+    fun weapons_needRunesAndPartnerKills_gravityOnlyRunes() {
+        val hammer = SurvivorsUnlocks.find(WeaponKind.HAMMER.unlockId)!!
+        assertNull(UnlockLogic.buy(SurvivorsProgress(runes = 1_000), hammer)) // Kills fehlen
+        val killsOk = SurvivorsProgress(
+            runes = 1_000,
+            stats = mapOf(SurvivorsStats.weaponKills(WeaponKind.SWORD) to SurvivorsUnlocks.PARTNER_KILLS),
+        )
+        val after = UnlockLogic.buy(killsOk, hammer)!!
+        assertEquals(WeaponKind.BASE + WeaponKind.HAMMER, UnlockLogic.availableWeapons(after))
+
+        val gravity = SurvivorsUnlocks.find(WeaponKind.GRAVITY.unlockId)!!
+        assertTrue(gravity.requirements.isEmpty())
+        assertNotNull(UnlockLogic.buy(SurvivorsProgress(runes = gravity.runePrice), gravity))
+
+        // Jede neue Waffe ist in der Schmiede, jede Grundwaffe nicht
+        WeaponKind.entries.forEach { w -> assertEquals(!w.isBase, SurvivorsUnlocks.find(w.unlockId) != null) }
     }
 
     @Test

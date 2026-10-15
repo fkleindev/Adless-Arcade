@@ -89,9 +89,15 @@ class Enemy(
     var slowTimer: Float = 0f
     /** Eiszeit: eingefroren (bewegt sich nicht, richtet keinen Kontaktschaden an). */
     var freezeTimer: Float = 0f
+    /** Betäubt/gefesselt (Erdbrecher, Urwald): bewegt sich nicht, richtet keinen Kontaktschaden an. */
+    var stunTimer: Float = 0f
     var hitFlash: Float = 0f
+    /** Waffe des letzten Treffers (für Kills pro Waffe). */
+    var lastHit: WeaponKind? = null
     /** Abklingzeit, bis der Knochenorbit diesen Gegner erneut treffen darf. */
     var orbitCooldown: Float = 0f
+    /** Abklingzeit für die kreisenden Schilde (Bollwerk). */
+    var shieldCooldown: Float = 0f
 
     val radius: Float get() = kind.radius * if (elite) 1.4f else 1f
     val isBoss: Boolean get() = kind == EnemyKind.BOSS || kind == EnemyKind.DEMON
@@ -113,16 +119,47 @@ class Projectile(
     val explosionRadius: Float = 0f,
     /** > 0: kehrt bei dieser Restlebensdauer um und fliegt zurück (Klingensturm). */
     val returnAt: Float = 0f,
+    /** Lenkt auf den nächsten Gegner (Arkane Geschosse). */
+    val homing: Boolean = false,
+    /** Springt nach einem Treffer zum nächsten Gegner (Kristallsplitter, Arkansturm). */
+    val bounce: Boolean = false,
+    /** Kann sich bei einem Treffer teilen (Splittersturm); Abspaltungen nicht mehr. */
+    val splits: Boolean = false,
+    /** Stößt getroffene Gegner zurück (Schildwurf). */
+    val knockback: Float = 0f,
+    /** Trifft denselben Gegner in diesem Takt erneut (Orkan); 0 = nur einmal. */
+    val rehit: Float = 0f,
+    /** Zieht Gegner in diesem Radius an (Orkan); 0 = nicht. */
+    val pullRadius: Float = 0f,
+    /** Explodiert am Ende der Flugzeit in diesem Radius (Götterspeer); 0 = nicht. */
+    val endBlast: Float = 0f,
 ) {
     val hitIds: MutableSet<Long> = HashSet()
     var alive: Boolean = true
     var returned: Boolean = false
+    var tick: Float = 0f
 }
 
-/** Brennender Boden (Meteorregen): schadet Gegnern in regelmäßigen Abständen. */
+enum class HazardKind { FIRE, VINES, GRAVITY }
+
+/**
+ * Wirkfläche am Boden: brennender Boden (Meteorregen), Ranken (Rankensaat) oder Gravitationsbrunnen.
+ * Schadet Gegnern in regelmäßigen Abständen.
+ */
 @Serializable
-class Hazard(val x: Float, val y: Float, val radius: Float, val damage: Float, var life: Float) {
+class Hazard(
+    val x: Float,
+    val y: Float,
+    val radius: Float,
+    val damage: Float,
+    var life: Float,
+    val kind: HazardKind = HazardKind.FIRE,
+    /** Entwickelte Variante (Urwald, Singularität). */
+    val evolved: Boolean = false,
+) {
     var tick: Float = 0f
+    /** Gesamtdauer – für die Darstellung (Ein-/Ausblenden). */
+    val maxLife: Float = life
 }
 
 /** Verzögerter Waffeneinsatz: Folgeschläge (Vielfalt), Frost-Echos und Meteor-Einschläge. */
@@ -204,6 +241,10 @@ class SurvivorsState(
     var victorySweepTime: Float = 0f
     var dead: Boolean = false
     val weapons: MutableMap<WeaponKind, Int> = LinkedHashMap()
+    /** Waffen, die in diesem Lauf angeboten werden dürfen (Grundwaffen + in der Runen-Schmiede freigeschaltete). */
+    val availableWeapons: MutableSet<WeaponKind> = LinkedHashSet(WeaponKind.BASE)
+    /** Kills pro Waffe in diesem Lauf (letzter Treffer zählt) – für Freischalt-Kriterien. */
+    val weaponKills: MutableMap<WeaponKind, Int> = LinkedHashMap()
     val passives: MutableMap<PassiveKind, Int> = LinkedHashMap()
     val cooldowns: MutableMap<WeaponKind, Float> = LinkedHashMap()
     val enemies: MutableList<Enemy> = ArrayList()
@@ -225,6 +266,8 @@ class SurvivorsState(
     val hazards: MutableList<Hazard> = ArrayList()
     /** Drehwinkel des Knochenorbits. */
     var orbitAngle: Float = 0f
+    /** Drehwinkel der Bollwerk-Schilde. */
+    var shieldAngle: Float = 0f
     /** Lebensraub-Vorrat: begrenzt die Heilung durch Entwicklungen pro Sekunde. */
     var leechPool: Float = 0f
     var nextId: Long = 0
@@ -254,5 +297,8 @@ sealed interface SurvivorsEvent {
     data class Nova(val x: Float, val y: Float, val radius: Float, val freeze: Boolean = false) : SurvivorsEvent
     /** Gewittersturm: Blitz springt von (x1, y1) nach (x2, y2). */
     data class Chain(val x1: Float, val y1: Float, val x2: Float, val y2: Float) : SurvivorsEvent
+    /** Kriegshammer-Hieb (Kegel) bzw. Erdbrecher-Schockwelle ([ring]). */
+    data class Smash(val x: Float, val y: Float, val angle: Float, val range: Float, val ring: Boolean) : SurvivorsEvent
+    data class Thorns(val x: Float, val y: Float, val radius: Float, val evolved: Boolean) : SurvivorsEvent
     data class Explosion(val x: Float, val y: Float, val radius: Float) : SurvivorsEvent
 }

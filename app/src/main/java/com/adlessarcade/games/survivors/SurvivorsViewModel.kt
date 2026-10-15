@@ -109,6 +109,8 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
     private var bestAtStart = 0
     private var coinsBooked = 0
     private var runesBooked = 0
+    /** Bereits verbuchte Kills pro Waffe (für die Freischalt-Voraussetzungen der Runen-Schmiede). */
+    private val killsBooked = HashMap<WeaponKind, Int>()
     private var coinFlushTimer = 0f
 
     init {
@@ -121,6 +123,7 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
                 val restored = SurvivorsEngine(saved.state, System.nanoTime())
                 coinsBooked = saved.state.coinsEarned
                 runesBooked = saved.state.runesEarned
+                killsBooked += saved.state.weaponKills
                 bestAtStart = minOf(saved.bestAtStart, stored)
                 best = maxOf(stored, restored.score)
                 engine = restored
@@ -137,12 +140,13 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
     }
 
     /** Startet einen neuen Lauf mit der gewählten Klasse und merkt sie sich als Standard. */
-    fun start(heroClass: HeroClass) {
+    fun start(heroClass: HeroClass, availableWeapons: Set<WeaponKind> = WeaponKind.BASE) {
         progress.select(heroClass.shopId)
-        engine = SurvivorsEngine.newGame(heroClass, mode, System.nanoTime())
+        engine = SurvivorsEngine.newGame(heroClass, mode, System.nanoTime(), availableWeapons)
         effects.clear()
         coinsBooked = 0
         runesBooked = 0
+        killsBooked.clear()
         coinFlushTimer = 0f
         recordBonus = 0
         leaderboardRank = null
@@ -294,6 +298,12 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
             profile.addCoins(delta)
             coinsBooked = e.state.coinsEarned
         }
+        val kills = e.state.weaponKills.mapValues { (w, n) -> n - (killsBooked[w] ?: 0) }
+        if (kills.values.any { it > 0 }) {
+            progress.addWeaponKills(kills)
+            killsBooked.clear()
+            killsBooked += e.state.weaponKills
+        }
         val runes = e.state.runesEarned - runesBooked
         if (runes > 0) {
             progress.addRunes(runes)
@@ -385,6 +395,8 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
                 is SurvivorsEvent.Lightning -> if (effects.size < MAX_FX) effects += SurvivorsFx.Bolt(event.x, event.y, event.radius)
                 is SurvivorsEvent.Chain -> if (effects.size < MAX_FX) effects += SurvivorsFx.Arc(event.x1, event.y1, event.x2, event.y2)
                 is SurvivorsEvent.Nova -> effects += SurvivorsFx.Nova(event.x, event.y, event.radius, event.freeze)
+                is SurvivorsEvent.Smash -> effects += SurvivorsFx.Smash(event.x, event.y, event.angle, event.range, event.ring)
+                is SurvivorsEvent.Thorns -> if (effects.size < MAX_FX) effects += SurvivorsFx.ThornPulse(event.x, event.y, event.radius, event.evolved)
                 is SurvivorsEvent.Explosion -> if (effects.size < MAX_FX) {
                     effects += SurvivorsFx.Blast(event.x, event.y, event.radius, Color(0xFFF97316))
                 }

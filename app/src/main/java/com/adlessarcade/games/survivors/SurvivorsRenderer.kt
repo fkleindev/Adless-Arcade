@@ -53,6 +53,8 @@ sealed class SurvivorsFx(val x: Float, val y: Float, val lifetime: Float) {
     class Bolt(x: Float, y: Float, val radius: Float) : SurvivorsFx(x, y, 0.3f)
     class Nova(x: Float, y: Float, val radius: Float, val freeze: Boolean) : SurvivorsFx(x, y, 0.45f)
     class Arc(x: Float, y: Float, val x2: Float, val y2: Float) : SurvivorsFx(x, y, 0.25f)
+    class Smash(x: Float, y: Float, val angle: Float, val range: Float, val ring: Boolean) : SurvivorsFx(x, y, if (ring) 0.4f else 0.25f)
+    class ThornPulse(x: Float, y: Float, val radius: Float, val evolved: Boolean) : SurvivorsFx(x, y, 0.35f)
     class Blast(x: Float, y: Float, val radius: Float, val color: Color) : SurvivorsFx(x, y, 0.35f)
     class Number(x: Float, y: Float, val amount: Int) : SurvivorsFx(x, y, 0.6f)
     class Text(x: Float, y: Float, val text: String, val color: Color) : SurvivorsFx(x, y, 1.4f)
@@ -92,20 +94,9 @@ fun DrawScope.drawSurvivors(
     val margin = 2f
     fun visible(x: Float, y: Float) = abs(x - s.px) < cam.halfWorldW + margin && abs(y - s.py) < cam.halfWorldH + margin
 
-    // Brennender Boden (Meteorregen) und Vorwarnung kommender Meteore
+    // Bodenflächen (brennender Boden, Ranken, Gravitationsbrunnen) und Vorwarnung kommender Meteore
     s.hazards.forEach { h ->
-        if (!visible(h.x, h.y)) return@forEach
-        val fade = (h.life / 0.5f).coerceAtMost(1f)
-        val flicker = 0.8f + 0.2f * sin(s.time * 18f + h.x * 3f)
-        drawCircle(
-            Brush.radialGradient(
-                listOf(Color(0xFFFDE047).copy(alpha = 0.5f * fade * flicker), Color(0xFFEA580C).copy(alpha = 0.35f * fade), Color.Transparent),
-                center = cam.at(h.x, h.y),
-                radius = cam.len(h.radius),
-            ),
-            cam.len(h.radius),
-            cam.at(h.x, h.y),
-        )
+        if (visible(h.x, h.y)) drawHazard(cam, h, s.time)
     }
     val meteorRadius = engine.meteorRadius()
     s.pendingStrikes.forEach { p ->
@@ -130,6 +121,7 @@ fun DrawScope.drawSurvivors(
     s.projectiles.forEach { if (visible(it.x, it.y)) drawProjectile(cam, it, s.time, engine.isEvolved(it.weapon)) }
     val soulVortex = engine.isEvolved(WeaponKind.BONE_ORBIT)
     engine.orbitPositions().forEach { (x, y) -> drawSkull(cam, x, y, s.time, soulVortex) }
+    engine.shieldPositions().forEach { (x, y) -> drawShield(cam.at(x, y), cam.len(0.42f), s.time * 6f, glow = true) }
 
     val blink = s.invulnerable > 0f && ((s.invulnerable * 20f).toInt() % 2 == 0)
     if (!blink) drawHeroClass(s.heroClass, cam.at(s.px, s.py), cam.len(0.9f), s.time, faceRight = s.faceX >= 0f)
@@ -420,6 +412,13 @@ private fun DrawScope.drawEnemy(cam: SurvivorsCamera, e: Enemy, theme: SurvivorT
         drawRoundRect(Color(0xFFBAE6FD).copy(alpha = 0.35f), c + Offset(-r * 1.15f, -r * 1.2f), Size(r * 2.3f, r * 2.2f), CornerRadius(r * 0.3f))
         drawRoundRect(Color.White.copy(alpha = 0.7f), c + Offset(-r * 1.15f, -r * 1.2f), Size(r * 2.3f, r * 2.2f), CornerRadius(r * 0.3f), style = Stroke(width = max(2f, r * 0.08f)))
     }
+    if (e.stunTimer > 0f) {
+        // Betäubt/gefesselt: kreisende Sterne über dem Kopf
+        for (i in 0 until 3) {
+            val a = time * 6f + i * 2.09f
+            drawCircle(Color(0xFFFDE047), max(2f, r * 0.12f), c + Offset(cos(a) * r * 0.6f, -r * 1.1f + sin(a) * r * 0.2f))
+        }
+    }
     if (e.elite || e.isBoss) {
         val barW = r * 2.4f
         val barH = max(4f, r * 0.15f)
@@ -463,7 +462,135 @@ private fun DrawScope.drawProjectile(cam: SurvivorsCamera, p: Projectile, time: 
                 drawRect(Color(0xFF78350F), c + Offset(-u * 0.05f, u * 0.1f), Size(u * 0.1f, u * 0.08f))
             }
         }
+        WeaponKind.ARCANE -> {
+            val pulse = 0.85f + 0.15f * sin(time * 20f + p.id)
+            drawCircle(Color(0xFFA855F7).copy(alpha = 0.35f), u * 0.4f * pulse, c)
+            drawCircle(Color(0xFFC084FC), u * 0.22f, c)
+            drawCircle(Color.White, u * 0.1f, c)
+        }
+        WeaponKind.WIND -> {
+            val r = cam.len(p.radius)
+            val fade = (p.life / 0.4f).coerceAtMost(1f)
+            if (p.pullRadius > 0f) {
+                // Orkan: wirbelnder Sturm
+                for (i in 0 until 4) {
+                    val rr = r * (0.35f + i * 0.2f)
+                    drawArc(
+                        Color(0xFFE0F2FE).copy(alpha = (0.55f - i * 0.1f) * fade), time * 900f + i * 70f, 220f, false,
+                        c - Offset(rr, rr * 0.7f), Size(rr * 2f, rr * 1.4f), style = Stroke(width = cam.len(0.06f)),
+                    )
+                }
+            } else {
+                // Windklinge: rotierende Sichel
+                rotate(time * 720f + p.id * 37f, c) {
+                    drawArc(Color(0xFFBAE6FD).copy(alpha = 0.85f * fade), 0f, 140f, false, c - Offset(r, r), Size(r * 2f, r * 2f),
+                        style = Stroke(width = cam.len(0.07f)))
+                    drawArc(Color.White.copy(alpha = 0.7f * fade), 180f, 140f, false, c - Offset(r * 0.7f, r * 0.7f), Size(r * 1.4f, r * 1.4f),
+                        style = Stroke(width = cam.len(0.05f)))
+                }
+            }
+        }
+        WeaponKind.SPEAR -> {
+            val dir = Offset(cos(angle), sin(angle))
+            val tail = c - dir * (u * 0.9f)
+            drawLine(Color(0xFF92400E), tail, c, strokeWidth = u * 0.07f)
+            val tip = Path().apply {
+                moveTo(c.x + dir.x * u * 0.25f, c.y + dir.y * u * 0.25f)
+                lineTo(c.x - dir.y * u * 0.1f, c.y + dir.x * u * 0.1f)
+                lineTo(c.x + dir.y * u * 0.1f, c.y - dir.x * u * 0.1f)
+                close()
+            }
+            drawPath(tip, if (evolved) Color(0xFFFDE047) else Color(0xFFE5E7EB))
+            drawCircle(Color(0xFF60A5FA).copy(alpha = 0.6f), u * 0.05f, c - dir * (u * 0.45f))
+        }
+        WeaponKind.SHARDS -> {
+            rotate(time * 500f + p.id * 20f, c) {
+                val s = u * 0.16f
+                val diamond = Path().apply {
+                    moveTo(c.x, c.y - s)
+                    lineTo(c.x + s * 0.6f, c.y)
+                    lineTo(c.x, c.y + s)
+                    lineTo(c.x - s * 0.6f, c.y)
+                    close()
+                }
+                drawPath(diamond, Color(0xFF67E8F9))
+                drawPath(diamond, Color.White.copy(alpha = 0.8f), style = Stroke(width = max(1f, u * 0.02f)))
+            }
+        }
+        WeaponKind.SHIELD -> drawShield(c, u * 0.35f, time * 12f, glow = false)
         else -> drawCircle(Color.White, u * 0.1f, c)
+    }
+}
+
+/** Runder Schild (Schildwurf, Bollwerk). */
+private fun DrawScope.drawShield(c: Offset, r: Float, spin: Float, glow: Boolean) {
+    if (glow) drawCircle(Color(0xFF93C5FD).copy(alpha = 0.3f), r * 1.5f, c)
+    rotate(spin * 57.3f, c) {
+        drawCircle(Color(0xFF1D4ED8), r, c)
+        drawCircle(Color(0xFFFACC15), r, c, style = Stroke(width = r * 0.2f))
+        drawLine(Color(0xFFFACC15), c - Offset(r * 0.6f, 0f), c + Offset(r * 0.6f, 0f), strokeWidth = r * 0.18f)
+        drawLine(Color(0xFFFACC15), c - Offset(0f, r * 0.6f), c + Offset(0f, r * 0.6f), strokeWidth = r * 0.18f)
+    }
+}
+
+/** Bodenfläche: brennender Boden, Ranken oder Gravitationsbrunnen. */
+private fun DrawScope.drawHazard(cam: SurvivorsCamera, h: Hazard, time: Float) {
+    val center = cam.at(h.x, h.y)
+    val r = cam.len(h.radius)
+    val fade = (h.life / 0.5f).coerceAtMost(1f) * ((h.maxLife - h.life) / 0.25f).coerceIn(0f, 1f)
+    when (h.kind) {
+        HazardKind.FIRE -> {
+            val flicker = 0.8f + 0.2f * sin(time * 18f + h.x * 3f)
+            drawCircle(
+                Brush.radialGradient(
+                    listOf(Color(0xFFFDE047).copy(alpha = 0.5f * fade * flicker), Color(0xFFEA580C).copy(alpha = 0.35f * fade), Color.Transparent),
+                    center = center,
+                    radius = r,
+                ),
+                r,
+                center,
+            )
+        }
+        HazardKind.VINES -> {
+            val green = if (h.evolved) Color(0xFF22C55E) else Color(0xFF4D7C0F)
+            drawCircle(green.copy(alpha = 0.25f * fade), r, center)
+            // Rankenarme mit Blättern
+            for (i in 0 until 7) {
+                val a = i * 0.9f + h.x
+                val sway = sin(time * 3f + i) * 0.15f
+                val end = center + Offset(cos(a + sway), sin(a + sway)) * (r * 0.95f)
+                val mid = center + Offset(cos(a + 0.5f), sin(a + 0.5f)) * (r * 0.5f)
+                val vine = Path().apply {
+                    moveTo(center.x, center.y)
+                    quadraticTo(mid.x, mid.y, end.x, end.y)
+                }
+                drawPath(vine, Color(0xFF65A30D).copy(alpha = 0.85f * fade), style = Stroke(width = cam.len(0.06f)))
+                drawCircle(Color(0xFF86EFAC).copy(alpha = 0.9f * fade), cam.len(0.07f), mid)
+            }
+            if (h.evolved) drawCircle(Color(0xFFF472B6).copy(alpha = 0.8f * fade), cam.len(0.09f), center)
+        }
+        HazardKind.GRAVITY -> {
+            drawCircle(
+                Brush.radialGradient(
+                    listOf(Color.Black.copy(alpha = 0.85f * fade), Color(0xFF6D28D9).copy(alpha = 0.4f * fade), Color.Transparent),
+                    center = center,
+                    radius = r,
+                ),
+                r,
+                center,
+            )
+            // Einströmende Spiralarme
+            for (i in 0 until 3) {
+                rotate(-time * 240f + i * 120f, center) {
+                    drawArc(
+                        Color(0xFFC4B5FD).copy(alpha = 0.6f * fade), 0f, 160f, false,
+                        center - Offset(r * 0.75f, r * 0.75f), Size(r * 1.5f, r * 1.5f), style = Stroke(width = cam.len(0.05f)),
+                    )
+                }
+            }
+            drawCircle(if (h.evolved) Color.Black else Color(0xFF1E1B4B), cam.len(if (h.evolved) 0.45f else 0.25f), center)
+            if (h.evolved) drawCircle(Color(0xFFE879F9).copy(alpha = 0.8f * fade), cam.len(0.45f), center, style = Stroke(width = cam.len(0.05f)))
+        }
     }
 }
 
@@ -472,6 +599,10 @@ private fun defaultRadius(weapon: WeaponKind): Float = when (weapon) {
     WeaponKind.FIREBALL -> 0.3f
     WeaponKind.ARROWS -> 0.2f
     WeaponKind.DAGGERS -> 0.18f
+    WeaponKind.ARCANE -> 0.22f
+    WeaponKind.SPEAR -> 0.25f
+    WeaponKind.SHARDS -> 0.18f
+    WeaponKind.SHIELD -> 0.35f
     else -> 0.2f
 }
 
@@ -583,6 +714,36 @@ private fun DrawScope.drawFx(cam: SurvivorsCamera, fx: SurvivorsFx, textMeasurer
                     drawLine(Color.White.copy(alpha = a), p - Offset(0f, cam.len(0.1f)), p + Offset(0f, cam.len(0.1f)), strokeWidth = cam.len(0.04f))
                     drawLine(Color.White.copy(alpha = a), p, p + Offset(cam.len(0.07f), -cam.len(0.05f)), strokeWidth = cam.len(0.04f))
                 }
+            }
+        }
+        is SurvivorsFx.Smash -> {
+            val range = cam.len(fx.range)
+            if (fx.ring) {
+                // Erdbrecher: Schockwellen-Ring mit Steinsplittern
+                val rr = range * (0.3f + 0.7f * t)
+                drawCircle(Color(0xFFD97706).copy(alpha = 0.3f * a), rr, c)
+                drawCircle(Color(0xFFFDE68A).copy(alpha = 0.8f * a), rr, c, style = Stroke(width = cam.len(0.14f)))
+                for (i in 0 until 10) {
+                    val ang = i * 0.628f + fx.angle
+                    drawCircle(Color(0xFF78716C).copy(alpha = a), cam.len(0.07f), c + Offset(cos(ang), sin(ang)) * rr)
+                }
+            } else {
+                // Hammerschlag: Kegel nach vorn
+                val sweep = 86f
+                val start = fx.angle * 180f / PI.toFloat() - sweep / 2f
+                drawArc(Color(0xFFFBBF24).copy(alpha = 0.45f * a), start, sweep, true, c - Offset(range, range), Size(range * 2f, range * 2f))
+                drawArc(Color.White.copy(alpha = 0.9f * a), start, sweep, false, c - Offset(range, range), Size(range * 2f, range * 2f),
+                    style = Stroke(width = cam.len(0.1f)))
+            }
+        }
+        is SurvivorsFx.ThornPulse -> {
+            val rr = cam.len(fx.radius) * (0.5f + 0.5f * t)
+            val color = if (fx.evolved) Color(0xFFDC2626) else Color(0xFFBE185D)
+            drawCircle(color.copy(alpha = 0.25f * a), rr, c)
+            for (i in 0 until 14) {
+                val ang = i * 0.449f
+                val dir = Offset(cos(ang), sin(ang))
+                drawLine(color.copy(alpha = a), c + dir * (rr * 0.75f), c + dir * (rr * 1.05f), strokeWidth = cam.len(0.06f))
             }
         }
         is SurvivorsFx.Arc -> {

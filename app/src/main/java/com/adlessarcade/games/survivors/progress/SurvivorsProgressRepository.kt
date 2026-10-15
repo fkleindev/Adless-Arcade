@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.adlessarcade.core.SaveJson
 import com.adlessarcade.core.WriteQueue
+import com.adlessarcade.games.survivors.WeaponKind
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -64,6 +65,18 @@ class SurvivorsProgressRepository(private val context: Context) {
             context.survivorsStore.edit { prefs ->
                 val updated = UnlockLogic.afterRun(prefs.stats(), victory, bossesKilled, seconds)
                 prefs[statsKey] = SaveJson.encodeToString(statsSerializer, updated)
+            }
+        }
+    }
+
+    /** Kills pro Waffe aufaddieren (Voraussetzung für neue Waffen). */
+    fun addWeaponKills(kills: Map<WeaponKind, Int>) {
+        if (kills.values.none { it > 0 }) return
+        writes.enqueue {
+            context.survivorsStore.edit { prefs ->
+                val stats = prefs.stats().toMutableMap()
+                kills.forEach { (weapon, n) -> if (n > 0) stats.merge(SurvivorsStats.weaponKills(weapon), n, Int::plus) }
+                prefs[statsKey] = SaveJson.encodeToString(statsSerializer, stats)
             }
         }
     }

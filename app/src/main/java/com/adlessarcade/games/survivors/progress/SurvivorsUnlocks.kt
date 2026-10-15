@@ -1,6 +1,7 @@
 package com.adlessarcade.games.survivors.progress
 
 import com.adlessarcade.games.survivors.HeroClass
+import com.adlessarcade.games.survivors.WeaponKind
 
 /** Dauerhafter Fortschritt in Rune Survivors (unabhängig von Coins und dem allgemeinen Shop). */
 data class SurvivorsProgress(
@@ -22,6 +23,9 @@ object SurvivorsStats {
     const val BOSSES_KILLED = "bosses_killed"
     /** Längste Überlebenszeit in Sekunden (beide Modi). */
     const val BEST_TIME = "best_time"
+    /** Kills mit einer Waffe über alle Läufe, z. B. „kills_SWORD“. */
+    fun weaponKills(weapon: WeaponKind): String = "kills_${weapon.name}"
+
     /** Gespielte Läufe. */
     const val RUNS = "runs"
 }
@@ -63,7 +67,44 @@ object SurvivorsUnlocks {
         SurvivorsUnlock(HeroClass.MAGE.shopId, UnlockKind.CLASS, HeroClass.MAGE.title, runePrice = 80),
         SurvivorsUnlock(HeroClass.RANGER.shopId, UnlockKind.CLASS, HeroClass.RANGER.title, runePrice = 120),
         SurvivorsUnlock(HeroClass.NECROMANCER.shopId, UnlockKind.CLASS, HeroClass.NECROMANCER.title, runePrice = 150),
+    ) + weaponUnlocks()
+
+    /** Runenpreis der freischaltbaren Waffen (Getter, damit die Reihenfolge der Initialisierung egal ist). */
+    private val WEAPON_PRICES: Map<WeaponKind, Int> get() = mapOf(
+        WeaponKind.HAMMER to 60,
+        WeaponKind.ARCANE to 70,
+        WeaponKind.SHARDS to 80,
+        WeaponKind.SPEAR to 90,
+        WeaponKind.THORNS to 100,
+        WeaponKind.VINES to 100,
+        WeaponKind.WIND to 110,
+        WeaponKind.SHIELD to 120,
+        WeaponKind.GRAVITY to 150,
     )
+
+    /** Kills mit der Grundwaffe desselben Talents, die eine neue Waffe voraussetzt (über alle Läufe). */
+    const val PARTNER_KILLS = 1_000
+
+    /**
+     * Neue Waffen: Runen + [PARTNER_KILLS] Kills mit der Grundwaffe desselben Entwicklungs-Talents.
+     * Der Gravitationsbrunnen (Magnet) hat keine Partnerwaffe und kostet nur Runen.
+     */
+    private fun weaponUnlocks(): List<SurvivorsUnlock> = WeaponKind.entries.filter { !it.isBase }.map { weapon ->
+        val partner = weapon.partner
+        SurvivorsUnlock(
+            id = weapon.unlockId,
+            kind = UnlockKind.WEAPON,
+            name = weapon.title,
+            runePrice = WEAPON_PRICES.getValue(weapon),
+            requirements = if (partner == null) emptyList() else listOf(
+                StatAtLeast(
+                    SurvivorsStats.weaponKills(partner),
+                    PARTNER_KILLS,
+                    "%,d Kills mit %s".format(java.util.Locale.GERMANY, PARTNER_KILLS, partner.title),
+                ),
+            ),
+        )
+    }
 
     private val byId = all.associateBy { it.id }
 
@@ -92,6 +133,10 @@ object UnlockLogic {
         if (!canBuy(progress, unlock)) return null
         return progress.copy(runes = progress.runes - unlock.runePrice, unlocked = progress.unlocked + unlock.id)
     }
+
+    /** Waffen, die im Lauf angeboten werden: Grundwaffen + freigeschaltete. */
+    fun availableWeapons(progress: SurvivorsProgress): Set<WeaponKind> =
+        WeaponKind.entries.filter { it.isBase || it.unlockId in progress.unlocked }.toSet()
 
     /** Gewählte Klasse; fällt auf den Krieger zurück, wenn sie (noch) nicht freigeschaltet ist. */
     fun selectedClass(progress: SurvivorsProgress): HeroClass =

@@ -37,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -85,7 +86,7 @@ fun SurvivorsForgeScreen(onBack: () -> Unit) {
             ) {
                 item {
                     Text(
-                        "Runen verdienst du nur in Rune Survivors: pro überlebter Minute, für Elites, Bosse und Siege.",
+                        "Runen verdienst du nur in Rune Survivors: pro überlebter Minute, für Elites, Bosse und Siege. Neue Waffen brauchen zusätzlich Kills mit der Grundwaffe desselben Talents.",
                         style = MaterialTheme.typography.bodySmall,
                         color = ArcadeTextMuted,
                     )
@@ -103,8 +104,12 @@ fun SurvivorsForgeScreen(onBack: () -> Unit) {
                             UnlockFooter(progress, unlock, owned)
                         }
                     }
-                    UnlockKind.WEAPON -> item {
-                        ComingSoon("Neue Waffen", "Hier schaltest du bald zusätzliche Waffen für deine Läufe frei.")
+                    UnlockKind.WEAPON -> items(SurvivorsUnlocks.ofKind(UnlockKind.WEAPON), key = { it.id }) { unlock ->
+                        val weapon = WeaponKind.entries.firstOrNull { it.unlockId == unlock.id } ?: return@items
+                        val owned = UnlockLogic.isUnlocked(progress, unlock)
+                        WeaponCard(weapon, dimmed = !owned, onClick = if (owned) null else ({ pending = unlock })) {
+                            UnlockFooter(progress, unlock, owned)
+                        }
                     }
                     UnlockKind.STAGE -> {
                         item { CurrentStage() }
@@ -188,6 +193,41 @@ private fun UnlockFooter(progress: SurvivorsProgress, unlock: SurvivorsUnlock, o
             )
             Spacer(Modifier.width(4.dp))
             Text(requirement.text, style = MaterialTheme.typography.bodySmall, color = if (met) ArcadeText else ArcadeTextMuted)
+        }
+    }
+}
+
+/** Karte einer freischaltbaren Waffe: Symbol, Beschreibung und Entwicklungs-Hinweis. */
+@Composable
+private fun WeaponCard(weapon: WeaponKind, dimmed: Boolean, onClick: (() -> Unit)?, footer: @Composable () -> Unit) {
+    val shape = RoundedCornerShape(20.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(ArcadeSurface)
+            .border(1.dp, ArcadeOutline, shape)
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(64.dp).clip(RoundedCornerShape(16.dp)).background(ArcadeSurfaceHigh),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(weapon.icon, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.alpha(if (dimmed) 0.5f else 1f))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(weapon.title, style = MaterialTheme.typography.titleMedium, color = if (dimmed) ArcadeTextMuted else ArcadeText)
+            Text(weapon.description(1), style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
+            Text(
+                "Entwicklung: ${weapon.evolutionPassive.icon} ${weapon.evolutionPassive.title} → ${weapon.evolutionTitle}",
+                style = MaterialTheme.typography.labelMedium,
+                color = RuneViolet,
+            )
+            Spacer(Modifier.height(4.dp))
+            footer()
         }
     }
 }

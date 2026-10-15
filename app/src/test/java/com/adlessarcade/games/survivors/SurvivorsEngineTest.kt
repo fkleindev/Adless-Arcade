@@ -31,6 +31,63 @@ class SurvivorsEngineTest {
         state.spawner.nextBossTime = 10_000f
     }
 
+    /** Abstand eines Testgegners, bei dem die Waffe sicher trifft. */
+    private fun testDistance(weapon: WeaponKind, orbitRadius: Float): Float = when (weapon) {
+        WeaponKind.BONE_ORBIT -> orbitRadius
+        WeaponKind.AURA, WeaponKind.FROST_NOVA, WeaponKind.SWORD, WeaponKind.HAMMER, WeaponKind.THORNS -> 1.2f
+        WeaponKind.WIND -> -0.4f // Klingen bleiben hinter dem Helden liegen
+        else -> 3f
+    }
+
+    @Test
+    fun everyEvolutionTalent_coversTwoWeapons_exceptMagnet() {
+        PassiveKind.entries.forEach { passive ->
+            val weapons = WeaponKind.entries.filter { it.evolutionPassive == passive }
+            val expected = when (passive) {
+                PassiveKind.MAGNET -> 1
+                else -> 2
+            }
+            assertEquals("$passive", expected, weapons.size)
+            if (passive != PassiveKind.MAGNET) assertEquals(1, weapons.count { it.isBase })
+        }
+        // Partnerwaffe = Grundwaffe mit gleichem Talent
+        assertEquals(WeaponKind.SWORD, WeaponKind.HAMMER.partner)
+        assertEquals(null, WeaponKind.GRAVITY.partner)
+    }
+
+    @Test
+    fun lockedWeapons_areNotOffered() {
+        val e = SurvivorsEngine.newGame(HeroClass.KNIGHT, SurvivorsMode.TIMED, seed = 1, availableWeapons = WeaponKind.BASE)
+        repeat(30) {
+            val pool = Upgrades.pool(e.state)
+            assertTrue(pool.none { it.weapon != null && !it.weapon.isBase })
+            e.addXp(SurvivorsEngine.xpForLevel(e.state.level))
+            while (e.awaitingChoice) e.choose(0)
+        }
+        val f = SurvivorsEngine.newGame(HeroClass.KNIGHT, SurvivorsMode.TIMED, seed = 1,
+            availableWeapons = WeaponKind.BASE + WeaponKind.HAMMER)
+        assertTrue(Upgrades.pool(f.state).any { it.weapon == WeaponKind.HAMMER })
+        assertTrue(Upgrades.pool(f.state).none { it.weapon == WeaponKind.SPEAR })
+    }
+
+    @Test
+    fun kills_areCountedPerWeapon() {
+        val e = engine(HeroClass.KNIGHT)
+        e.clearSpawns()
+        e.state.invulnerable = 100f
+        repeat(3) { e.spawnEnemy(EnemyKind.SLIME, 1f, 0f).hp = 0.1f }
+        e.run(1.5f)
+        assertEquals(3, e.state.weaponKills[WeaponKind.SWORD])
+    }
+
+    @Test
+    fun maxFourPassives() {
+        val e = engine()
+        PassiveKind.entries.take(MAX_PASSIVES).forEach { e.state.passives[it] = 1 }
+        assertTrue(Upgrades.pool(e.state).none { it.passive != null && it.passive !in e.state.passives })
+        assertEquals(4, MAX_PASSIVES)
+    }
+
     @Test
     fun newGame_startsWithClassWeapon() {
         HeroClass.entries.forEach { c ->
@@ -175,19 +232,16 @@ class SurvivorsEngineTest {
                 e.state.weapons[weapon] = level
                 e.state.faceX = 1f
                 e.state.faceY = 0f
-                val distance = when (weapon) {
-                    WeaponKind.BONE_ORBIT -> weapon.area(level)
-                    WeaponKind.AURA, WeaponKind.FROST_NOVA, WeaponKind.SWORD -> 1.2f
-                    else -> 3f
-                }
+                val distance = testDistance(weapon, weapon.area(level))
                 val target = e.spawnEnemy(EnemyKind.SLIME, distance, 0f)
+                if (weapon == WeaponKind.WIND) e.inputX = 1f // Windklingen entstehen nur in Bewegung
                 target.hp = 1f
                 e.state.invulnerable = 100f // der Held soll in diesem Test nicht sterben
                 var t = 0f
                 while (t < 3f && target in e.state.enemies) {
                     e.update(1f / 60f)
                     // Gegner festhalten, damit die Geometrie stimmt
-                    target.x = distance
+                    target.x = if (weapon == WeaponKind.WIND) e.state.px - 0.4f else distance
                     target.y = 0f
                     t += 1f / 60f
                 }
@@ -349,17 +403,14 @@ class SurvivorsEngineTest {
             e.state.weapons[weapon] = MAX_LEVEL
             e.state.passives[weapon.evolutionPassive] = 1
             e.state.evolved += weapon
-            val distance = when (weapon) {
-                WeaponKind.BONE_ORBIT -> weapon.area(MAX_LEVEL) * e.stats.areaMultiplier
-                WeaponKind.AURA, WeaponKind.FROST_NOVA, WeaponKind.SWORD -> 1.2f
-                else -> 3f
-            }
+            val distance = testDistance(weapon, weapon.area(MAX_LEVEL) * e.stats.areaMultiplier)
             val target = e.spawnEnemy(EnemyKind.ORC, distance, 0f)
+            if (weapon == WeaponKind.WIND) e.inputX = 1f
             e.state.invulnerable = 100f
             var t = 0f
             while (t < 5f && target in e.state.enemies) {
                 e.update(1f / 60f)
-                target.x = distance
+                target.x = if (weapon == WeaponKind.WIND) e.state.px - 0.4f else distance
                 target.y = 0f
                 t += 1f / 60f
             }

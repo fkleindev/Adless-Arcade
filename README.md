@@ -11,7 +11,7 @@ Eine werbefreie Sammlung kleiner Spiele für Android – offline, ohne Tracking,
   - Modus *Boss Rush*: Rüstphase und Bosswelle im Wechsel, jeder Boss stärker als der letzte.
   - Modus *Tägliche Challenge*: festes Level pro Tag (gleicher Seed), eigener Tagesrekord.
 - **Rune Survivors**: Survivors-Like im Fantasy-Stil – mit dem Joystick durch die Welt laufen, Waffen kämpfen automatisch,
-  Kristalle sammeln, aufsteigen und aus 8 Waffen und 9 Talenten einen Build bauen. 4 Klassen, die man mit Runen in der Runen-Schmiede freischaltet.
+  Kristalle sammeln, aufsteigen und aus bis zu 17 Waffen und 9 Talenten einen Build bauen (4 Talente pro Lauf). 4 Klassen und 9 weitere Waffen schaltet man mit Runen in der Runen-Schmiede frei.
   - Modus *15 Minuten*: überleben und den Dämonenfürsten besiegen.
   - Modus *Endlos*: immer stärkere Horden ohne Ende.
 

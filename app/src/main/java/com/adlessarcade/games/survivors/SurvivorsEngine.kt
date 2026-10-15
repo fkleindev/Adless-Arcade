@@ -43,7 +43,10 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         private const val PULL_SPEED = 9f
         private const val SWEEP_PULL_SPEED = 14f
         private const val STORM_BOW_PIERCE = 4
-        private const val MAX_HAZARDS = 12
+        private const val MAX_HAZARDS = 24
+        private const val MAX_PROJECTILES = 260
+        /** Durchschlag ohne praktisches Limit (Speer, Klingen, Schilde). */
+        private const val UNLIMITED = 100_000
         /** Sichtbarer Bereich (halbe Breite/Höhe) – Blitze treffen nur sichtbare Gegner. */
         const val VIEW_HALF_WIDTH = 5.5f
         const val VIEW_HALF_HEIGHT = 10f
@@ -56,9 +59,17 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         private const val MAX_ENEMY_RADIUS = 1.9f
         private const val RELOCATE_DISTANCE = 24f
 
-        fun newGame(heroClass: HeroClass, mode: SurvivorsMode, seed: Long): SurvivorsEngine {
+        /** [availableWeapons]: Waffen, die angeboten werden dürfen (Grundwaffen + in der Runen-Schmiede freigeschaltete). */
+        fun newGame(
+            heroClass: HeroClass,
+            mode: SurvivorsMode,
+            seed: Long,
+            availableWeapons: Set<WeaponKind> = WeaponKind.entries.toSet(),
+        ): SurvivorsEngine {
             val state = SurvivorsState(heroClass, mode)
             state.weapons[heroClass.startWeapon] = 1
+            state.availableWeapons.clear()
+            state.availableWeapons += availableWeapons + WeaponKind.BASE
             return SurvivorsEngine(state, seed)
         }
 
@@ -219,7 +230,8 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         pendingStrikes(dt, st)
         orbit(dt, st)
         aura(dt, st)
-        hazards(dt)
+        shields(dt, st)
+        hazards(dt, st)
         moveProjectiles(dt)
         removeDeadEnemies(st)
         collect(dt, st)
@@ -332,7 +344,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 e.y = state.py + sin(angle) * SurvivorsSpawner.SPAWN_DISTANCE
                 continue
             }
-            val frozen = e.freezeTimer > 0f
+            val frozen = e.freezeTimer > 0f || e.stunTimer > 0f
             val speed = e.kind.speed * (if (e.slowTimer > 0f) 0.5f else 1f) * (if (e.elite) 0.9f else 1f)
             if (d > 0.01f && !frozen) {
                 e.x += dx / d * speed * dt
@@ -345,8 +357,10 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             }
             e.slowTimer = (e.slowTimer - dt).coerceAtLeast(0f)
             e.freezeTimer = (e.freezeTimer - dt).coerceAtLeast(0f)
+            e.stunTimer = (e.stunTimer - dt).coerceAtLeast(0f)
             e.hitFlash = (e.hitFlash - dt * 6f).coerceAtLeast(0f)
             e.orbitCooldown = (e.orbitCooldown - dt).coerceAtLeast(0f)
+            e.shieldCooldown = (e.shieldCooldown - dt).coerceAtLeast(0f)
 
             if (!frozen && d < e.radius + PLAYER_RADIUS && state.invulnerable <= 0f) {
                 val raw = e.kind.damage * (if (e.elite) 1.5f else 1f) * hitScale
@@ -354,6 +368,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 state.hp -= damage
                 state.invulnerable = INVULNERABLE_TIME
                 events += SurvivorsEvent.PlayerHit(damage)
+                thornsReflect(e, st)
                 if (state.hp <= 0f) {
                     state.hp = 0f
                     state.dead = true
@@ -393,12 +408,16 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         }
     }
 
+    /** Waffe, die gerade Schaden austeilt – damit Kills der richtigen Waffe zugerechnet werden. */
+    private var source: WeaponKind = WeaponKind.SWORD
+
     private fun damage(e: Enemy, raw: Float) {
         if (e.hp <= 0f) return
         // Eiszeit: eingefrorene Gegner zerbrechen leichter.
         val amount = if (e.freezeTimer > 0f) raw * FROZEN_DAMAGE_BONUS else raw
         e.hp -= amount
         e.hitFlash = 1f
+        e.lastHit = source
         if (damageEventsThisStep++ < MAX_DAMAGE_EVENTS_PER_STEP) events += SurvivorsEvent.Damage(e.x, e.y, amount)
     }
 
@@ -410,6 +429,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             if (e.hp > 0f) continue
             iterator.remove()
             state.kills++
+            e.lastHit?.let { state.weaponKills.merge(it, 1, Int::plus) }
             state.killScore += e.kind.score * if (e.elite) 5 else 1
             events += SurvivorsEvent.EnemyKilled(e.x, e.y, e.kind, e.elite)
             if (state.heroClass.healPerKill > 0f) {
@@ -479,22 +499,32 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 state.cooldowns[weapon] = cd
                 continue
             }
+            source = weapon
             val fired = fire(weapon, level, st)
             state.cooldowns[weapon] = if (fired) cooldown(weapon, level, st) else 0.2f
         }
     }
 
     private fun cooldown(weapon: WeaponKind, level: Int, st: HeroStats): Float {
-        val evolvedFactor = if (weapon == WeaponKind.ARROWS && isEvolved(weapon)) 0.65f else 1f
-        return weapon.cooldown(level) * st.cooldownMultiplier * evolvedFactor
+        val factor = when {
+            weapon == WeaponKind.ARROWS && isEvolved(weapon) -> 0.65f
+            weapon == WeaponKind.ARCANE && isEvolved(weapon) -> 0.6f
+            // Windklingen: je schneller der Held, desto öfter
+            weapon == WeaponKind.WIND -> 3f / st.speed
+            else -> 1f
+        }
+        return weapon.cooldown(level) * st.cooldownMultiplier * factor
     }
 
     private fun count(weapon: WeaponKind, level: Int, st: HeroStats): Int =
         weapon.count(level) + if (weapon.usesExtraProjectiles) st.extraProjectiles else 0
 
+    private val isMoving: Boolean get() = hypot(inputX, inputY) > 0.2f
+
     /** Feuert eine Waffe; false, wenn es kein Ziel gab (dann bald erneut versuchen). */
     private fun fire(weapon: WeaponKind, level: Int, st: HeroStats): Boolean {
         val damage = weapon.damage(level) * st.damageMultiplier
+        val evolved = isEvolved(weapon)
         when (weapon) {
             WeaponKind.SWORD -> {
                 swordSwing(level, st, damage, targetIndex = 0)
@@ -505,7 +535,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 return true
             }
             WeaponKind.FIREBALL -> {
-                if (isEvolved(weapon)) return meteors(level, st)
+                if (evolved) return meteors(level, st)
                 val targets = nearestEnemies(count(weapon, level, st), 11f)
                 if (targets.isEmpty()) return false
                 targets.forEach { t ->
@@ -518,7 +548,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 val target = nearestEnemies(1, 11f * st.areaMultiplier).firstOrNull() ?: return false
                 val n = count(weapon, level, st)
                 val base = atan2(target.y - state.py, target.x - state.px)
-                val pierce = weapon.pierce(level) + if (isEvolved(weapon)) STORM_BOW_PIERCE else 0
+                val pierce = weapon.pierce(level) + if (evolved) STORM_BOW_PIERCE else 0
                 repeat(n) { i ->
                     val angle = base + (i - (n - 1) / 2f) * 0.12f
                     shootAngle(weapon, angle, speed = 11f, damage = damage, radius = 0.2f * st.areaMultiplier, pierce = pierce,
@@ -530,13 +560,12 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 val visible = visibleEnemies()
                 if (visible.isEmpty()) return false
                 val radius = weapon.area(level) * st.areaMultiplier
-                val chain = isEvolved(weapon)
                 visible.shuffled(random).take(count(weapon, level, st)).forEach { t ->
                     val x = t.x
                     val y = t.y
                     forEnemiesNear(x, y, radius) { damage(it, damage) }
                     events += SurvivorsEvent.Lightning(x, y, radius)
-                    if (chain) chainLightning(t, damage * 0.5f)
+                    if (evolved) chainLightning(t, damage * 0.5f)
                 }
                 return true
             }
@@ -544,7 +573,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 val n = count(weapon, level, st)
                 val radius = 0.18f * st.areaMultiplier
                 val life = 0.9f * st.areaMultiplier
-                if (isEvolved(weapon)) {
+                if (evolved) {
                     // Klingensturm: Dolche in alle Richtungen, die umkehren und erneut treffen
                     val total = 4 + 2 * n
                     val base = atan2(state.faceY, state.faceX) + state.time * 1.3f
@@ -569,6 +598,104 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 }
                 return true
             }
+            WeaponKind.HAMMER -> {
+                hammerSmash(level, st, damage, targetIndex = 0)
+                repeat(st.extraProjectiles) { i ->
+                    state.pendingStrikes += PendingStrike(WeaponKind.HAMMER, delay = 0.2f * (i + 1), targetIndex = i + 1)
+                }
+                return true
+            }
+            WeaponKind.ARCANE -> {
+                val target = nearestEnemies(1, 11f).firstOrNull() ?: return false
+                val n = count(weapon, level, st)
+                val base = atan2(target.y - state.py, target.x - state.px)
+                repeat(n) { i ->
+                    shootAngle(weapon, base + (i - (n - 1) / 2f) * 0.5f, speed = 7f, damage = damage, radius = 0.22f,
+                        pierce = if (evolved) 2 else 0, life = 2.5f, homing = true, bounce = evolved)
+                }
+                return true
+            }
+            WeaponKind.WIND -> {
+                if (!isMoving) return false
+                val n = count(weapon, level, st)
+                val radius = weapon.area(level) * st.areaMultiplier
+                repeat(n) { i ->
+                    if (evolved) {
+                        // Orkan: Wirbelsturm, der langsam vom Helden wegzieht, Gegner ansaugt und immer wieder trifft
+                        val angle = random.nextFloat() * 2f * PI.toFloat()
+                        shootAngle(weapon, angle, speed = 1.2f, damage = damage, radius = radius * 1.6f, pierce = UNLIMITED,
+                            life = 2.5f, rehit = 0.5f, pullRadius = radius * 3f)
+                    } else {
+                        // Klinge bleibt hinter dem Helden liegen
+                        val offset = (i - (n - 1) / 2f) * 0.5f
+                        shootAngle(weapon, 0f, speed = 0f, damage = damage, radius = radius, pierce = UNLIMITED, life = 1.2f,
+                            fromX = state.px - state.faceX * 0.4f - state.faceY * offset,
+                            fromY = state.py - state.faceY * 0.4f + state.faceX * offset)
+                    }
+                }
+                return true
+            }
+            WeaponKind.THORNS -> {
+                thornsPulse(level, st, damage)
+                repeat(st.extraProjectiles) { i ->
+                    state.pendingStrikes += PendingStrike(WeaponKind.THORNS, delay = 0.3f * (i + 1), damageFactor = 0.6f)
+                }
+                return true
+            }
+            WeaponKind.SPEAR -> {
+                val target = nearestEnemies(1, 14f * st.areaMultiplier).firstOrNull()
+                val base = if (target != null) atan2(target.y - state.py, target.x - state.px) else atan2(state.faceY, state.faceX)
+                val n = count(weapon, level, st)
+                repeat(n) { i ->
+                    shootAngle(weapon, base + (i - (n - 1) / 2f) * 0.1f, speed = 14f, damage = damage,
+                        radius = 0.25f * st.areaMultiplier, pierce = UNLIMITED,
+                        life = (if (evolved) 0.55f else 1.0f) * st.areaMultiplier,
+                        endBlast = if (evolved) 1.6f * st.areaMultiplier else 0f)
+                }
+                return true
+            }
+            WeaponKind.VINES -> {
+                val visible = visibleEnemies()
+                val n = count(weapon, level, st)
+                val radius = weapon.area(level) * st.areaMultiplier
+                repeat(n) {
+                    val t = visible.randomOrNull(random)
+                    val x = t?.x ?: (state.px + (random.nextFloat() - 0.5f) * 5f)
+                    val y = t?.y ?: (state.py + (random.nextFloat() - 0.5f) * 5f)
+                    addHazard(Hazard(x, y, radius, damage, life = 4f, kind = HazardKind.VINES, evolved = evolved))
+                }
+                return true
+            }
+            WeaponKind.SHARDS -> {
+                val target = nearestEnemies(1, 11f).firstOrNull() ?: return false
+                val n = count(weapon, level, st)
+                val base = atan2(target.y - state.py, target.x - state.px)
+                repeat(n) { i ->
+                    shootAngle(weapon, base + (i - (n - 1) / 2f) * 0.25f, speed = 10f, damage = damage,
+                        radius = 0.18f * st.areaMultiplier, pierce = weapon.pierce(level), life = 1.6f,
+                        bounce = true, splits = evolved)
+                }
+                return true
+            }
+            WeaponKind.SHIELD -> {
+                val targets = nearestEnemies(count(weapon, level, st), 9f)
+                if (targets.isEmpty()) return false
+                val life = 1.4f * st.areaMultiplier
+                targets.forEach { t ->
+                    shoot(weapon, t.x, t.y, speed = 9f, damage = damage, radius = 0.35f * st.areaMultiplier,
+                        pierce = UNLIMITED, life = life, returnAt = life * 0.5f, knockback = 0.7f)
+                }
+                return true
+            }
+            WeaponKind.GRAVITY -> {
+                val wells = densestSpots(count(weapon, level, st))
+                if (wells.isEmpty()) return false
+                val radius = weapon.area(level) * st.areaMultiplier * if (evolved) 1.3f else 1f
+                wells.forEach { (x, y) ->
+                    addHazard(Hazard(x, y, radius, damage, life = 2.5f, kind = HazardKind.GRAVITY, evolved = evolved))
+                }
+                return true
+            }
             WeaponKind.BONE_ORBIT, WeaponKind.AURA -> return true
         }
     }
@@ -580,16 +707,76 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         val hit = damage * if (evolved) 1.6f else 1f
         // Schlägt Richtung nächstem Gegner (sonst in Laufrichtung) – wer flieht, trifft trotzdem.
         // Folgeschläge peilen den zweit-, dritt- … nächsten Gegner an.
-        val targets = nearestEnemies(targetIndex + 1, range * 1.6f)
-        val target = targets.getOrNull(targetIndex) ?: targets.lastOrNull()
-        val facing = if (target != null) atan2(target.y - state.py, target.x - state.px)
-            else atan2(state.faceY, state.faceX) + targetIndex * 2.4f
+        val facing = facingTo(targetIndex, range * 1.6f)
         val fullCircle = evolved || weapon.doubleSwing(level)
         forEnemiesNear(state.px, state.py, range) { e ->
             val angle = atan2(e.y - state.py, e.x - state.px)
             if (fullCircle || angleDiff(angle, facing) <= PI.toFloat() / 2f) damage(e, hit)
         }
         events += SurvivorsEvent.Swing(state.px, state.py, facing, range, fullCircle, evolved)
+    }
+
+    /** Richtung zum ([targetIndex]+1)-nächsten Gegner, sonst Laufrichtung (leicht gedreht für Folgeschläge). */
+    private fun facingTo(targetIndex: Int, maxDistance: Float): Float {
+        val targets = nearestEnemies(targetIndex + 1, maxDistance)
+        val target = targets.getOrNull(targetIndex) ?: targets.lastOrNull()
+        return if (target != null) atan2(target.y - state.py, target.x - state.px)
+        else atan2(state.faceY, state.faceX) + targetIndex * 2.4f
+    }
+
+    /** Kriegshammer: wuchtiger Hieb nach vorn mit Rückstoß; Erdbrecher zusätzlich mit betäubender Schockwelle. */
+    private fun hammerSmash(level: Int, st: HeroStats, damage: Float, targetIndex: Int) {
+        val weapon = WeaponKind.HAMMER
+        val range = weapon.area(level) * st.areaMultiplier
+        val facing = facingTo(targetIndex, range * 1.8f)
+        forEnemiesNear(state.px, state.py, range) { e ->
+            if (angleDiff(atan2(e.y - state.py, e.x - state.px), facing) <= 0.75f) {
+                damage(e, damage)
+                knockback(e, state.px, state.py, 0.9f)
+            }
+        }
+        events += SurvivorsEvent.Smash(state.px, state.py, facing, range, ring = false)
+        if (isEvolved(weapon)) {
+            val ring = range * 1.3f
+            forEnemiesNear(state.px, state.py, ring) { e ->
+                damage(e, damage * 0.6f)
+                if (!e.isBoss) e.stunTimer = 0.8f
+            }
+            events += SurvivorsEvent.Smash(state.px, state.py, facing, ring, ring = true)
+        }
+    }
+
+    /** Dornenpanzer: Puls um den Helden, stärker mit mehr maximalem Leben; Blutdornen heilen. */
+    private fun thornsPulse(level: Int, st: HeroStats, damage: Float) {
+        val weapon = WeaponKind.THORNS
+        val evolved = isEvolved(weapon)
+        val radius = weapon.area(level) * st.areaMultiplier * if (evolved) 1.4f else 1f
+        val hit = (damage + 0.04f * st.maxHp * st.damageMultiplier) * if (evolved) 1.5f else 1f
+        var hits = 0
+        forEnemiesNear(state.px, state.py, radius) {
+            damage(it, hit)
+            hits++
+        }
+        if (evolved && hits > 0) leech(0.3f * hits, st)
+        events += SurvivorsEvent.Thorns(state.px, state.py, radius, evolved)
+    }
+
+    /** Dornenpanzer: Wer den Helden trifft, erleidet Rückschaden. */
+    private fun thornsReflect(e: Enemy, st: HeroStats) {
+        val level = state.weapons[WeaponKind.THORNS] ?: return
+        source = WeaponKind.THORNS
+        damage(e, (WeaponKind.THORNS.damage(level) * 2f + 0.08f * st.maxHp) * st.damageMultiplier)
+    }
+
+    /** Schiebt einen Gegner von (fromX, fromY) weg; Bosse bleiben stehen, Elites halb so weit. */
+    private fun knockback(e: Enemy, fromX: Float, fromY: Float, amount: Float) {
+        if (e.isBoss) return
+        val dx = e.x - fromX
+        val dy = e.y - fromY
+        val d = hypot(dx, dy).coerceAtLeast(0.01f)
+        val push = amount * if (e.elite) 0.5f else 1f
+        e.x += dx / d * push
+        e.y += dy / d * push
     }
 
     private fun nova(level: Int, st: HeroStats, damage: Float) {
@@ -603,17 +790,23 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         events += SurvivorsEvent.Nova(state.px, state.py, radius, freeze)
     }
 
-    /** Meteorregen: Einschläge auf die dichtesten Gruppen, mit kurzer Vorwarnung. */
-    private fun meteors(level: Int, st: HeroStats): Boolean {
+    /** Positionen der dichtesten sichtbaren Gegnergruppen (Meteorregen, Gravitationsbrunnen). */
+    private fun densestSpots(n: Int): List<Pair<Float, Float>> {
         val visible = visibleEnemies()
-        if (visible.isEmpty()) return false
-        val candidates = visible.shuffled(random).take(16).map { c ->
+        if (visible.isEmpty()) return emptyList()
+        return visible.shuffled(random).take(16).map { c ->
             var neighbours = 0
             forEnemiesNear(c.x, c.y, 1.5f) { neighbours++ }
             c to neighbours
-        }.sortedByDescending { it.second }
-        candidates.take(count(WeaponKind.FIREBALL, level, st)).forEachIndexed { i, (t, _) ->
-            state.pendingStrikes += PendingStrike(WeaponKind.FIREBALL, delay = METEOR_DELAY + i * 0.08f, damageFactor = 1.2f, x = t.x, y = t.y)
+        }.sortedByDescending { it.second }.take(n).map { (c, _) -> c.x to c.y }
+    }
+
+    /** Meteorregen: Einschläge auf die dichtesten Gruppen, mit kurzer Vorwarnung. */
+    private fun meteors(level: Int, st: HeroStats): Boolean {
+        val spots = densestSpots(count(WeaponKind.FIREBALL, level, st))
+        if (spots.isEmpty()) return false
+        spots.forEachIndexed { i, (x, y) ->
+            state.pendingStrikes += PendingStrike(WeaponKind.FIREBALL, delay = METEOR_DELAY + i * 0.08f, damageFactor = 1.2f, x = x, y = y)
         }
         return true
     }
@@ -650,7 +843,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         }
     }
 
-    /** Verzögerte Einsätze abarbeiten: Folgeschläge, Frost-Echos, Meteore. */
+    /** Verzögerte Einsätze abarbeiten: Folgeschläge, Echos, Meteore. */
     private fun pendingStrikes(dt: Float, st: HeroStats) {
         if (state.pendingStrikes.isEmpty()) return
         val due = ArrayList<PendingStrike>()
@@ -666,22 +859,29 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         for (p in due) {
             val level = state.weapons[p.weapon] ?: continue
             val damage = p.weapon.damage(level) * st.damageMultiplier * p.damageFactor
+            source = p.weapon
             when (p.weapon) {
                 WeaponKind.SWORD -> swordSwing(level, st, damage, p.targetIndex)
+                WeaponKind.HAMMER -> hammerSmash(level, st, damage, p.targetIndex)
                 WeaponKind.FROST_NOVA -> nova(level, st, damage)
+                WeaponKind.THORNS -> thornsPulse(level, st, damage)
                 WeaponKind.FIREBALL -> {
                     val radius = meteorRadius()
                     forEnemiesNear(p.x, p.y, radius) { damage(it, damage) }
                     events += SurvivorsEvent.Explosion(p.x, p.y, radius)
-                    if (state.hazards.size >= MAX_HAZARDS) state.hazards.removeAt(0)
-                    state.hazards += Hazard(p.x, p.y, radius * 0.8f, damage * 0.12f, life = 2f)
+                    addHazard(Hazard(p.x, p.y, radius * 0.8f, damage * 0.12f, life = 2f))
                 }
                 else -> Unit
             }
         }
     }
 
-    private fun hazards(dt: Float) {
+    private fun addHazard(hazard: Hazard) {
+        if (state.hazards.size >= MAX_HAZARDS) state.hazards.removeAt(0)
+        state.hazards += hazard
+    }
+
+    private fun hazards(dt: Float, st: HeroStats) {
         if (state.hazards.isEmpty()) return
         val iterator = state.hazards.iterator()
         while (iterator.hasNext()) {
@@ -691,10 +891,44 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 iterator.remove()
                 continue
             }
+            source = when (h.kind) {
+                HazardKind.FIRE -> WeaponKind.FIREBALL
+                HazardKind.VINES -> WeaponKind.VINES
+                HazardKind.GRAVITY -> WeaponKind.GRAVITY
+            }
+            if (h.kind == HazardKind.GRAVITY) {
+                // Sog zur Mitte – Magnet verstärkt ihn
+                val pull = (2.5f + 0.75f * (state.passives[PassiveKind.MAGNET] ?: 0)) * (if (h.evolved) 1.6f else 1f) * dt
+                forEnemiesNear(h.x, h.y, h.radius) { e ->
+                    if (e.isBoss) return@forEnemiesNear
+                    val dx = h.x - e.x
+                    val dy = h.y - e.y
+                    val d = hypot(dx, dy)
+                    if (d > 0.05f) {
+                        val step = min(d, pull)
+                        e.x += dx / d * step
+                        e.y += dy / d * step
+                    }
+                }
+            }
             h.tick -= dt
-            if (h.tick <= 0f) {
-                h.tick = 0.4f
-                forEnemiesNear(h.x, h.y, h.radius) { damage(it, h.damage) }
+            if (h.tick > 0f) continue
+            h.tick = 0.4f
+            when (h.kind) {
+                HazardKind.FIRE -> forEnemiesNear(h.x, h.y, h.radius) { damage(it, h.damage) }
+                HazardKind.VINES -> {
+                    forEnemiesNear(h.x, h.y, h.radius) { e ->
+                        damage(e, h.damage)
+                        e.slowTimer = 0.6f
+                        if (h.evolved && !e.isBoss) e.stunTimer = 0.5f
+                    }
+                    // Urwald: heilt, solange der Held in den Ranken steht
+                    if (h.evolved && hypot(state.px - h.x, state.py - h.y) < h.radius) leech(0.6f, st)
+                }
+                HazardKind.GRAVITY -> forEnemiesNear(h.x, h.y, h.radius) { e ->
+                    val center = h.evolved && hypot(e.x - h.x, e.y - h.y) < 0.7f
+                    damage(e, h.damage * if (center) 3f else 1f)
+                }
             }
         }
     }
@@ -722,6 +956,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
 
     private fun orbit(dt: Float, st: HeroStats) {
         val level = state.weapons[WeaponKind.BONE_ORBIT] ?: return
+        source = WeaponKind.BONE_ORBIT
         // Weisheit: schnellere Drehung und kürzere Treffer-Sperre
         state.orbitAngle = (state.orbitAngle + dt * 3f / st.cooldownMultiplier) % (2f * PI.toFloat())
         val evolved = isEvolved(WeaponKind.BONE_ORBIT)
@@ -738,6 +973,34 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         }
     }
 
+    /** Positionen der kreisenden Bollwerk-Schilde (leer, solange der Schildwurf nicht entwickelt ist). */
+    fun shieldPositions(): List<Pair<Float, Float>> {
+        val level = state.weapons[WeaponKind.SHIELD] ?: return emptyList()
+        if (!isEvolved(WeaponKind.SHIELD)) return emptyList()
+        val radius = WeaponKind.SHIELD.area(level) * stats.areaMultiplier
+        return List(2) { i ->
+            val angle = state.shieldAngle + i * PI.toFloat()
+            (state.px + cos(angle) * radius) to (state.py + sin(angle) * radius)
+        }
+    }
+
+    private fun shields(dt: Float, st: HeroStats) {
+        val level = state.weapons[WeaponKind.SHIELD] ?: return
+        if (!isEvolved(WeaponKind.SHIELD)) return
+        source = WeaponKind.SHIELD
+        state.shieldAngle = (state.shieldAngle - dt * 2.5f / st.cooldownMultiplier) % (2f * PI.toFloat())
+        val damage = WeaponKind.SHIELD.damage(level) * st.damageMultiplier
+        for ((x, y) in shieldPositions()) {
+            forEnemiesNear(x, y, 0.45f) { e ->
+                if (e.shieldCooldown <= 0f) {
+                    damage(e, damage)
+                    knockback(e, state.px, state.py, 1.2f)
+                    e.shieldCooldown = 0.5f
+                }
+            }
+        }
+    }
+
     /** Radius der Heiligen Aura (0 = keine). */
     fun auraRadius(): Float {
         val level = state.weapons[WeaponKind.AURA] ?: return 0f
@@ -748,6 +1011,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         val level = state.weapons[WeaponKind.AURA] ?: return
         state.auraTimer -= dt
         if (state.auraTimer > 0f) return
+        source = WeaponKind.AURA
         // Weisheit: schnellerer Takt · Vielfalt: zusätzliche Lichtstrahlen = mehr Schaden
         state.auraTimer = WeaponKind.AURA.cooldown(level) * st.cooldownMultiplier
         val evolved = isEvolved(WeaponKind.AURA)
@@ -777,18 +1041,24 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
 
     private fun shoot(
         weapon: WeaponKind, tx: Float, ty: Float, speed: Float, damage: Float, radius: Float, pierce: Int, life: Float,
-        explosionRadius: Float = 0f,
-    ) = shootAngle(weapon, atan2(ty - state.py, tx - state.px), speed, damage, radius, pierce, life, explosionRadius)
+        explosionRadius: Float = 0f, returnAt: Float = 0f, knockback: Float = 0f,
+    ) = shootAngle(
+        weapon, atan2(ty - state.py, tx - state.px), speed, damage, radius, pierce, life,
+        explosionRadius = explosionRadius, returnAt = returnAt, knockback = knockback,
+    )
 
     private fun shootAngle(
         weapon: WeaponKind, angle: Float, speed: Float, damage: Float, radius: Float, pierce: Int, life: Float,
-        explosionRadius: Float = 0f, returnAt: Float = 0f,
+        explosionRadius: Float = 0f, returnAt: Float = 0f, homing: Boolean = false, bounce: Boolean = false,
+        splits: Boolean = false, knockback: Float = 0f, rehit: Float = 0f, pullRadius: Float = 0f, endBlast: Float = 0f,
+        fromX: Float = state.px, fromY: Float = state.py,
     ) {
+        if (state.projectiles.size >= MAX_PROJECTILES) return
         state.projectiles += Projectile(
             id = state.nextId++,
             weapon = weapon,
-            x = state.px,
-            y = state.py,
+            x = fromX,
+            y = fromY,
             vx = cos(angle) * speed,
             vy = sin(angle) * speed,
             damage = damage,
@@ -797,25 +1067,98 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             life = life,
             explosionRadius = explosionRadius,
             returnAt = returnAt,
+            homing = homing,
+            bounce = bounce,
+            splits = splits,
+            knockback = knockback,
+            rehit = rehit,
+            pullRadius = pullRadius,
+            endBlast = endBlast,
         )
     }
 
+    /** Nächster lebender Gegner im Umkreis, der von [p] noch nicht getroffen wurde. */
+    private fun nextTarget(p: Projectile, x: Float, y: Float, radius: Float): Enemy? {
+        var best: Enemy? = null
+        var bestD = Float.MAX_VALUE
+        forEnemiesNear(x, y, radius) { e ->
+            if (e.id !in p.hitIds) {
+                val d = (e.x - x) * (e.x - x) + (e.y - y) * (e.y - y)
+                if (d < bestD) {
+                    bestD = d
+                    best = e
+                }
+            }
+        }
+        return best
+    }
+
+    /** Richtet die Geschwindigkeit von [p] auf (tx, ty) aus, bei gleichem Tempo. */
+    private fun aim(p: Projectile, tx: Float, ty: Float) {
+        val speed = hypot(p.vx, p.vy)
+        val dx = tx - p.x
+        val dy = ty - p.y
+        val d = hypot(dx, dy).coerceAtLeast(0.001f)
+        p.vx = dx / d * speed
+        p.vy = dy / d * speed
+    }
+
     private fun moveProjectiles(dt: Float) {
+        val spawned = ArrayList<Projectile>()
         for (p in state.projectiles) {
             if (!p.alive) continue
+            source = p.weapon
+            if (p.homing) {
+                // Sanft auf den nächsten (noch nicht getroffenen) Gegner zusteuern
+                nextTarget(p, p.x, p.y, 6f)?.let { t ->
+                    val speed = hypot(p.vx, p.vy)
+                    val current = atan2(p.vy, p.vx)
+                    val wanted = atan2(t.y - p.y, t.x - p.x)
+                    var diff = wanted - current
+                    while (diff > PI) diff -= 2f * PI.toFloat()
+                    while (diff < -PI) diff += 2f * PI.toFloat()
+                    val turn = diff.coerceIn(-8f * dt, 8f * dt)
+                    p.vx = cos(current + turn) * speed
+                    p.vy = sin(current + turn) * speed
+                }
+            }
             p.x += p.vx * dt
             p.y += p.vy * dt
             p.life -= dt
+            p.tick += dt
             if (p.life <= 0f) {
                 p.alive = false
+                if (p.endBlast > 0f) {
+                    // Götterspeer: steckt fest und explodiert
+                    forEnemiesNear(p.x, p.y, p.endBlast) { damage(it, p.damage * 1.2f) }
+                    events += SurvivorsEvent.Explosion(p.x, p.y, p.endBlast)
+                }
                 continue
             }
             if (p.returnAt > 0f && !p.returned && p.life <= p.returnAt) {
-                // Klingensturm: umkehren und auf dem Rückweg erneut treffen
+                // Klingensturm/Schildwurf: umkehren und auf dem Rückweg erneut treffen
                 p.vx = -p.vx
                 p.vy = -p.vy
                 p.returned = true
                 p.hitIds.clear()
+            }
+            if (p.rehit > 0f && p.tick >= p.rehit) {
+                p.tick = 0f
+                p.hitIds.clear()
+            }
+            if (p.pullRadius > 0f) {
+                forEnemiesNear(p.x, p.y, p.pullRadius) { e ->
+                    if (!e.isBoss) {
+                        val dx = p.x - e.x
+                        val dy = p.y - e.y
+                        val d = hypot(dx, dy)
+                        if (d > 0.05f) {
+                            val step = min(d, 2f * dt)
+                            e.x += dx / d * step
+                            e.y += dy / d * step
+                        }
+                    }
+                }
             }
             var hit: Enemy? = null
             forEnemiesNear(p.x, p.y, p.radius) { e -> if (hit == null && e.id !in p.hitIds) hit = e }
@@ -824,12 +1167,29 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 forEnemiesNear(p.x, p.y, p.explosionRadius) { damage(it, p.damage) }
                 events += SurvivorsEvent.Explosion(p.x, p.y, p.explosionRadius)
                 p.alive = false
+                continue
+            }
+            damage(target, p.damage)
+            p.hitIds += target.id
+            if (p.knockback > 0f) knockback(target, state.px, state.py, p.knockback)
+            if (p.splits && state.projectiles.size + spawned.size < MAX_PROJECTILES) {
+                // Splittersturm: ein zusätzlicher Splitter zum nächsten Gegner
+                val next = nextTarget(p, target.x, target.y, 4f)
+                val angle = if (next != null) atan2(next.y - target.y, next.x - target.x) else random.nextFloat() * 2f * PI.toFloat()
+                spawned += Projectile(
+                    id = state.nextId++, weapon = p.weapon, x = target.x, y = target.y,
+                    vx = cos(angle) * 10f, vy = sin(angle) * 10f, damage = p.damage * 0.6f, radius = p.radius,
+                    pierce = 1, life = 0.8f, bounce = true,
+                ).also { it.hitIds += p.hitIds }
+            }
+            if (p.pierce > 0) {
+                p.pierce--
+                if (p.bounce) nextTarget(p, target.x, target.y, 4f)?.let { aim(p, it.x, it.y) }
             } else {
-                damage(target, p.damage)
-                p.hitIds += target.id
-                if (p.pierce > 0) p.pierce-- else p.alive = false
+                p.alive = false
             }
         }
+        state.projectiles += spawned
         state.projectiles.removeAll { !it.alive }
     }
 

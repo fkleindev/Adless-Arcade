@@ -115,7 +115,7 @@ fun SurvivorsScreen(onExit: () -> Unit, onOpenForge: () -> Unit, viewModel: Surv
     ) {
         when {
             !viewModel.loaded -> Unit
-            engine == null -> ClassSelect(onStart = viewModel::start, onOpenForge = onOpenForge)
+            engine == null -> ClassSelect(onStart = { heroClass, weapons -> viewModel.start(heroClass, weapons) }, onOpenForge = onOpenForge)
             else -> GameView(viewModel, onExit)
         }
     }
@@ -124,7 +124,7 @@ fun SurvivorsScreen(onExit: () -> Unit, onOpenForge: () -> Unit, viewModel: Surv
 // --- Klassenwahl ---
 
 @Composable
-private fun ClassSelect(onStart: (HeroClass) -> Unit, onOpenForge: () -> Unit) {
+private fun ClassSelect(onStart: (HeroClass, Set<WeaponKind>) -> Unit, onOpenForge: () -> Unit) {
     val progressFlow = LocalContext.current.arcadeApp.survivorsProgress.state
     val progress by progressFlow.collectAsState(initial = null)
     val loaded = progress ?: return
@@ -163,7 +163,7 @@ private fun ClassSelect(onStart: (HeroClass) -> Unit, onOpenForge: () -> Unit) {
             Spacer(Modifier.height(4.dp))
         }
         Spacer(Modifier.height(12.dp))
-        PrimaryButton("Als ${selected.title} starten", onClick = { onStart(selected) })
+        PrimaryButton("Als ${selected.title} starten", onClick = { onStart(selected, UnlockLogic.availableWeapons(loaded)) })
         Spacer(Modifier.height(16.dp))
     }
 }
