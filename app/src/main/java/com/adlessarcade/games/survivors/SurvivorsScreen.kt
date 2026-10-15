@@ -220,6 +220,12 @@ internal fun ClassCard(
         Column(Modifier.weight(1f)) {
             Text(heroClass.title, style = MaterialTheme.typography.titleMedium, color = if (dimmed) ArcadeTextMuted else ArcadeText)
             Text(heroClass.description, style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "${heroClass.passiveIcon} ${heroClass.passiveTitle}: ${heroClass.passiveDescription}",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (dimmed) ArcadeTextMuted else NeonYellow.copy(alpha = 0.85f),
+            )
             Spacer(Modifier.height(4.dp))
             Text(
                 "❤ ${heroClass.maxHp.toInt()}  ·  👟 ${heroClass.speed}  ·  ${heroClass.startWeapon.icon} ${heroClass.startWeapon.title}",
@@ -305,13 +311,13 @@ private fun GameView(viewModel: SurvivorsViewModel, onExit: () -> Unit) {
 
         val chest = viewModel.chest
         if (chest != null && !viewModel.finished) {
-            ChestOverlay(engine.state, chest, onAccept = viewModel::acceptChest, onDecline = viewModel::declineChest)
+            ChestOverlay(engine.state, chest, onChoose = viewModel::chooseChest)
         } else if (viewModel.offers.isNotEmpty() && !viewModel.finished) {
             LevelUpOverlay(engine.state, viewModel.offers, viewModel::choose)
         }
 
         if (viewModel.paused) {
-            PauseOverlay(onResume = viewModel::resume, onRestart = viewModel::restart, onMenu = onExit)
+            PauseOverlay(engine, onResume = viewModel::resume, onRestart = viewModel::restart, onMenu = onExit)
         }
 
         GameOverOverlay(
@@ -365,7 +371,12 @@ private fun Hud(hud: SurvivorsHud, mode: SurvivorsMode, modifier: Modifier = Mod
         }
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("☠ ${hud.kills}", style = MaterialTheme.typography.titleMedium, color = ArcadeText, modifier = Modifier.weight(1f))
+            Text(
+                "☠ ${hud.kills}" + (hud.souls?.let { "  💀 $it" } ?: ""),
+                style = MaterialTheme.typography.titleMedium,
+                color = ArcadeText,
+                modifier = Modifier.weight(1f),
+            )
             val timeText = if (mode == SurvivorsMode.TIMED) "${formatTime(hud.time)} / 15:00" else formatTime(hud.time)
             Text(timeText, style = MaterialTheme.typography.titleLarge, color = ArcadeText)
             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
@@ -384,14 +395,38 @@ private fun Hud(hud: SurvivorsHud, mode: SurvivorsMode, modifier: Modifier = Mod
             Spacer(Modifier.height(4.dp))
             BuildRow(hud.passives)
         }
+        if (hud.items.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            BuildRow(hud.items, stacks = true)
+        }
     }
 }
 
-/** Kompakte Anzeige des Builds: Symbol + Stufenpunkte, entwickelte Waffen golden umrandet. */
+/**
+ * Kompakte Anzeige des Builds: Symbol + Stufenpunkte, entwickelte Waffen golden umrandet.
+ * [stacks]: Items – statt Stufenpunkten die Stapelanzahl.
+ */
 @Composable
-private fun BuildRow(slots: List<BuildSlot>) {
+private fun BuildRow(slots: List<BuildSlot>, stacks: Boolean = false) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        slots.forEach { slot -> BuildChip(slot) }
+        slots.forEach { slot -> if (stacks) ItemChip(slot) else BuildChip(slot) }
+    }
+}
+
+@Composable
+private fun ItemChip(slot: BuildSlot) {
+    val shape = RoundedCornerShape(8.dp)
+    Column(
+        Modifier
+            .width(30.dp)
+            .clip(shape)
+            .background(Color.Black.copy(alpha = 0.55f))
+            .border(1.dp, Color(0xFFFB923C).copy(alpha = 0.7f), shape)
+            .padding(vertical = 1.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(slot.icon, fontSize = 13.sp, lineHeight = 15.sp)
+        Text("×${slot.level}", fontSize = 9.sp, lineHeight = 10.sp, color = Color(0xFFFB923C))
     }
 }
 
@@ -487,7 +522,7 @@ private fun UpgradeCard(state: SurvivorsState, offer: UpgradeOffer, onClick: () 
 }
 
 @Composable
-private fun PauseOverlay(onResume: () -> Unit, onRestart: () -> Unit, onMenu: () -> Unit) {
+private fun PauseOverlay(engine: SurvivorsEngine, onResume: () -> Unit, onRestart: () -> Unit, onMenu: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
@@ -498,19 +533,64 @@ private fun PauseOverlay(onResume: () -> Unit, onRestart: () -> Unit, onMenu: ()
         val shape = RoundedCornerShape(28.dp)
         Column(
             Modifier
-                .padding(28.dp)
+                .padding(20.dp)
                 .clip(shape)
                 .background(ArcadeSurface)
                 .border(1.dp, ArcadeOutline, shape)
-                .padding(24.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(22.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text("Pausiert", style = MaterialTheme.typography.headlineMedium, color = ArcadeText)
-            Spacer(Modifier.height(8.dp))
+            StatsPanel(engine)
+            Spacer(Modifier.height(4.dp))
             PrimaryButton("Weiter", onResume)
             SecondaryButton("Neuer Lauf", onRestart)
             SecondaryButton("Zum Menü", onMenu)
+        }
+    }
+}
+
+/** Werte des aktuellen Builds: Klassen-Passive, Schaden, Krit und Item-Effekte (nur, was aktiv ist). */
+@Composable
+private fun StatsPanel(engine: SurvivorsEngine) {
+    val s = engine.state
+    val st = engine.stats
+    fun pct(v: Float) = "${ItemKind.percent(v)} %"
+    val lines = buildList {
+        add("Schaden" to "×${"%.2f".format(st.damageMultiplier).replace('.', ',')}")
+        if (st.critChance > 0f) {
+            add("Krit-Chance" to pct(st.critChance.coerceAtMost(1f)))
+            add("Krit-Schaden" to "×${"%.2f".format(st.critMultiplier).replace('.', ',')}")
+        }
+        if (st.superCritChance > 0f) add("Superkrit-Chance" to pct(st.superCritChance))
+        if (st.poison > 0f) add("Gift" to "${pct(st.poison)} / ${"%.1f".format(st.poisonTime).replace('.', ',')} s")
+        if (st.lifesteal > 0f) add("Lebensraub" to pct(st.lifesteal))
+        if (st.sparkChance > 0f) add("Funken-Chance" to pct(st.sparkChance))
+        if (st.emberChance > 0f) add("Glut-Chance" to pct(st.emberChance))
+        if (st.freezeChance > 0f) add("Frost-Chance" to pct(st.freezeChance))
+        if (st.execute > 0f) add("Hinrichtung" to "< ${pct(st.execute)}")
+        if (st.dodge > 0f) add("Ausweichen" to pct(st.dodge))
+        if (st.giantSlayer > 0f) add("Gegen Bosse/Elite" to "+${pct(st.giantSlayer)}")
+        if (st.lootBonus > 0f) add("Coins & Erfahrung" to "+${pct(st.lootBonus)}")
+        add("Abklingzeit" to "×${"%.2f".format(st.cooldownMultiplier).replace('.', ',')}")
+        add("Rüstung" to "${st.armor}")
+        if (s.heroClass == HeroClass.NECROMANCER) add("Seelen" to "${s.souls} / ${HeroStats.NECRO_MAX_SOULS}")
+    }
+    Column(Modifier.width(260.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            "${s.heroClass.passiveIcon} ${s.heroClass.passiveTitle}",
+            style = MaterialTheme.typography.titleSmall,
+            color = NeonYellow,
+        )
+        Text(s.heroClass.passiveDescription, style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
+        Spacer(Modifier.height(4.dp))
+        lines.forEach { (label, value) ->
+            Row(Modifier.fillMaxWidth()) {
+                Text(label, style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted, modifier = Modifier.weight(1f))
+                Text(value, style = MaterialTheme.typography.bodySmall, color = ArcadeText)
+            }
         }
     }
 }

@@ -58,7 +58,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.adlessarcade.ui.components.PrimaryButton
-import com.adlessarcade.ui.components.SecondaryButton
 import com.adlessarcade.ui.theme.ArcadeSurface
 import com.adlessarcade.ui.theme.ArcadeSurfaceHigh
 import com.adlessarcade.ui.theme.ArcadeText
@@ -73,11 +72,14 @@ import kotlin.random.Random
 
 private val GOLD = Color(0xFFFACC15)
 private val CARD_WIDTH = 92.dp
+private val CARD_HEIGHT = 108.dp
 private val CARD_GAP = 10.dp
+private val REEL_HEIGHT = 150.dp
 
 /** Seltenheitsfarbe einer Belohnung. */
 fun rewardColor(state: SurvivorsState, offer: UpgradeOffer): Color = when {
     offer.evolution != null -> GOLD
+    offer.item != null -> Color(0xFFFB923C)
     offer.weapon != null && offer.weapon !in state.weapons -> Color(0xFF22D3EE)
     offer.weapon != null -> Color(0xFFF1F5F9)
     offer.passive != null -> Color(0xFFA78BFA)
@@ -85,97 +87,136 @@ fun rewardColor(state: SurvivorsState, offer: UpgradeOffer): Color = when {
 }
 
 /**
- * Kisten-Overlay: Kiste springt auf, eine Walze mit möglichen Belohnungen rollt aus und bremst auf dem Gewinn ab.
- * Danach kann der Spieler die Belohnung annehmen oder (für etwas Heilung) ablehnen.
+ * Kisten-Overlay: Die Kiste springt auf, drei Walzen rollen wie an einem Spielautomaten und stoppen nacheinander
+ * (eine Entwicklung immer zuletzt). Danach wählt der Spieler eine der drei Belohnungen.
  */
 @Composable
-fun ChestOverlay(state: SurvivorsState, roll: ChestRoll, onAccept: () -> Unit, onDecline: () -> Unit) {
+fun ChestOverlay(state: SurvivorsState, roll: ChestRoll, onChoose: (Int) -> Unit) {
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
-    val isEvolution = roll.offer.evolution != null
-    val color = rewardColor(state, roll.offer)
+    val offers = roll.offers
+    val evolutionSlot = offers.indexOfFirst { it.evolution != null }
 
-    // Walze: zufällige Füllkarten, die Gewinnkarte an fester Position
-    val strip = remember(roll.rollId) {
-        val rnd = Random(roll.rollId * 7919 + roll.index)
-        val length = if (isEvolution) 44 else 30
-        List(length) { roll.reel[rnd.nextInt(roll.reel.size)] } + roll.offer + List(3) { roll.reel[rnd.nextInt(roll.reel.size)] }
+    // Reihenfolge des Anhaltens: Entwicklung zuletzt, sonst von links nach rechts.
+    val stopOrder = remember(roll.rollId) {
+        offers.indices.sortedBy { if (it == evolutionSlot) Int.MAX_VALUE else it }
     }
-    val target = strip.size - 4f
+    // Walzen: zufällige Füllkarten, die Gewinnkarte jeweils an fester Position
+    val strips = remember(roll.rollId) {
+        offers.mapIndexed { slot, offer ->
+            val rnd = Random(roll.rollId * 7919 + slot * 31)
+            val length = 18 + 7 * stopOrder.indexOf(slot) + if (slot == evolutionSlot) 8 else 0
+            List(length) { roll.reel[rnd.nextInt(roll.reel.size)] } + offer + List(2) { roll.reel[rnd.nextInt(roll.reel.size)] }
+        }
+    }
+    val targets = strips.map { it.size - 3f }
 
-    val chestOpen = remember(roll.rollId) { Animatable(if (roll.index > 0 || !roll.animate) 1f else 0f) }
-    val reel = remember(roll.rollId) { Animatable(if (roll.animate) 0f else target) }
-    val landing = remember(roll.rollId) { Animatable(if (roll.animate) 0f else 1f) }
-    var landed by remember(roll.rollId) { mutableStateOf(!roll.animate) }
+    val chestOpen = remember(roll.rollId) { Animatable(if (!roll.animate) 1f else 0f) }
+    val reels = remember(roll.rollId) { targets.map { Animatable(if (roll.animate) 0f else it) } }
+    val landings = remember(roll.rollId) { offers.map { Animatable(if (roll.animate) 0f else 1f) } }
+    var landed by remember(roll.rollId) { mutableStateOf(List(offers.size) { !roll.animate }) }
+    var selected by remember(roll.rollId) { mutableStateOf<Int?>(null) }
+    val allLanded = landed.all { it }
 
-    fun land() {
-        if (landed) return
-        landed = true
+    fun land(slot: Int) {
+        if (landed[slot]) return
+        landed = landed.toMutableList().also { it[slot] = true }
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-        scope.launch { landing.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)) }
+        scope.launch {
+            landings[slot].animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))
+        }
     }
 
     LaunchedEffect(roll.rollId) {
         if (!roll.animate) return@LaunchedEffect
         if (chestOpen.value < 1f) chestOpen.animateTo(1f, tween(900, easing = LinearEasing))
-        reel.animateTo(
-            target,
-            tween(if (isEvolution) 3000 else 2000, easing = CubicBezierEasing(0.12f, 0.75f, 0.2f, 1f)),
-        )
-        land()
+        stopOrder.forEachIndexed { order, slot ->
+            launch {
+                val duration = 1500 + 450 * order + if (slot == evolutionSlot) 900 else 0
+                reels[slot].animateTo(targets[slot], tween(duration, easing = CubicBezierEasing(0.12f, 0.75f, 0.2f, 1f)))
+                land(slot)
+            }
+        }
     }
-    // Haptischer Tick für jede vorbeiziehende Karte
+    // Haptischer Tick für jede vorbeiziehende Karte (der zuletzt stoppenden Walze)
     LaunchedEffect(roll.rollId) {
-        snapshotFlow { floor(reel.value + 0.5f).toInt() }.collect {
-            if (!landed && reel.isRunning) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        val ticking = reels[stopOrder.last()]
+        snapshotFlow { floor(ticking.value + 0.5f).toInt() }.collect {
+            if (ticking.isRunning) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         }
     }
 
     val skip = {
-        if (!landed) {
+        if (!allLanded) {
             scope.launch {
                 chestOpen.snapTo(1f)
-                reel.snapTo(target)
-                land()
+                offers.indices.forEach { slot ->
+                    reels[slot].snapTo(targets[slot])
+                    land(slot)
+                }
             }
         }
     }
 
+    val evolutionShown = evolutionSlot >= 0 && landed.getOrElse(evolutionSlot) { false }
+    val glow = selected?.let { rewardColor(state, offers[it]) } ?: if (evolutionShown) GOLD else Color(0xFFFB923C)
+
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.78f))
+            .background(Color.Black.copy(alpha = 0.8f))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { skip() },
         contentAlignment = Alignment.Center,
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                if (isEvolution && landed) "ENTWICKLUNG!" else "TRUHE!",
+                if (evolutionShown) "ENTWICKLUNG!" else "TRUHE!",
                 style = MaterialTheme.typography.headlineMedium,
-                color = if (isEvolution && landed) GOLD else ArcadeText,
+                color = if (evolutionShown) GOLD else ArcadeText,
             )
             Text(
-                if (roll.total > 1) "Belohnung ${roll.index + 1} von ${roll.total}" else "Belohnung",
+                if (roll.remaining > 0) "Wähle eine Belohnung · noch ${roll.remaining} weitere Truhe${if (roll.remaining > 1) "n" else ""}"
+                else "Wähle eine Belohnung",
                 style = MaterialTheme.typography.bodyMedium,
                 color = ArcadeTextMuted,
+                textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
 
-            ChestGraphic(chestOpen.value, if (landed) color else GOLD, isEvolution && landed, Modifier.size(150.dp))
+            ChestGraphic(chestOpen.value, glow, evolutionShown, Modifier.size(120.dp))
 
-            Spacer(Modifier.height(8.dp))
-            Reel(strip, reel.value, state, landed, landing.value, Modifier.fillMaxWidth().height(126.dp))
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(6.dp))
+            Box(
+                Modifier.fillMaxWidth().height(REEL_HEIGHT),
+                contentAlignment = Alignment.Center,
+            ) {
+                androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(CARD_GAP)) {
+                    offers.indices.forEach { slot ->
+                        SlotReel(
+                            strip = strips[slot],
+                            position = reels[slot].value,
+                            state = state,
+                            landed = landed[slot],
+                            landing = landings[slot].value,
+                            selected = selected == slot,
+                            dimmed = selected != null && selected != slot,
+                            onClick = { if (allLanded) selected = slot else skip() },
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
 
             // Details & Auswahl (fester Platz, damit nichts springt)
-            Box(Modifier.fillMaxWidth().height(210.dp), contentAlignment = Alignment.TopCenter) {
-                if (landed) {
-                    RewardDetails(state, roll, color, onAccept, onDecline, Modifier.alpha(landing.value.coerceIn(0f, 1f)))
-                } else {
-                    Text("Tippen zum Überspringen", style = MaterialTheme.typography.labelLarge, color = ArcadeTextMuted)
+            Box(Modifier.fillMaxWidth().height(190.dp), contentAlignment = Alignment.TopCenter) {
+                val choice = selected
+                when {
+                    !allLanded -> Text("Tippen zum Überspringen", style = MaterialTheme.typography.labelLarge, color = ArcadeTextMuted)
+                    choice == null -> Text("Tippe auf eine Karte", style = MaterialTheme.typography.titleMedium, color = ArcadeText)
+                    else -> RewardDetails(state, offers[choice]) { onChoose(choice) }
                 }
             }
         }
@@ -183,16 +224,9 @@ fun ChestOverlay(state: SurvivorsState, roll: ChestRoll, onAccept: () -> Unit, o
 }
 
 @Composable
-private fun RewardDetails(
-    state: SurvivorsState,
-    roll: ChestRoll,
-    color: Color,
-    onAccept: () -> Unit,
-    onDecline: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val offer = roll.offer
-    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+private fun RewardDetails(state: SurvivorsState, offer: UpgradeOffer, onTake: () -> Unit) {
+    val color = rewardColor(state, offer)
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             "${Upgrades.title(offer)} · ${Upgrades.levelLabel(state, offer)}",
             style = MaterialTheme.typography.titleLarge,
@@ -208,80 +242,86 @@ private fun RewardDetails(
         Upgrades.synergy(state, offer)?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted, textAlign = TextAlign.Center)
         }
-        Spacer(Modifier.height(14.dp))
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton("Nehmen", onAccept)
-            if (!offer.heal) {
-                SecondaryButton("Ablehnen (+${SurvivorsEngine.CHEST_DECLINE_HEAL.toInt()} ❤)", onDecline)
-            }
-        }
+        Spacer(Modifier.height(12.dp))
+        PrimaryButton("Nehmen", onTake)
     }
 }
 
-/** Horizontale Walze; [position] = Kartenindex in der Mitte (als Kommazahl während des Rollens). */
+/** Senkrechte Walze; [position] = Kartenindex in der Mitte (als Kommazahl während des Rollens). */
 @Composable
-private fun Reel(
+private fun SlotReel(
     strip: List<UpgradeOffer>,
     position: Float,
     state: SurvivorsState,
     landed: Boolean,
     landing: Float,
-    modifier: Modifier = Modifier,
+    selected: Boolean,
+    dimmed: Boolean,
+    onClick: () -> Unit,
 ) {
     val density = LocalDensity.current
-    val pitch = with(density) { (CARD_WIDTH + CARD_GAP).toPx() }
-    val cardPx = with(density) { CARD_WIDTH.toPx() }
-    val winner = strip.size - 4
+    val pitch = with(density) { (CARD_HEIGHT + CARD_GAP).toPx() }
+    val cardPx = with(density) { CARD_HEIGHT.toPx() }
+    val winner = strip.size - 3
     val winnerColor = rewardColor(state, strip[winner])
     val sparkle = rememberInfiniteTransition(label = "sparkle")
     val spin by sparkle.animateFloat(0f, 360f, infiniteRepeatable(tween(6000, easing = LinearEasing)), label = "spin")
     val pulse by sparkle.animateFloat(0.6f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "pulse")
+    val shape = RoundedCornerShape(18.dp)
 
-    BoxWithConstraints(modifier.clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.35f))) {
-        val width = with(density) { maxWidth.toPx() }
-        val centerX = width / 2f
+    BoxWithConstraints(
+        Modifier
+            .size(CARD_WIDTH + 8.dp, REEL_HEIGHT)
+            .clip(shape)
+            .background(Color.Black.copy(alpha = 0.4f))
+            .border(2.dp, if (selected) winnerColor else Color.White.copy(alpha = 0.08f), shape)
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+            .alpha(if (dimmed) 0.45f else 1f),
+    ) {
+        val height = with(density) { maxHeight.toPx() }
+        val centerY = height / 2f
 
         // Lichtstrahlen und Partikel hinter der Gewinnkarte
         Canvas(Modifier.fillMaxSize()) {
             if (landed) {
-                drawRays(Offset(centerX, size.height / 2f), size.height * 1.4f, winnerColor, spin, 0.25f * landing.coerceIn(0f, 1f))
-                drawBurst(Offset(centerX, size.height / 2f), size.height, winnerColor, landing)
+                val center = Offset(size.width / 2f, centerY)
+                val strength = if (selected) 0.45f else 0.25f
+                drawRays(center, size.height, winnerColor, spin, strength * landing.coerceIn(0f, 1f))
+                drawBurst(center, size.width, winnerColor, landing)
             }
         }
 
-        val first = floor(position - centerX / pitch - 1).toInt().coerceAtLeast(0)
-        val last = (position + centerX / pitch + 1).toInt().coerceAtMost(strip.lastIndex)
+        val first = floor(position - centerY / pitch - 1).toInt().coerceAtLeast(0)
+        val last = (position + centerY / pitch + 1).toInt().coerceAtMost(strip.lastIndex)
         for (i in first..last) {
-            val x = centerX + (i - position) * pitch - cardPx / 2f
+            val y = centerY + (i - position) * pitch - cardPx / 2f
             val isWinner = i == winner && landed
             val distance = kotlin.math.abs(i - position)
-            val baseScale = (1f - 0.12f * distance).coerceIn(0.75f, 1f)
-            val scale = if (isWinner) baseScale * (1f + 0.18f * landing) else baseScale
+            val baseScale = (1f - 0.15f * distance).coerceIn(0.7f, 1f)
+            val scale = if (isWinner) baseScale * (1f + (if (selected) 0.1f else 0.04f) * landing) else baseScale
             RewardCard(
                 strip[i],
                 state,
                 highlight = isWinner,
                 glow = if (isWinner) pulse else 0f,
                 modifier = Modifier
-                    .offset { androidx.compose.ui.unit.IntOffset(x.roundToInt(), 0) }
-                    .align(Alignment.CenterStart)
+                    .offset { androidx.compose.ui.unit.IntOffset(0, y.roundToInt()) }
+                    .align(Alignment.TopCenter)
                     .scale(scale)
-                    .alpha(if (landed && !isWinner) 0.35f else 1f),
+                    .alpha(if (landed && !isWinner) 0.25f else 1f),
             )
         }
 
-        // Markierung in der Mitte
+        // Unschärfe an den Rändern der Walze
         Canvas(Modifier.fillMaxSize()) {
-            val tri = 10.dp.toPx()
-            listOf(0f to 1f, size.height to -1f).forEach { (y, dir) ->
-                val path = androidx.compose.ui.graphics.Path().apply {
-                    moveTo(centerX - tri, y)
-                    lineTo(centerX + tri, y)
-                    lineTo(centerX, y + dir * tri * 1.2f)
-                    close()
-                }
-                drawPath(path, GOLD)
-            }
+            val fade = size.height * 0.18f
+            val band = Size(size.width, fade)
+            drawRect(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent), 0f, fade), size = band)
+            drawRect(
+                Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)), size.height - fade, size.height),
+                topLeft = Offset(0f, size.height - fade),
+                size = band,
+            )
         }
     }
 }
@@ -292,7 +332,7 @@ private fun RewardCard(offer: UpgradeOffer, state: SurvivorsState, highlight: Bo
     val shape = RoundedCornerShape(16.dp)
     Box(
         modifier
-            .size(CARD_WIDTH, 108.dp)
+            .size(CARD_WIDTH, CARD_HEIGHT)
             .clip(shape)
             .background(
                 Brush.verticalGradient(

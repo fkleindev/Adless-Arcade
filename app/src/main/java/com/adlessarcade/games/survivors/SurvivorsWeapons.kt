@@ -261,17 +261,60 @@ enum class PassiveKind(val title: String, val icon: String, val description: Str
 /** Abgeleitete Werte aus Klasse und Passiven. */
 class HeroStats(private val state: SurvivorsState) {
     private fun lv(p: PassiveKind) = state.passives[p] ?: 0
+    private fun item(i: ItemKind) = i.total(state.items[i] ?: 0)
     private val c = state.heroClass
 
-    val maxHp: Float = c.maxHp * (1f + 0.2f * lv(PassiveKind.VITALITY))
-    val damageMultiplier: Float = 1f + 0.1f * lv(PassiveKind.MIGHT)
+    val maxHp: Float = c.maxHp * (1f + 0.2f * lv(PassiveKind.VITALITY) + item(ItemKind.AMULET))
     val speed: Float = c.speed * (1f + 0.1f * lv(PassiveKind.HASTE))
-    val cooldownMultiplier: Float = (1f - c.cooldownBonus) * (1f - 0.08f * lv(PassiveKind.WISDOM))
+    val cooldownMultiplier: Float = (1f - c.cooldownBonus) * (1f - 0.08f * lv(PassiveKind.WISDOM)) *
+        (1f - item(ItemKind.HOURGLASS).coerceAtMost(ItemKind.MAX_COOLDOWN_REDUCTION))
     val areaMultiplier: Float = 1f + 0.1f * lv(PassiveKind.REACH)
     val pickupRadius: Float = 1.5f * (1f + 0.3f * lv(PassiveKind.MAGNET) + c.pickupBonus)
     val armor: Int = c.armor + lv(PassiveKind.ARMOR)
+    /** Fehlendes Leben (0..1) – für Berserkerblut und Eisernen Willen. */
+    private val missingHp: Float = (1f - state.hp / maxHp).coerceIn(0f, 1f)
+    val berserk: Float = item(ItemKind.BERSERK)
+    /** Klassen-Bonus auf den Schaden (Eiserner Wille, Seelenernte). */
+    val classDamageBonus: Float = when (c) {
+        HeroClass.KNIGHT -> KNIGHT_DAMAGE_PER_ARMOR * armor + if (missingHp > 0.5f) KNIGHT_LOW_HP_BONUS else 0f
+        HeroClass.NECROMANCER -> NECRO_DAMAGE_PER_SOUL * state.souls
+        else -> 0f
+    }
+    val damageMultiplier: Float = 1f + 0.1f * lv(PassiveKind.MIGHT) + berserk * missingHp + classDamageBonus
     val regen: Float = 0.3f * lv(PassiveKind.REGEN)
     val extraProjectiles: Int = lv(PassiveKind.MULTI)
+
+    // --- Items & Klassen-Passiven ---
+    /** Krit-Chance; über 1 = jeder Treffer kritisch, der Überschuss ist die Superkrit-Chance. */
+    val critChance: Float = item(ItemKind.CRIT_CHANCE) + if (c == HeroClass.RANGER) RANGER_CRIT else 0f
+    /** Krit-Multiplikator ohne den Bewegungsbonus der Waldläuferin. */
+    val critMultiplier: Float = BASE_CRIT + item(ItemKind.CRIT_DAMAGE)
+    val superCritChance: Float = (critChance - 1f).coerceIn(0f, 1f)
+    /** Anteil des Trefferschadens, der als Gift über [POISON_TIME] Sekunden wirkt. */
+    val poison: Float = item(ItemKind.POISON)
+    val poisonTime: Float = POISON_TIME * if (c == HeroClass.MAGE) 1.5f else 1f
+    val lifesteal: Float = item(ItemKind.LIFESTEAL)
+    private val elementFactor = if (c == HeroClass.MAGE) 1.5f else 1f
+    val sparkChance: Float = (item(ItemKind.SPARK) * elementFactor).coerceAtMost(1f)
+    val freezeChance: Float = (item(ItemKind.FROST) * elementFactor).coerceAtMost(1f)
+    val emberChance: Float = item(ItemKind.EMBER).coerceAtMost(1f)
+    val execute: Float = item(ItemKind.EXECUTE).coerceAtMost(ItemKind.MAX_EXECUTE)
+    val dodge: Float = item(ItemKind.DODGE).coerceAtMost(ItemKind.MAX_DODGE)
+    val giantSlayer: Float = item(ItemKind.GIANT_SLAYER)
+    val lootBonus: Float = item(ItemKind.GOLD)
+
+    companion object {
+        const val BASE_CRIT = 1.5f
+        const val SUPER_CRIT_FACTOR = 2f
+        const val POISON_TIME = 3f
+        const val RANGER_CRIT = 0.12f
+        const val RANGER_MOVING_CRIT_DAMAGE = 0.25f
+        const val KNIGHT_DAMAGE_PER_ARMOR = 0.06f
+        const val KNIGHT_LOW_HP_BONUS = 0.25f
+        const val MAGE_STATUS_BONUS = 0.2f
+        const val NECRO_MAX_SOULS = 150
+        const val NECRO_DAMAGE_PER_SOUL = 0.004f
+    }
 }
 
 object Upgrades {
@@ -301,6 +344,36 @@ object Upgrades {
         return result.shuffled(random)
     }
 
+    /**
+     * Drei verschiedene Kisten-Belohnungen: eine bereite Entwicklung ([allowEvolution]) belegt einen Platz,
+     * die übrigen sind überwiegend Items, sonst Waffen-/Talent-Upgrades.
+     */
+    fun chestOffers(state: SurvivorsState, random: Random, allowEvolution: Boolean, count: Int = 3): List<UpgradeOffer> {
+        val result = ArrayList<UpgradeOffer>(count)
+        if (allowEvolution) evolutionsReady(state).randomOrNull(random)?.let { result += UpgradeOffer(evolution = it) }
+        val upgrades = pool(state).shuffled(random).toMutableList()
+        val items = ItemKind.entries.shuffled(random).map { UpgradeOffer(item = it) }.toMutableList()
+        while (result.size < count) {
+            val source = if ((random.nextFloat() < CHEST_ITEM_SHARE || upgrades.isEmpty()) && items.isNotEmpty()) items else upgrades
+            if (source.isEmpty()) break
+            result += source.removeAt(0)
+        }
+        return result.shuffled(random)
+    }
+
+    private const val CHEST_ITEM_SHARE = 0.6f
+
+    /** Hinweis, wenn ein Item besonders gut zur Klassen-Passive passt. */
+    fun itemSynergy(heroClass: HeroClass, item: ItemKind): String? {
+        val fits = when (heroClass) {
+            HeroClass.KNIGHT -> item in setOf(ItemKind.BERSERK, ItemKind.DODGE, ItemKind.AMULET, ItemKind.LIFESTEAL)
+            HeroClass.MAGE -> item in setOf(ItemKind.POISON, ItemKind.SPARK, ItemKind.FROST)
+            HeroClass.RANGER -> item in setOf(ItemKind.CRIT_CHANCE, ItemKind.CRIT_DAMAGE)
+            HeroClass.NECROMANCER -> item in setOf(ItemKind.POISON, ItemKind.EMBER, ItemKind.EXECUTE)
+        }
+        return if (fits) "Synergie: ${heroClass.passiveIcon} ${heroClass.passiveTitle}" else null
+    }
+
     /** Waffen, die jetzt entwickelt werden können: Stufe 5 + passendes Talent, noch nicht entwickelt. */
     fun evolutionsReady(state: SurvivorsState): List<WeaponKind> =
         state.weapons.filter { (weapon, level) ->
@@ -310,6 +383,11 @@ object Upgrades {
     fun apply(state: SurvivorsState, offer: UpgradeOffer) {
         when {
             offer.evolution != null -> state.evolved += offer.evolution
+            offer.item != null -> {
+                val before = HeroStats(state).maxHp
+                state.items.merge(offer.item, 1, Int::plus)
+                state.hp += (HeroStats(state).maxHp - before).coerceAtLeast(0f)
+            }
             offer.weapon != null -> {
                 state.weapons[offer.weapon] = ((state.weapons[offer.weapon] ?: 0) + 1).coerceAtMost(MAX_LEVEL)
             }
@@ -325,6 +403,7 @@ object Upgrades {
 
     fun title(offer: UpgradeOffer): String = when {
         offer.evolution != null -> offer.evolution.evolutionTitle
+        offer.item != null -> offer.item.title
         offer.weapon != null -> offer.weapon.title
         offer.passive != null -> offer.passive.title
         else -> "Heiltrank"
@@ -332,6 +411,7 @@ object Upgrades {
 
     fun icon(offer: UpgradeOffer): String = when {
         offer.evolution != null -> offer.evolution.evolutionIcon
+        offer.item != null -> offer.item.icon
         offer.weapon != null -> offer.weapon.icon
         offer.passive != null -> offer.passive.icon
         else -> "🧪"
@@ -341,6 +421,7 @@ object Upgrades {
     fun levelLabel(state: SurvivorsState, offer: UpgradeOffer): String {
         val current = when {
             offer.evolution != null -> return "ENTWICKLUNG"
+            offer.item != null -> return "ITEM · ×${(state.items[offer.item] ?: 0) + 1}"
             offer.weapon != null -> state.weapons[offer.weapon] ?: 0
             offer.passive != null -> state.passives[offer.passive] ?: 0
             else -> return "+30 Leben"
@@ -350,6 +431,7 @@ object Upgrades {
 
     fun description(state: SurvivorsState, offer: UpgradeOffer): String = when {
         offer.evolution != null -> offer.evolution.evolutionDescription
+        offer.item != null -> offer.item.description(state.items[offer.item] ?: 0)
         offer.weapon != null -> offer.weapon.description((state.weapons[offer.weapon] ?: 0) + 1)
         offer.passive != null -> offer.passive.description
         else -> "Stellt 30 Leben wieder her."
@@ -358,6 +440,7 @@ object Upgrades {
     /** Hinweis auf Entwicklungen: welches Talent eine Waffe braucht bzw. welche Waffe ein Talent entwickelt. */
     fun synergy(state: SurvivorsState, offer: UpgradeOffer): String? = when {
         offer.evolution != null -> null
+        offer.item != null -> itemSynergy(state.heroClass, offer.item)
         offer.weapon != null -> if (offer.weapon in state.evolved) null else
             "Entwicklung (ab Min. 5 aus Kisten): Stufe 5 + ${offer.weapon.evolutionPassive.icon} ${offer.weapon.evolutionPassive.title} → ${offer.weapon.evolutionTitle}"
         offer.passive != null -> WeaponKind.entries

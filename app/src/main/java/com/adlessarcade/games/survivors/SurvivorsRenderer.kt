@@ -56,7 +56,8 @@ sealed class SurvivorsFx(val x: Float, val y: Float, val lifetime: Float) {
     class Smash(x: Float, y: Float, val angle: Float, val range: Float, val ring: Boolean) : SurvivorsFx(x, y, if (ring) 0.4f else 0.25f)
     class ThornPulse(x: Float, y: Float, val radius: Float, val evolved: Boolean) : SurvivorsFx(x, y, 0.35f)
     class Blast(x: Float, y: Float, val radius: Float, val color: Color) : SurvivorsFx(x, y, 0.35f)
-    class Number(x: Float, y: Float, val amount: Int) : SurvivorsFx(x, y, 0.6f)
+    /** [crit]: 0 normal, 1 Krit, 2 Superkrit. */
+    class Number(x: Float, y: Float, val amount: Int, val crit: Int = 0) : SurvivorsFx(x, y, if (crit > 0) 0.8f else 0.6f)
     class Text(x: Float, y: Float, val text: String, val color: Color) : SurvivorsFx(x, y, 1.4f)
     class CoinPop(x: Float, y: Float, val amount: Int) : SurvivorsFx(x, y, 1f)
     class RunePop(x: Float, y: Float, val amount: Int) : SurvivorsFx(x, y, 1.2f)
@@ -325,6 +326,7 @@ private fun DrawScope.drawEnemy(cam: SurvivorsCamera, e: Enemy, theme: SurvivorT
     var color = lerp(enemyColor(e.kind), theme.enemyTint, theme.tintAmount)
     if (e.slowTimer > 0f) color = lerp(color, Color(0xFF7DD3FC), 0.5f)
     if (e.freezeTimer > 0f) color = lerp(color, Color(0xFFE0F2FE), 0.65f)
+    else if (e.poisonTimer > 0f) color = lerp(color, Color(0xFF4ADE80), 0.45f)
     color = lerp(color, Color.White, e.hitFlash * 0.7f)
 
     drawOval(Color.Black.copy(alpha = 0.3f), c + Offset(-r, r * 0.6f), Size(r * 2f, r * 0.5f))
@@ -794,9 +796,14 @@ private fun DrawScope.drawFx(cam: SurvivorsCamera, fx: SurvivorsFx, textMeasurer
             drawCircle(Color(0xFFFDE68A).copy(alpha = 0.7f * a), r * 0.5f, c)
         }
         is SurvivorsFx.Number -> {
+            val (label, color, size) = when (fx.crit) {
+                2 -> Triple("${fx.amount}!!", Color(0xFFF0ABFC), 0.5f)
+                1 -> Triple("${fx.amount}!", Color(0xFFFDE047), 0.36f)
+                else -> Triple("${fx.amount}", Color.White, 0.28f)
+            }
             val layout = textMeasurer.measure(
-                "${fx.amount}",
-                TextStyle(color = Color.White.copy(alpha = a), fontSize = (cam.scale * 0.28f).toSp(), fontWeight = FontWeight.Bold),
+                label,
+                TextStyle(color = color.copy(alpha = a), fontSize = (cam.scale * size).toSp(), fontWeight = FontWeight.Black),
             )
             drawText(layout, topLeft = c + Offset(-layout.size.width / 2f, -cam.len(0.6f) - t * cam.len(0.6f)))
         }

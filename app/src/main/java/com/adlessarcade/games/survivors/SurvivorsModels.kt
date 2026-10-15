@@ -31,22 +31,36 @@ enum class HeroClass(
     val cooldownBonus: Float = 0f,
     val pickupBonus: Float = 0f,
     val healPerKill: Float = 0f,
+    /** Einzigartige Klassen-Passive. */
+    val passiveTitle: String,
+    val passiveIcon: String,
+    val passiveDescription: String,
 ) {
     KNIGHT(
         "class_knight", "Krieger", "Viel Leben und Rüstung. Startet mit dem Schwertschwung.",
         maxHp = 150f, speed = 3f, armor = 1, startWeapon = WeaponKind.SWORD,
+        passiveTitle = "Eiserner Wille", passiveIcon = "🛡",
+        passiveDescription = "+6 % Schaden je Rüstungspunkt. Unter 50 % Leben +25 % Schaden.",
     ),
     MAGE(
         "class_mage", "Magierin", "Zerbrechlich, aber schnellere Zauber. Startet mit Feuerbällen.",
         maxHp = 80f, speed = 3f, armor = 0, startWeapon = WeaponKind.FIREBALL, cooldownBonus = 0.1f,
+        passiveTitle = "Elementarkunde", passiveIcon = "🔮",
+        passiveDescription = "Gift wirkt 50 % länger, Funken- und Frost-Chancen ×1,5. " +
+            "Vergiftete, gefrorene oder gefesselte Gegner nehmen +20 % Schaden.",
     ),
     RANGER(
         "class_ranger", "Waldläuferin", "Flink und präzise. Startet mit Pfeilen.",
         maxHp = 100f, speed = 3.5f, armor = 0, startWeapon = WeaponKind.ARROWS,
+        passiveTitle = "Jagdinstinkt", passiveIcon = "🏹",
+        passiveDescription = "+12 % Krit-Chance. In Bewegung +25 % Krit-Schaden.",
     ),
     NECROMANCER(
         "class_necro", "Nekromant", "Zieht Seelen an und heilt sich bei Kills. Startet mit dem Knochenorbit.",
         maxHp = 110f, speed = 3f, armor = 0, startWeapon = WeaponKind.BONE_ORBIT, pickupBonus = 0.3f, healPerKill = 0.8f,
+        passiveTitle = "Seelenernte", passiveIcon = "💀",
+        passiveDescription = "Jeder Kill bringt eine Seele (max. 150, je +0,4 % Schaden). " +
+            "Vergiftete Gegner verbreiten ihr Gift beim Tod.",
     );
 
     companion object {
@@ -98,6 +112,11 @@ class Enemy(
     var orbitCooldown: Float = 0f
     /** Abklingzeit für die kreisenden Schilde (Bollwerk). */
     var shieldCooldown: Float = 0f
+    /** Gift (Giftphiole): Schaden pro Sekunde, solange [poisonTimer] läuft. */
+    var poisonDps: Float = 0f
+    var poisonTimer: Float = 0f
+    /** Waffe, die das Gift verursacht hat (für Kills pro Waffe). */
+    var poisonSource: WeaponKind? = null
 
     val radius: Float get() = kind.radius * if (elite) 1.4f else 1f
     val isBoss: Boolean get() = kind == EnemyKind.BOSS || kind == EnemyKind.DEMON
@@ -197,6 +216,8 @@ data class UpgradeOffer(
     val heal: Boolean = false,
     /** Waffenentwicklung (nur aus Kisten). */
     val evolution: WeaponKind? = null,
+    /** Stapelbares Item (nur aus Kisten). */
+    val item: ItemKind? = null,
 )
 
 /** Alle Timer des Spawners – Teil des Spielstands. */
@@ -255,13 +276,17 @@ class SurvivorsState(
     var offers: List<UpgradeOffer> = emptyList()
     /** Entwickelte Waffen (belegen weiter ihren Platz, Stufe bleibt 5). */
     val evolved: MutableSet<WeaponKind> = LinkedHashSet()
-    /** Aktuell ausgerollte Kisten-Belohnung – das Spiel steht, bis sie angenommen oder abgelehnt wird. */
-    var chestReward: UpgradeOffer? = null
-    /** Index der aktuellen Belohnung und Gesamtzahl der offenen Kiste(n). */
-    var chestIndex: Int = 0
-    var chestTotal: Int = 0
-    /** Höchstens eine Entwicklung pro Kiste. */
-    var chestEvolutionGiven: Boolean = false
+    /** Items aus Kisten (Stapelanzahl). */
+    val items: MutableMap<ItemKind, Int> = LinkedHashMap()
+    /** Drei Belohnungen der geöffneten Kiste – das Spiel steht, bis eine gewählt wird. */
+    var chestOffers: List<UpgradeOffer> = emptyList()
+    /** Weitere Kisten, die im selben Moment eingesammelt wurden und danach geöffnet werden. */
+    var pendingChests: Int = 0
+    /** Seelen des Nekromanten (Seelenernte). */
+    var souls: Int = 0
+    /** Bruchteile von Coins und Erfahrung (Goldene Gans). */
+    var coinRemainder: Float = 0f
+    var xpRemainder: Float = 0f
     val pendingStrikes: MutableList<PendingStrike> = ArrayList()
     val hazards: MutableList<Hazard> = ArrayList()
     /** Drehwinkel des Knochenorbits. */
@@ -279,12 +304,14 @@ class SurvivorsState(
 
 sealed interface SurvivorsEvent {
     data class EnemyKilled(val x: Float, val y: Float, val kind: EnemyKind, val elite: Boolean) : SurvivorsEvent
-    data class Damage(val x: Float, val y: Float, val amount: Float) : SurvivorsEvent
+    /** [crit]: 0 normal, 1 Krit, 2 Superkrit. */
+    data class Damage(val x: Float, val y: Float, val amount: Float, val crit: Int = 0) : SurvivorsEvent
     data class PlayerHit(val amount: Float) : SurvivorsEvent
     data object LevelUp : SurvivorsEvent
-    /** Eine Kisten-Belohnung wurde ausgerollt ([index] von [total], ab 0). */
-    data class ChestReward(val offer: UpgradeOffer, val index: Int, val total: Int) : SurvivorsEvent
+    /** Eine Kiste wurde geöffnet; [remaining] weitere warten noch. */
+    data class ChestOpened(val offers: List<UpgradeOffer>, val remaining: Int) : SurvivorsEvent
     data class Evolved(val weapon: WeaponKind) : SurvivorsEvent
+    data class Dodged(val x: Float, val y: Float) : SurvivorsEvent
     data class BossSpawned(val kind: EnemyKind) : SurvivorsEvent
     data object Victory : SurvivorsEvent
     data class CoinsEarned(val x: Float, val y: Float, val amount: Int) : SurvivorsEvent

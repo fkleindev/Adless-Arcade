@@ -260,16 +260,18 @@ class SurvivorsEngineTest {
         e.run(1.5f)
         val chest = e.state.pickups.firstOrNull { it.kind == PickupKind.CHEST }
         assertNotNull(chest)
-        val levelsBefore = e.state.weapons.values.sum() + e.state.passives.values.sum()
+        val levelsBefore = e.buildSize()
         e.state.px = chest!!.x
         e.state.py = chest.y
         e.run(0.1f)
         assertTrue(e.awaitingChest)
-        assertTrue(e.drainEvents().any { it is SurvivorsEvent.ChestReward })
-        while (e.awaitingChest) e.acceptChestReward()
-        val levelsAfter = e.state.weapons.values.sum() + e.state.passives.values.sum()
-        assertTrue(levelsAfter > levelsBefore)
+        assertTrue(e.drainEvents().any { it is SurvivorsEvent.ChestOpened })
+        while (e.awaitingChest) e.chooseChestReward(0)
+        assertTrue(e.buildSize() > levelsBefore)
     }
+
+    private fun SurvivorsEngine.buildSize(): Int =
+        state.weapons.values.sum() + state.passives.values.sum() + state.items.values.sum() + state.evolved.size
 
     /** Öffnet eine Kiste direkt beim Helden. */
     private fun SurvivorsEngine.openChestHere() {
@@ -287,41 +289,57 @@ class SurvivorsEngineTest {
         val time = e.state.time
         e.update(1f)
         assertEquals(time, e.state.time, 0.001f)
-        while (e.awaitingChest) e.acceptChestReward()
+        while (e.awaitingChest) e.chooseChestReward(0)
         e.update(0.1f)
         assertTrue(e.state.time > time)
     }
 
     @Test
-    fun chest_decline_keepsBuild_andHeals() {
-        val e = engine()
-        e.clearSpawns()
-        e.state.hp = 50f
-        e.openChestHere()
-        val weapons = e.state.weapons.toMap()
-        val passives = e.state.passives.toMap()
-        val total = e.state.chestTotal
-        repeat(total) { e.declineChestReward() }
-        assertFalse(e.awaitingChest)
-        assertEquals(weapons, e.state.weapons.toMap())
-        assertEquals(passives, e.state.passives.toMap())
-        assertEquals(50f + total * SurvivorsEngine.CHEST_DECLINE_HEAL, e.state.hp, 0.01f)
+    fun chest_offersThreeDistinctRewards_andAppliesTheChosenOne() {
+        repeat(20) { seed ->
+            val e = SurvivorsEngine.newGame(HeroClass.KNIGHT, SurvivorsMode.TIMED, seed.toLong())
+            e.clearSpawns()
+            e.openChestHere()
+            val offers = e.state.chestOffers
+            assertEquals(3, offers.size)
+            assertEquals(3, offers.distinct().size)
+            assertTrue(offers.none { it.heal })
+            val pick = offers[1]
+            e.chooseChestReward(1)
+            assertFalse(e.awaitingChest)
+            when {
+                pick.item != null -> assertEquals(1, e.state.items[pick.item])
+                pick.weapon != null -> assertTrue((e.state.weapons[pick.weapon] ?: 0) >= 1)
+                pick.passive != null -> assertEquals(1, e.state.passives[pick.passive])
+            }
+        }
     }
 
     @Test
-    fun chest_rewardsComeOneAfterAnother() {
+    fun chest_invalidIndex_isIgnored() {
         val e = engine()
         e.clearSpawns()
         e.openChestHere()
-        e.state.chestTotal = 3 // feste Anzahl für den Test
-        e.drainEvents()
-        val seen = ArrayList<Int>()
+        e.chooseChestReward(5)
+        assertTrue(e.awaitingChest)
+    }
+
+    @Test
+    fun chests_atTheSameTime_openOneAfterAnother() {
+        val e = engine()
+        e.clearSpawns()
+        repeat(3) { e.spawnPickup(PickupKind.CHEST, e.state.px, e.state.py) }
+        e.update(1f / 60f)
+        assertEquals(2, e.state.pendingChests)
+        var opened = e.drainEvents().count { it is SurvivorsEvent.ChestOpened }
+        var picks = 0
         while (e.awaitingChest) {
-            seen += e.state.chestIndex
-            e.acceptChestReward()
-            e.drainEvents().filterIsInstance<SurvivorsEvent.ChestReward>().forEach { assertEquals(3, it.total) }
+            e.chooseChestReward(0)
+            picks++
+            opened += e.drainEvents().count { it is SurvivorsEvent.ChestOpened }
         }
-        assertEquals(listOf(0, 1, 2), seen)
+        assertEquals(3, picks)
+        assertEquals(3, opened)
     }
 
     @Test
@@ -335,7 +353,7 @@ class SurvivorsEngineTest {
         val levelBefore = e.state.weapons.toMap()
         e.choose(0) // wird ignoriert
         assertEquals(levelBefore, e.state.weapons.toMap())
-        while (e.awaitingChest) e.acceptChestReward()
+        while (e.awaitingChest) e.chooseChestReward(0)
         assertTrue(e.awaitingChoice)
     }
 
@@ -359,9 +377,10 @@ class SurvivorsEngineTest {
         e.state.passives[PassiveKind.WISDOM] = 1
         e.state.time = SurvivorsEngine.EVOLUTION_MIN_TIME
         e.openChestHere()
-        assertEquals(UpgradeOffer(evolution = WeaponKind.FIREBALL), e.state.chestReward)
+        val index = e.state.chestOffers.indexOf(UpgradeOffer(evolution = WeaponKind.FIREBALL))
+        assertTrue(index >= 0)
         e.drainEvents()
-        e.acceptChestReward()
+        e.chooseChestReward(index)
         assertTrue(e.isEvolved(WeaponKind.FIREBALL))
         assertTrue(e.drainEvents().contains(SurvivorsEvent.Evolved(WeaponKind.FIREBALL)))
         assertEquals(MAX_LEVEL, e.state.weapons[WeaponKind.FIREBALL])
@@ -377,20 +396,12 @@ class SurvivorsEngineTest {
         e.state.passives[PassiveKind.ARMOR] = 1
         // Vor Minute 5: keine Entwicklung
         e.openChestHere()
-        while (e.awaitingChest) {
-            assertTrue(e.state.chestReward?.evolution == null)
-            e.declineChestReward()
-        }
-        // Danach: genau eine Entwicklung, obwohl zwei bereit sind
+        assertTrue(e.state.chestOffers.none { it.evolution != null })
+        e.chooseChestReward(0)
+        // Danach: genau eine Entwicklung pro Kiste, obwohl zwei bereit sind
         e.state.time = SurvivorsEngine.EVOLUTION_MIN_TIME
         e.openChestHere()
-        e.state.chestTotal = 3
-        var evolutions = 0
-        while (e.awaitingChest) {
-            if (e.state.chestReward?.evolution != null) evolutions++
-            e.acceptChestReward()
-        }
-        assertEquals(1, evolutions)
+        assertEquals(1, e.state.chestOffers.count { it.evolution != null })
     }
 
     /** Jede entwickelte Waffe tötet einen schwachen Gegner. */
@@ -628,7 +639,7 @@ class SurvivorsEngineTest {
         e.inputX = 0.7f
         var t = 0f
         while (t < 30f) {
-            if (e.awaitingChest) e.acceptChestReward()
+            if (e.awaitingChest) e.chooseChestReward(0)
             if (e.awaitingChoice) e.choose(0)
             e.update(1f / 30f)
             t += 1f / 30f
@@ -668,14 +679,36 @@ class SurvivorsEngineTest {
         val restored = SurvivorsEngine(SurvivorsSaves.decode(json)!!.state, seed = 1)
         assertEquals(json, SurvivorsSaves.encode(restored.state, 0))
         assertTrue(restored.awaitingChest)
-        assertEquals(UpgradeOffer(evolution = WeaponKind.SWORD), restored.state.chestReward)
+        assertTrue(UpgradeOffer(evolution = WeaponKind.SWORD) in restored.state.chestOffers)
         assertTrue(restored.isEvolved(WeaponKind.FIREBALL))
 
         // Spielstände der Version 1 (ohne neue Felder) laden weiterhin
         val v1 = SaveJson.encodeToString(SurvivorsSave.serializer(), SurvivorsSave(1, engine().state))
-            .replace(Regex(""","(evolved|chestReward|chestIndex|chestTotal|chestEvolutionGiven|pendingStrikes|hazards|orbitAngle|leechPool)":(\[\]|null|false|[0-9.]+)"""), "")
+            .replace(Regex(""","(evolved|items|chestOffers|pendingChests|souls|coinRemainder|xpRemainder|pendingStrikes|hazards|orbitAngle|leechPool)":(\[\]|\{\}|null|false|[0-9.]+)"""), "")
         assertFalse(v1.contains("evolved"))
+        assertFalse(v1.contains("items"))
         assertNotNull(SurvivorsSaves.decode(v1))
+
+        // Version 2 mit offener (alter) Einzel-Belohnung: lädt, die Kiste verfällt
+        val v2 = SaveJson.encodeToString(SurvivorsSave.serializer(), SurvivorsSave(2, engine().state))
+            .replace(""""chestOffers":[]""", """"chestReward":{"weapon":"SWORD"},"chestIndex":0,"chestTotal":2""")
+        val loaded = SurvivorsSaves.decode(v2)
+        assertNotNull(loaded)
+        assertFalse(SurvivorsEngine(loaded!!.state, 1).awaitingChest)
+    }
+
+    @Test
+    fun save_roundTrip_keepsItemsAndPoison() {
+        val e = engine(HeroClass.NECROMANCER)
+        e.state.items[ItemKind.CRIT_CHANCE] = 3
+        e.state.items[ItemKind.POISON] = 2
+        e.state.souls = 42
+        e.spawnEnemy(EnemyKind.ORC, 5f, 0f).apply { poisonDps = 3f; poisonTimer = 2f; poisonSource = WeaponKind.BONE_ORBIT }
+        val restored = SurvivorsSaves.decode(SurvivorsSaves.encode(e.state, 0))!!.state
+        assertEquals(mapOf(ItemKind.CRIT_CHANCE to 3, ItemKind.POISON to 2), restored.items.toMap())
+        assertEquals(42, restored.souls)
+        assertEquals(3f, restored.enemies.single().poisonDps, 0.001f)
+        assertEquals(WeaponKind.BONE_ORBIT, restored.enemies.single().poisonSource)
     }
 
     @Test

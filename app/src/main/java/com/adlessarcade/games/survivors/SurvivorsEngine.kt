@@ -28,10 +28,19 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         const val ELITE_RUNES = 1
         const val BOSS_RUNES = 4
         const val VICTORY_RUNES = 10
-        /** Heilung, wenn man eine Kisten-Belohnung ablehnt. */
-        const val CHEST_DECLINE_HEAL = 25f
         /** Lebensraub der Entwicklungen: höchstens so viel Heilung pro Sekunde. */
         const val LEECH_PER_SECOND = 4f
+        /** Zusätzlicher Lebensraub-Deckel pro 1 % Lebensraub (Vampirzahn). */
+        const val LIFESTEAL_CAP_PER_PERCENT = 2.5f
+        /** Funkenstein: Blitz springt auf so viele Gegner mit diesem Anteil des Schadens. */
+        const val SPARK_TARGETS = 2
+        const val SPARK_DAMAGE = 0.4f
+        const val SPARK_RANGE = 3.5f
+        const val EMBER_RADIUS = 1.2f
+        const val EMBER_DAMAGE = 12f
+        const val POISON_SPREAD_RADIUS = 1.5f
+        /** Gift pro Sekunde höchstens so viel wie das Vielfache eines Treffers. */
+        const val POISON_MAX_HITS = 3f
         const val FROZEN_DAMAGE_BONUS = 1.3f
         const val FREEZE_TIME = 1.5f
         /** Entwicklungen gibt es erst ab dem ersten Boss. */
@@ -89,7 +98,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
 
     val isOver: Boolean get() = state.dead || state.victory
     /** Eine Kiste wird gerade ausgerollt – hat Vorrang vor Level-up-Karten. */
-    val awaitingChest: Boolean get() = state.chestReward != null
+    val awaitingChest: Boolean get() = state.chestOffers.isNotEmpty()
     val awaitingChoice: Boolean get() = state.offers.isNotEmpty() && !awaitingChest
     /** Das Spiel steht still, bis der Spieler eine Karte wählt oder eine Kisten-Belohnung annimmt/ablehnt. */
     val isWaiting: Boolean get() = awaitingChest || state.offers.isNotEmpty()
@@ -132,64 +141,31 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         state.offers = if (state.pendingLevelUps > 0) Upgrades.offers(state, random) else emptyList()
     }
 
-    /** Nimmt die aktuell ausgerollte Kisten-Belohnung an. */
-    fun acceptChestReward() {
-        val offer = state.chestReward ?: return
+    /** Wählt eine der drei Kisten-Belohnungen; danach öffnet sich ggf. die nächste wartende Kiste. */
+    fun chooseChestReward(index: Int) {
+        val offer = state.chestOffers.getOrNull(index) ?: return
         Upgrades.apply(state, offer)
         if (offer.evolution != null) events += SurvivorsEvent.Evolved(offer.evolution)
-        nextChestReward()
-    }
-
-    /** Lehnt die Belohnung ab (Build bleibt unverändert) und heilt stattdessen. */
-    fun declineChestReward() {
-        if (state.chestReward == null) return
-        val before = state.hp
-        state.hp = (state.hp + CHEST_DECLINE_HEAL).coerceAtMost(stats.maxHp)
-        if (state.hp > before) events += SurvivorsEvent.Healed(state.hp - before)
-        nextChestReward()
+        state.chestOffers = emptyList()
+        if (state.pendingChests > 0) {
+            state.pendingChests--
+            rollChest()
+        }
     }
 
     private fun openChest() {
-        val rewards = 1 + (if (random.nextFloat() < 0.4f) 1 else 0) + (if (random.nextFloat() < 0.15f) 1 else 0)
-        if (state.chestReward != null) {
-            // Zweite Kiste im selben Moment: Belohnungen hinten anhängen.
-            state.chestTotal += rewards
+        if (awaitingChest) {
+            // Weitere Kiste im selben Moment: danach öffnen.
+            state.pendingChests++
             return
         }
-        state.chestIndex = 0
-        state.chestTotal = rewards
-        state.chestEvolutionGiven = false
-        rollChestReward()
+        rollChest()
     }
 
-    private fun nextChestReward() {
-        state.chestIndex++
-        if (state.chestIndex < state.chestTotal) {
-            rollChestReward()
-        } else {
-            state.chestReward = null
-            state.chestIndex = 0
-            state.chestTotal = 0
-        }
-    }
-
-    /**
-     * Würfelt die nächste Belohnung auf Basis des aktuellen Builds. Ab dem ersten Boss hat eine bereite
-     * Entwicklung Vorrang – höchstens eine pro Kiste.
-     */
-    private fun rollChestReward() {
-        val evolution = if (state.time >= EVOLUTION_MIN_TIME && !state.chestEvolutionGiven) {
-            Upgrades.evolutionsReady(state).randomOrNull(random)
-        } else null
-        val offer = when {
-            evolution != null -> {
-                state.chestEvolutionGiven = true
-                UpgradeOffer(evolution = evolution)
-            }
-            else -> Upgrades.pool(state).randomOrNull(random) ?: UpgradeOffer(heal = true)
-        }
-        state.chestReward = offer
-        events += SurvivorsEvent.ChestReward(offer, state.chestIndex, state.chestTotal)
+    /** Würfelt drei Belohnungen; ab dem ersten Boss ist eine bereite Entwicklung immer dabei. */
+    private fun rollChest() {
+        state.chestOffers = Upgrades.chestOffers(state, random, allowEvolution = state.time >= EVOLUTION_MIN_TIME)
+        events += SurvivorsEvent.ChestOpened(state.chestOffers, state.pendingChests)
     }
 
     fun spawnEnemy(kind: EnemyKind, x: Float, y: Float, hpMultiplier: Float = 1f, elite: Boolean = false): Enemy {
@@ -211,6 +187,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
 
     private fun step(dt: Float) {
         val st = stats
+        cur = st
         if (state.victorySweep) {
             victorySweepStep(dt, st)
             return
@@ -220,7 +197,8 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         movePlayer(dt, st)
         state.invulnerable = (state.invulnerable - dt).coerceAtLeast(0f)
         state.hp = (state.hp + st.regen * dt).coerceAtMost(st.maxHp)
-        state.leechPool = (state.leechPool + LEECH_PER_SECOND * dt).coerceAtMost(LEECH_PER_SECOND)
+        val leechRate = LEECH_PER_SECOND + st.lifesteal * 100f * LIFESTEAL_CAP_PER_PERCENT
+        state.leechPool = (state.leechPool + leechRate * dt).coerceAtMost(leechRate)
 
         spawner.update(dt)
         buildGrid()
@@ -361,8 +339,25 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             e.hitFlash = (e.hitFlash - dt * 6f).coerceAtLeast(0f)
             e.orbitCooldown = (e.orbitCooldown - dt).coerceAtLeast(0f)
             e.shieldCooldown = (e.shieldCooldown - dt).coerceAtLeast(0f)
+            if (e.poisonTimer > 0f) {
+                e.poisonTimer -= dt
+                if (e.hp > 0f) {
+                    e.hp -= e.poisonDps * dt
+                    if (e.hp <= 0f) e.lastHit = e.poisonSource ?: e.lastHit
+                }
+                if (e.poisonTimer <= 0f) {
+                    e.poisonTimer = 0f
+                    e.poisonDps = 0f
+                }
+            }
 
             if (!frozen && d < e.radius + PLAYER_RADIUS && state.invulnerable <= 0f) {
+                if (st.dodge > 0f && random.nextFloat() < st.dodge) {
+                    // Schattenumhang: ausgewichen
+                    state.invulnerable = INVULNERABLE_TIME
+                    events += SurvivorsEvent.Dodged(state.px, state.py)
+                    continue
+                }
                 val raw = e.kind.damage * (if (e.elite) 1.5f else 1f) * hitScale
                 val damage = (raw - st.armor).coerceAtLeast(1f)
                 state.hp -= damage
@@ -411,14 +406,68 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
     /** Waffe, die gerade Schaden austeilt – damit Kills der richtigen Waffe zugerechnet werden. */
     private var source: WeaponKind = WeaponKind.SWORD
 
-    private fun damage(e: Enemy, raw: Float) {
+    /** Werte des aktuellen Schritts (für Krit, Gift und andere Item-Effekte im Treffer). */
+    private var cur: HeroStats = HeroStats(state)
+
+    /**
+     * Zentraler Treffer: Krit/Superkrit, Statusboni und Item-Effekte. [proc] = false für Folgeschaden
+     * (Funken, Explosionen), damit sich Effekte nicht endlos gegenseitig auslösen.
+     */
+    private fun damage(e: Enemy, raw: Float, proc: Boolean = true) {
         if (e.hp <= 0f) return
+        val st = cur
+        var amount = raw
         // Eiszeit: eingefrorene Gegner zerbrechen leichter.
-        val amount = if (e.freezeTimer > 0f) raw * FROZEN_DAMAGE_BONUS else raw
+        if (e.freezeTimer > 0f) amount *= FROZEN_DAMAGE_BONUS
+        if (st.giantSlayer > 0f && (e.isBoss || e.elite)) amount *= 1f + st.giantSlayer
+        // Elementarkunde: vergiftete, gefrorene oder gefesselte Gegner nehmen mehr Schaden.
+        if (state.heroClass == HeroClass.MAGE && (e.poisonTimer > 0f || e.freezeTimer > 0f || e.stunTimer > 0f)) {
+            amount *= 1f + HeroStats.MAGE_STATUS_BONUS
+        }
+        var crit = 0
+        if (proc && st.critChance > 0f && (st.critChance >= 1f || random.nextFloat() < st.critChance)) {
+            crit = 1
+            var multiplier = st.critMultiplier
+            if (state.heroClass == HeroClass.RANGER && isMoving) multiplier += HeroStats.RANGER_MOVING_CRIT_DAMAGE
+            if (st.superCritChance > 0f && random.nextFloat() < st.superCritChance) {
+                crit = 2
+                multiplier *= HeroStats.SUPER_CRIT_FACTOR
+            }
+            amount *= multiplier
+        }
         e.hp -= amount
         e.hitFlash = 1f
         e.lastHit = source
-        if (damageEventsThisStep++ < MAX_DAMAGE_EVENTS_PER_STEP) events += SurvivorsEvent.Damage(e.x, e.y, amount)
+        // Superkrits dürfen etwas über das Limit hinaus angezeigt werden.
+        if (damageEventsThisStep++ < MAX_DAMAGE_EVENTS_PER_STEP + if (crit == 2) 4 else 0) {
+            events += SurvivorsEvent.Damage(e.x, e.y, amount, crit)
+        }
+        if (!proc) return
+
+        if (st.lifesteal > 0f) leech(amount * st.lifesteal, st)
+        if (st.poison > 0f) poison(e, amount * st.poison / HeroStats.POISON_TIME, amount * POISON_MAX_HITS, st.poisonTime)
+        if (e.hp > 0f && !e.isBoss) {
+            if (st.execute > 0f && e.hp < e.maxHp * st.execute) e.hp = 0f
+            else if (st.freezeChance > 0f && random.nextFloat() < st.freezeChance) e.freezeTimer = maxOf(e.freezeTimer, 1f)
+        }
+        if (st.sparkChance > 0f && random.nextFloat() < st.sparkChance) spark(e, amount * SPARK_DAMAGE)
+    }
+
+    private fun poison(e: Enemy, dps: Float, cap: Float, time: Float) {
+        e.poisonDps = min(e.poisonDps + dps, maxOf(e.poisonDps, cap))
+        e.poisonTimer = maxOf(e.poisonTimer, time)
+        e.poisonSource = source
+    }
+
+    /** Funkenstein: Blitz springt von [from] auf die nächsten Gegner. */
+    private fun spark(from: Enemy, amount: Float) {
+        val near = ArrayList<Enemy>(8)
+        forEnemiesNear(from.x, from.y, SPARK_RANGE) { if (it !== from) near += it }
+        near.sortBy { (it.x - from.x) * (it.x - from.x) + (it.y - from.y) * (it.y - from.y) }
+        for (t in near.take(SPARK_TARGETS)) {
+            events += SurvivorsEvent.Chain(from.x, from.y, t.x, t.y)
+            damage(t, amount, proc = false)
+        }
     }
 
     private fun removeDeadEnemies(st: HeroStats) {
@@ -435,6 +484,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             if (state.heroClass.healPerKill > 0f) {
                 state.hp = (state.hp + state.heroClass.healPerKill).coerceAtMost(st.maxHp)
             }
+            onKillEffects(e, st)
             val xp = e.kind.xp * if (e.elite) 5 else 1
             if (xp > 0) dropGem(e.x, e.y, xp)
             when {
@@ -468,6 +518,28 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         if (demonDefeated) startVictorySweep()
     }
 
+    /** Seelenernte (Seelen, Gift-Seuche) und Glutkern-Explosionen. */
+    private fun onKillEffects(e: Enemy, st: HeroStats) {
+        val kind = e.lastHit ?: source
+        if (state.heroClass == HeroClass.NECROMANCER) {
+            state.souls = (state.souls + 1).coerceAtMost(HeroStats.NECRO_MAX_SOULS)
+            if (e.poisonTimer > 0f && e.poisonDps > 0f) {
+                forEnemiesNear(e.x, e.y, POISON_SPREAD_RADIUS) { other ->
+                    other.poisonDps = maxOf(other.poisonDps, e.poisonDps)
+                    other.poisonTimer = maxOf(other.poisonTimer, st.poisonTime)
+                    other.poisonSource = e.poisonSource ?: kind
+                }
+            }
+        }
+        if (st.emberChance > 0f && random.nextFloat() < st.emberChance) {
+            source = kind
+            val radius = EMBER_RADIUS * st.areaMultiplier
+            events += SurvivorsEvent.Explosion(e.x, e.y, radius)
+            val amount = maxOf(EMBER_DAMAGE, e.maxHp * 0.5f) * st.damageMultiplier
+            forEnemiesNear(e.x, e.y, radius) { damage(it, amount, proc = false) }
+        }
+    }
+
     private fun dropGem(x: Float, y: Float, value: Int) {
         if (state.gems.size >= MAX_GEMS) {
             // Zu viele Kristalle: in einen bestehenden einrechnen, damit nichts verloren geht.
@@ -477,9 +549,21 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         }
     }
 
-    private fun earnCoins(x: Float, y: Float, amount: Int) {
+    private fun earnCoins(x: Float, y: Float, base: Int) {
+        // Goldene Gans: Bruchteile sammeln sich an.
+        state.coinRemainder += base * (1f + cur.lootBonus)
+        val amount = state.coinRemainder.toInt()
+        state.coinRemainder -= amount
+        if (amount <= 0) return
         state.coinsEarned += amount
         events += SurvivorsEvent.CoinsEarned(x, y, amount)
+    }
+
+    private fun gainXp(base: Int) {
+        state.xpRemainder += base * (1f + cur.lootBonus)
+        val amount = state.xpRemainder.toInt()
+        state.xpRemainder -= amount
+        state.xp += amount
     }
 
     private fun earnRunes(x: Float, y: Float, amount: Int) {
@@ -1218,7 +1302,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             if (g.magnetized) pull(g.x, g.y, dt) { mx, my -> g.x += mx; g.y += my }
             if (d < GEM_PICKUP_DISTANCE) {
                 gems.remove()
-                state.xp += g.value
+                gainXp(g.value)
             }
         }
         // Nach dem Sieg gibt es keine Level-ups mehr (das Spiel ist vorbei).
@@ -1269,7 +1353,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         val done = state.gems.isEmpty() && state.pickups.isEmpty() && state.victorySweepTime >= VICTORY_SWEEP_MIN_TIME
         if (done || state.victorySweepTime >= VICTORY_SWEEP_MAX_TIME) {
             // Was bis dahin nicht angekommen ist, wird direkt gutgeschrieben.
-            state.gems.forEach { state.xp += it.value }
+            state.gems.forEach { gainXp(it.value) }
             state.gems.clear()
             state.pickups.forEach { p ->
                 when (p.kind) {

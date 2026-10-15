@@ -35,19 +35,24 @@ data class SurvivorsHud(
     val score: Int = 0,
     val weapons: List<BuildSlot> = emptyList(),
     val passives: List<BuildSlot> = emptyList(),
+    /** Items mit Stapelanzahl (als [BuildSlot.level]). */
+    val items: List<BuildSlot> = emptyList(),
+    /** Seelen des Nekromanten (null bei anderen Klassen). */
+    val souls: Int? = null,
 )
 
 /**
- * Eine Kisten-Belohnung für die Roll-Animation. [rollId] ändert sich mit jeder neuen Belohnung,
+ * Eine geöffnete Kiste für die Roll-Animation. [rollId] ändert sich mit jeder neuen Kiste,
  * [animate] = false zeigt das Ergebnis sofort (z. B. nach dem Fortsetzen eines gespeicherten Laufs).
  */
 data class ChestRoll(
-    val offer: UpgradeOffer,
-    val index: Int,
-    val total: Int,
+    /** Die drei Belohnungen, aus denen gewählt wird. */
+    val offers: List<UpgradeOffer>,
+    /** Weitere Kisten, die danach geöffnet werden. */
+    val remaining: Int,
     val rollId: Long,
     val animate: Boolean,
-    /** Mögliche Belohnungen, die über die Walze laufen. */
+    /** Mögliche Belohnungen, die über die Walzen laufen. */
     val reel: List<UpgradeOffer>,
 )
 
@@ -175,35 +180,25 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
         frame++
     }
 
-    fun acceptChest() {
+    fun chooseChest(index: Int) {
         val e = engine ?: return
-        e.acceptChestReward()
-        afterChest(e)
-    }
-
-    fun declineChest() {
-        val e = engine ?: return
-        e.declineChestReward()
-        afterChest(e)
-    }
-
-    private fun afterChest(e: SurvivorsEngine) {
-        handleEvents(e) // rollt ggf. die nächste Belohnung aus
+        e.chooseChestReward(index)
+        handleEvents(e) // öffnet ggf. die nächste Kiste
         if (!e.awaitingChest) chest = null
         offers = e.state.offers
         refreshHud()
         frame++
     }
 
-    /** Übernimmt die aktuelle Kisten-Belohnung der Engine in den UI-Zustand. */
+    /** Übernimmt die geöffnete Kiste der Engine in den UI-Zustand. */
     private fun syncChest(e: SurvivorsEngine, animate: Boolean) {
-        val offer = e.state.chestReward
-        if (offer == null) {
+        val offers = e.state.chestOffers
+        if (offers.isEmpty()) {
             chest = null
             return
         }
-        val reel = (Upgrades.pool(e.state) + offer).distinct()
-        chest = ChestRoll(offer, e.state.chestIndex, e.state.chestTotal, (chest?.rollId ?: 0L) + 1, animate, reel)
+        val reel = (Upgrades.pool(e.state) + ItemKind.entries.map { UpgradeOffer(item = it) } + offers).distinct()
+        chest = ChestRoll(offers, e.state.pendingChests, (chest?.rollId ?: 0L) + 1, animate, reel)
     }
 
     fun step(dt: Float) {
@@ -332,6 +327,8 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
             score = e.score,
             weapons = s.weapons.map { (w, lv) -> BuildSlot(if (w in s.evolved) w.evolutionIcon else w.icon, w.title, lv, w in s.evolved) },
             passives = s.passives.map { (p, lv) -> BuildSlot(p.icon, p.title, lv, false) },
+            items = s.items.map { (i, n) -> BuildSlot(i.icon, i.title, n, false) },
+            souls = if (s.heroClass == HeroClass.NECROMANCER) s.souls else null,
         )
     }
 
@@ -366,8 +363,11 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
     private fun handleEvents(e: SurvivorsEngine) {
         for (event in e.drainEvents()) {
             when (event) {
-                is SurvivorsEvent.Damage -> if (effects.size < MAX_FX) {
-                    effects += SurvivorsFx.Number(event.x, event.y, event.amount.toInt().coerceAtLeast(1))
+                is SurvivorsEvent.Damage -> if (effects.size < MAX_FX || event.crit == 2) {
+                    effects += SurvivorsFx.Number(event.x, event.y, event.amount.toInt().coerceAtLeast(1), event.crit)
+                }
+                is SurvivorsEvent.Dodged -> if (effects.size < MAX_FX) {
+                    effects += SurvivorsFx.Text(event.x, event.y, "Ausgewichen", Color(0xFFCBD5E1))
                 }
                 is SurvivorsEvent.EnemyKilled -> if (event.elite || event.kind == EnemyKind.BOSS || event.kind == EnemyKind.DEMON) {
                     effects += SurvivorsFx.Blast(event.x, event.y, 1.5f, Color(0xFFFACC15))
@@ -377,7 +377,7 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
                     hurtTick++
                 }
                 is SurvivorsEvent.LevelUp -> rewardTick++
-                is SurvivorsEvent.ChestReward -> syncChest(e, animate = true)
+                is SurvivorsEvent.ChestOpened -> syncChest(e, animate = true)
                 is SurvivorsEvent.Evolved -> {
                     showBanner("${event.weapon.evolutionTitle.uppercase()}!")
                     effects += SurvivorsFx.Blast(e.state.px, e.state.py, 3f, Color(0xFFFACC15))
