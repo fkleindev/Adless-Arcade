@@ -39,6 +39,8 @@ data class SurvivorsHud(
     val items: List<BuildSlot> = emptyList(),
     /** Seelen des Nekromanten (null bei anderen Klassen). */
     val souls: Int? = null,
+    /** Regeneration in Leben pro Sekunde. */
+    val regen: Float = 0f,
 )
 
 /**
@@ -56,7 +58,7 @@ data class ChestRoll(
     val reel: List<UpgradeOffer>,
 )
 
-private const val MAX_FX = 70
+private const val MAX_FX = 160
 
 class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) : AndroidViewModel(app) {
     private val highscores = app.arcadeApp.highscores
@@ -352,6 +354,7 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
             passives = s.passives.map { (p, lv) -> BuildSlot(p.icon, p.title, lv, false) },
             items = s.items.map { (i, n) -> BuildSlot(i.icon, i.title, n, false) },
             souls = if (s.heroClass == HeroClass.NECROMANCER) s.souls else null,
+            regen = e.stats.regen,
         )
     }
 
@@ -387,13 +390,15 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
         for (event in e.drainEvents()) {
             when (event) {
                 is SurvivorsEvent.Damage -> if (effects.size < MAX_FX || event.crit == 2) {
-                    effects += SurvivorsFx.Number(event.x, event.y, event.amount.toInt().coerceAtLeast(1), event.crit)
+                    effects += SurvivorsFx.Number(event.x, event.y, event.amount.toInt().coerceAtLeast(1), event.crit, event.kind)
                 }
                 is SurvivorsEvent.Dodged -> if (effects.size < MAX_FX) {
                     effects += SurvivorsFx.Text(event.x, event.y, "Ausgewichen", Color(0xFFCBD5E1))
                 }
                 is SurvivorsEvent.EnemyKilled -> if (event.elite || event.kind.isFinalBoss || event.kind.isMidBoss) {
                     effects += SurvivorsFx.Blast(event.x, event.y, 1.5f, Color(0xFFFACC15))
+                } else if (effects.size < MAX_FX) {
+                    effects += SurvivorsFx.Puff(event.x, event.y, event.kind.radius)
                 }
                 is SurvivorsEvent.PlayerHit -> {
                     damageFlash = 1f

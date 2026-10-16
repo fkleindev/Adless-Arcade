@@ -22,8 +22,8 @@ internal class SurvivorsEnemyAttacks(private val e: SurvivorsEngine, private val
         const val WITCH_CAST_TIME = 1.1f
         const val GUARDIAN_DASH_TIME = 0.45f
         const val GUARDIAN_DASH_LENGTH = 8f
-        private const val MAX_SHOTS = 200
-        private const val MAX_ATTACKS = 60
+        private const val MAX_SHOTS = 500
+        private const val MAX_ATTACKS = 200
         /** Zielgenauigkeit: Der Held gilt als getroffen, wenn er mit halbem Radius in der Fläche steht. */
         private const val HIT_MARGIN = SurvivorsEngine.PLAYER_RADIUS * 0.5f
     }

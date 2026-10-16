@@ -52,8 +52,8 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         private const val PULL_SPEED = 9f
         private const val SWEEP_PULL_SPEED = 14f
         private const val STORM_BOW_PIERCE = 4
-        private const val MAX_HAZARDS = 24
-        private const val MAX_PROJECTILES = 260
+        private const val MAX_HAZARDS = 64
+        private const val MAX_PROJECTILES = 600
         /** Durchschlag ohne praktisches Limit (Speer, Klingen, Schilde). */
         private const val UNLIMITED = 100_000
         /** Sichtbarer Bereich (halbe Breite/Höhe) – Blitze treffen nur sichtbare Gegner. */
@@ -67,6 +67,8 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         private const val MAX_DAMAGE_EVENTS_PER_STEP = 4
         private const val MAX_ENEMY_RADIUS = 1.9f
         private const val RELOCATE_DISTANCE = 24f
+        /** Giftschaden wird so oft als Zahl angezeigt (gesammelt). */
+        private const val POISON_NUMBER_INTERVAL = 0.5f
         private const val OBSTACLE_RANGE = 26f
 
         /** [availableWeapons]: Waffen, die angeboten werden dürfen (Grundwaffen + in der Runen-Schmiede freigeschaltete). */
@@ -79,6 +81,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         ): SurvivorsEngine {
             val state = SurvivorsState(heroClass, mode, stage)
             state.weapons[heroClass.startWeapon] = 1
+            state.weaponSince[heroClass.startWeapon] = 0f
             state.availableWeapons.clear()
             state.availableWeapons += availableWeapons + WeaponKind.BASE
             return SurvivorsEngine(state, seed)
@@ -405,8 +408,20 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             if (e.poisonTimer > 0f) {
                 e.poisonTimer -= dt
                 if (e.hp > 0f) {
-                    e.hp -= e.poisonDps * dt
+                    val tick = min(e.poisonDps * dt, e.hp)
+                    e.hp -= tick
+                    e.poisonShown += tick
+                    e.poisonSource?.let { credit(it, tick) }
                     if (e.hp <= 0f) e.lastHit = e.poisonSource ?: e.lastHit
+                }
+                // Giftschaden gesammelt als grüne Zahl anzeigen statt pro Schritt
+                e.poisonNumberTimer -= dt
+                if (e.poisonNumberTimer <= 0f || e.hp <= 0f || e.poisonTimer <= 0f) {
+                    e.poisonNumberTimer = POISON_NUMBER_INTERVAL
+                    if (e.poisonShown >= 1f || e.hp <= 0f || e.poisonTimer <= 0f) {
+                        if (e.poisonShown > 0f) damageNumber(e, e.poisonShown, kind = DamageKind.POISON)
+                        e.poisonShown = 0f
+                    }
                 }
                 if (e.poisonTimer <= 0f) {
                     e.poisonTimer = 0f
@@ -484,22 +499,40 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             }
             amount *= multiplier
         }
+        credit(source, min(amount, e.hp))
         e.hp -= amount
         e.hitFlash = 1f
         e.lastHit = source
-        // Superkrits dürfen etwas über das Limit hinaus angezeigt werden.
-        if (damageEventsThisStep++ < MAX_DAMAGE_EVENTS_PER_STEP + if (crit == 2) 4 else 0) {
-            events += SurvivorsEvent.Damage(e.x, e.y, amount, crit)
-        }
+        damageNumber(e, amount, crit)
         if (!proc) return
 
         if (st.lifesteal > 0f) leech(amount * st.lifesteal, st)
         if (st.poison > 0f) poison(e, amount * st.poison / HeroStats.POISON_TIME, amount * POISON_MAX_HITS, st.poisonTime)
         if (e.hp > 0f && !e.isBoss) {
-            if (st.execute > 0f && e.hp < e.maxHp * st.execute) e.hp = 0f
-            else if (st.freezeChance > 0f && random.nextFloat() < st.freezeChance) e.freezeTimer = maxOf(e.freezeTimer, 1f)
+            if (st.execute > 0f && e.hp < e.maxHp * st.execute) {
+                credit(source, e.hp)
+                damageNumber(e, e.hp, kind = DamageKind.EXECUTE)
+                e.hp = 0f
+            } else if (st.freezeChance > 0f && random.nextFloat() < st.freezeChance) e.freezeTimer = maxOf(e.freezeTimer, 1f)
         }
         if (st.sparkChance > 0f && random.nextFloat() < st.sparkChance) spark(e, amount * SPARK_DAMAGE)
+    }
+
+    /** Schadenszahl – pro Schritt begrenzt; Superkrits dürfen etwas über das Limit hinaus angezeigt werden. */
+    private fun damageNumber(e: Enemy, amount: Float, crit: Int = 0, kind: DamageKind = DamageKind.HIT) {
+        if (damageEventsThisStep++ < MAX_DAMAGE_EVENTS_PER_STEP + if (crit == 2) 4 else 0) {
+            events += SurvivorsEvent.Damage(e.x, e.y, amount, crit, kind)
+        }
+    }
+
+    private fun credit(weapon: WeaponKind, amount: Float) {
+        if (amount > 0f) state.weaponDamage[weapon] = (state.weaponDamage[weapon] ?: 0f) + amount
+    }
+
+    /** Schaden pro Sekunde einer Waffe, seit sie im Lauf ist. */
+    fun weaponDps(weapon: WeaponKind): Float {
+        val since = state.weaponSince[weapon] ?: 0f
+        return (state.weaponDamage[weapon] ?: 0f) / maxOf(1f, state.time - since)
     }
 
     private fun poison(e: Enemy, dps: Float, cap: Float, time: Float) {
@@ -656,6 +689,10 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
 
     private fun count(weapon: WeaponKind, level: Int, st: HeroStats): Int =
         weapon.count(level) + if (weapon.usesExtraProjectiles) st.extraProjectiles else 0
+
+    /** Aktuelle Abklingzeit bzw. Anzahl einer Waffe (für die Statistik). */
+    fun weaponCooldown(weapon: WeaponKind): Float = cooldown(weapon, state.weapons[weapon] ?: 1, stats)
+    fun weaponCount(weapon: WeaponKind): Int = count(weapon, state.weapons[weapon] ?: 1, stats)
 
     private val isMoving: Boolean get() = hypot(inputX, inputY) > 0.2f
 

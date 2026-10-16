@@ -11,7 +11,7 @@ internal class SurvivorsSpawner(private val e: SurvivorsEngine, private val rand
     companion object {
         /** Gegner erscheinen knapp außerhalb des sichtbaren Bereichs. */
         const val SPAWN_DISTANCE = 12f
-        const val MAX_ENEMIES = 320
+        const val MAX_ENEMIES = 600
         const val TIMED_DURATION = 900f
         const val BOSS_INTERVAL = 300f
         /** Höchstens so viele Fernkämpfer (Knochenschützen, Grabhexen) gleichzeitig. */

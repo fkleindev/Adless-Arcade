@@ -131,6 +131,9 @@ class Enemy(
     var poisonTimer: Float = 0f
     /** Waffe, die das Gift verursacht hat (für Kills pro Waffe). */
     var poisonSource: WeaponKind? = null
+    /** Gesammelter Giftschaden für die nächste Schadenszahl und Zeit bis dahin. */
+    var poisonShown: Float = 0f
+    var poisonNumberTimer: Float = 0f
     /** Abklingzeit bis zum nächsten eigenen Angriff (Schützen, Hexen, Friedhof-Bosse). */
     var attackTimer: Float = 2f
     /** Holt gerade aus bzw. stürmt (steht still bzw. bewegt sich nicht selbst). */
@@ -292,6 +295,9 @@ data class SpawnerState(
 )
 
 /** Zusätzliche Gegner-Skalierung (Raserei im Endlos-Modus). */
+/** Art einer Schadenszahl: normaler Treffer, Gift oder Hinrichtung (Henkersmal). */
+enum class DamageKind { HIT, POISON, EXECUTE }
+
 data class EnemyScaling(val hp: Float, val damage: Float, val speed: Float)
 
 /** Gesamter Zustand eines Laufs – wird 1:1 als Spielstand gespeichert. */
@@ -333,6 +339,10 @@ class SurvivorsState(
     val availableWeapons: MutableSet<WeaponKind> = LinkedHashSet(WeaponKind.BASE)
     /** Kills pro Waffe in diesem Lauf (letzter Treffer zählt) – für Freischalt-Kriterien. */
     val weaponKills: MutableMap<WeaponKind, Int> = LinkedHashMap()
+    /** Verursachter Schaden pro Waffe in diesem Lauf (ohne Overkill) – für die Statistik im Pause-Menü. */
+    val weaponDamage: MutableMap<WeaponKind, Float> = LinkedHashMap()
+    /** Spielzeit, zu der die Waffe dazukam (für Schaden pro Sekunde). */
+    val weaponSince: MutableMap<WeaponKind, Float> = LinkedHashMap()
     val passives: MutableMap<PassiveKind, Int> = LinkedHashMap()
     val cooldowns: MutableMap<WeaponKind, Float> = LinkedHashMap()
     val enemies: MutableList<Enemy> = ArrayList()
@@ -373,7 +383,7 @@ class SurvivorsState(
 sealed interface SurvivorsEvent {
     data class EnemyKilled(val x: Float, val y: Float, val kind: EnemyKind, val elite: Boolean) : SurvivorsEvent
     /** [crit]: 0 normal, 1 Krit, 2 Superkrit. */
-    data class Damage(val x: Float, val y: Float, val amount: Float, val crit: Int = 0) : SurvivorsEvent
+    data class Damage(val x: Float, val y: Float, val amount: Float, val crit: Int = 0, val kind: DamageKind = DamageKind.HIT) : SurvivorsEvent
     data class PlayerHit(val amount: Float) : SurvivorsEvent
     data object LevelUp : SurvivorsEvent
     /** Eine Kiste wurde geöffnet; [remaining] weitere warten noch. */

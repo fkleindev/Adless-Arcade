@@ -2,13 +2,19 @@ package com.adlessarcade.games.survivors
 
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -56,13 +62,32 @@ sealed class SurvivorsFx(val x: Float, val y: Float, val lifetime: Float) {
     class Smash(x: Float, y: Float, val angle: Float, val range: Float, val ring: Boolean) : SurvivorsFx(x, y, if (ring) 0.4f else 0.25f)
     class ThornPulse(x: Float, y: Float, val radius: Float, val evolved: Boolean) : SurvivorsFx(x, y, 0.35f)
     class Blast(x: Float, y: Float, val radius: Float, val color: Color) : SurvivorsFx(x, y, 0.35f)
+    /** Kleine Staubwolke, wenn ein normaler Gegner stirbt. */
+    class Puff(x: Float, y: Float, val radius: Float) : SurvivorsFx(x, y, 0.3f)
     /** Einschlag eines Linienangriffs (Todesstrahl, Sturmangriff). */
     class Beam(x: Float, y: Float, val x2: Float, val y2: Float, val halfWidth: Float) : SurvivorsFx(x, y, 0.35f)
     /** [crit]: 0 normal, 1 Krit, 2 Superkrit. */
-    class Number(x: Float, y: Float, val amount: Int, val crit: Int = 0) : SurvivorsFx(x, y, if (crit > 0) 0.8f else 0.6f)
+    class Number(x: Float, y: Float, val amount: Int, val crit: Int = 0, val kind: DamageKind = DamageKind.HIT) :
+        SurvivorsFx(x, y, if (crit > 0 || kind == DamageKind.EXECUTE) 0.8f else 0.6f)
     class Text(x: Float, y: Float, val text: String, val color: Color) : SurvivorsFx(x, y, 1.4f)
     class CoinPop(x: Float, y: Float, val amount: Int) : SurvivorsFx(x, y, 1f)
     class RunePop(x: Float, y: Float, val amount: Int) : SurvivorsFx(x, y, 1.2f)
+
+    /** Zahlen und Texte werden über Gegnern gezeichnet, alle anderen Effekte darunter. */
+    val isLabel: Boolean get() = this is Number || this is Text || this is CoinPop || this is RunePop
+}
+
+private val ENEMY_OUTLINE = Color(0xFFFF4D4D).copy(alpha = 0.85f)
+/** Breite der Gegner-Outline in Welteinheiten – unabhängig von der Gegnergröße. */
+private const val ENEMY_OUTLINE_WIDTH = 0.07f
+private val HERO_OUTLINE = Color(0xFF67E8F9)
+
+/** Zeichnet [block] als einfarbige Silhouette in [color] (eine Ebene für alle Formen darin). */
+private inline fun DrawScope.silhouette(color: Color, block: DrawScope.() -> Unit) {
+    val paint = Paint().apply { colorFilter = ColorFilter.tint(color, BlendMode.SrcIn) }
+    drawIntoCanvas { it.saveLayer(Rect(Offset.Zero, size), paint) }
+    block()
+    drawIntoCanvas { it.restore() }
 }
 
 fun DrawScope.drawSurvivors(
@@ -115,6 +140,9 @@ fun DrawScope.drawSurvivors(
         drawCircle(Color(0xFFFDE68A), cam.len(0.15f), rock)
     }
 
+    // Waffeneffekte liegen unter allem Wichtigen, damit sie Held, Gegner, Drops und Warnungen nicht verdecken.
+    effects.forEach { if (!it.isLabel) drawFx(cam, it, textMeasurer) }
+
     // Warn-Indikatoren der Gegnerangriffe (am Boden, füllen sich bis zum Einschlag)
     s.enemyAttacks.forEach { drawAttackIndicator(cam, it, s.time) }
 
@@ -123,23 +151,40 @@ fun DrawScope.drawSurvivors(
         SurvivorsObstacles.near(s.px, s.py, cam.halfWorldH + margin).forEach { if (visible(it.x, it.y)) drawObstacle(cam, it, theme) }
     }
 
-    s.gems.forEach { if (visible(it.x, it.y)) drawGem(cam, it, s.time) }
-    s.pickups.forEach { if (visible(it.x, it.y)) drawPickup(cam, it, s.time) }
-
-    // Gegner nach y sortiert (weiter unten = weiter vorne)
-    s.enemies.filter { visible(it.x, it.y) }.sortedBy { it.y }.forEach { drawEnemy(cam, it, theme, s.time) }
-    s.enemyShots.forEach { if (visible(it.x, it.y)) drawEnemyShot(cam, it, s.time) }
-
     s.projectiles.forEach { if (visible(it.x, it.y)) drawProjectile(cam, it, s.time, engine.isEvolved(it.weapon)) }
     val soulVortex = engine.isEvolved(WeaponKind.BONE_ORBIT)
     engine.orbitPositions().forEach { (x, y) -> drawSkull(cam, x, y, s.time, soulVortex) }
     engine.shieldPositions().forEach { (x, y) -> drawShield(cam.at(x, y), cam.len(0.42f), s.time * 6f, glow = true) }
 
-    val blink = s.invulnerable > 0f && ((s.invulnerable * 20f).toInt() % 2 == 0)
-    if (!blink) drawHeroClass(s.heroClass, cam.at(s.px, s.py), cam.len(0.9f), s.time, faceRight = s.faceX >= 0f)
-    drawPlayerHp(cam, s, engine.stats.maxHp)
+    s.gems.forEach { if (visible(it.x, it.y)) drawGem(cam, it, s.time) }
+    s.pickups.forEach { if (visible(it.x, it.y)) drawPickup(cam, it, s.time) }
 
-    effects.forEach { drawFx(cam, it, textMeasurer) }
+    // Gegner nach y sortiert (weiter unten = weiter vorne), mit leuchtender Outline in einer gemeinsamen Ebene
+    val enemies = s.enemies.filter { visible(it.x, it.y) }.sortedBy { it.y }
+    silhouette(ENEMY_OUTLINE) {
+        enemies.forEach { e ->
+            scale(1f + ENEMY_OUTLINE_WIDTH / e.radius, pivot = cam.at(e.x, e.y)) { drawEnemy(cam, e, theme, s.time, bodyOnly = true) }
+        }
+    }
+    enemies.forEach { drawEnemy(cam, it, theme, s.time) }
+    s.enemyShots.forEach { if (visible(it.x, it.y)) drawEnemyShot(cam, it, s.time) }
+
+    // Schadenszahlen und Texte, darüber der Held – er bleibt immer sichtbar.
+    effects.forEach { if (it.isLabel) drawFx(cam, it, textMeasurer) }
+    val blink = s.invulnerable > 0f && ((s.invulnerable * 20f).toInt() % 2 == 0)
+    val hero = cam.at(s.px, s.py)
+    val faceRight = s.faceX >= 0f
+    drawOval(HERO_OUTLINE.copy(alpha = 0.7f), hero + Offset(-cam.len(0.5f), cam.len(0.28f)), Size(cam.len(1f), cam.len(0.3f)), style = Stroke(width = cam.len(0.05f)))
+    if (!blink) {
+        silhouette(HERO_OUTLINE.copy(alpha = 0.35f)) {
+            scale(1.35f, pivot = hero) { drawHeroClass(s.heroClass, hero, cam.len(0.9f), s.time, faceRight, bodyOnly = true) }
+        }
+        silhouette(HERO_OUTLINE) {
+            scale(1.16f, pivot = hero) { drawHeroClass(s.heroClass, hero, cam.len(0.9f), s.time, faceRight, bodyOnly = true) }
+        }
+        drawHeroClass(s.heroClass, hero, cam.len(0.9f), s.time, faceRight)
+    }
+    drawPlayerHp(cam, s, engine.stats.maxHp)
     drawBossIndicators(cam, s)
 
     // Vignette und Treffer-Blitz
@@ -287,16 +332,30 @@ private fun DrawScope.drawGem(cam: SurvivorsCamera, g: Gem, time: Float) {
         g.value >= 5 -> Color(0xFF4ADE80)
         else -> Color(0xFF60A5FA)
     }
-    val r = cam.len(0.12f + min(0.12f, g.value * 0.004f))
+    val r = cam.len(0.17f + min(0.12f, g.value * 0.004f))
     val c = cam.at(g.x, g.y) + Offset(0f, sin(time * 4f + g.x) * r * 0.2f)
-    crystal(c, r * 1.4f, color)
+    // Leuchthof, dunkler Rand und Glanzlicht: auch auf hellem Boden und unter Effekten gut erkennbar.
+    drawCircle(color.copy(alpha = 0.22f + 0.08f * sin(time * 5f + g.y)), r * 1.5f, c + Offset(0f, -r * 0.35f))
+    val h = r * 1.5f
+    val path = Path().apply {
+        moveTo(c.x, c.y - h)
+        lineTo(c.x + h * 0.45f, c.y)
+        lineTo(c.x, c.y + h * 0.45f)
+        lineTo(c.x - h * 0.45f, c.y)
+        close()
+    }
+    drawPath(path, color)
+    drawPath(path, Color(0xFF0F172A), style = Stroke(width = max(2f, r * 0.18f)))
+    drawLine(Color.White.copy(alpha = 0.85f), Offset(c.x - h * 0.12f, c.y - h * 0.55f), Offset(c.x - h * 0.25f, c.y - h * 0.1f), strokeWidth = max(1.5f, r * 0.12f))
 }
 
 private fun DrawScope.drawPickup(cam: SurvivorsCamera, p: Pickup, time: Float) {
     val c = cam.at(p.x, p.y)
     val u = cam.scale
     val bob = sin(time * 3f + p.id) * u * 0.05f
-    drawCircle(Color.White.copy(alpha = 0.12f), u * 0.45f, c)
+    val pulse = 0.5f + 0.5f * sin(time * 4f + p.id)
+    drawCircle(Color.White.copy(alpha = 0.18f), u * 0.45f, c)
+    drawCircle(Color.White.copy(alpha = 0.5f + 0.4f * pulse), u * (0.45f + 0.05f * pulse), c, style = Stroke(width = u * 0.04f))
     when (p.kind) {
         PickupKind.POTION -> {
             drawCircle(Color(0xFFEF4444), u * 0.2f, c + Offset(0f, bob))
@@ -434,7 +493,8 @@ private fun DrawScope.drawEnemyShot(cam: SurvivorsCamera, s: EnemyShot, time: Fl
     }
 }
 
-private fun DrawScope.drawEnemy(cam: SurvivorsCamera, e: Enemy, theme: SurvivorTheme, time: Float) {
+/** [bodyOnly]: nur die Figur ohne Schatten, Leuchten und Anzeigen – für die Outline-Silhouette. */
+private fun DrawScope.drawEnemy(cam: SurvivorsCamera, e: Enemy, theme: SurvivorTheme, time: Float, bodyOnly: Boolean = false) {
     val c = cam.at(e.x, e.y)
     val r = cam.len(e.radius)
     var color = lerp(enemyColor(e.kind), theme.enemyTint, theme.tintAmount)
@@ -443,8 +503,8 @@ private fun DrawScope.drawEnemy(cam: SurvivorsCamera, e: Enemy, theme: SurvivorT
     else if (e.poisonTimer > 0f) color = lerp(color, Color(0xFF4ADE80), 0.45f)
     color = lerp(color, Color.White, e.hitFlash * 0.7f)
 
-    drawOval(Color.Black.copy(alpha = 0.3f), c + Offset(-r, r * 0.6f), Size(r * 2f, r * 0.5f))
-    if (e.elite || e.isBoss) {
+    if (!bodyOnly) drawOval(Color.Black.copy(alpha = 0.3f), c + Offset(-r, r * 0.6f), Size(r * 2f, r * 0.5f))
+    if ((e.elite || e.isBoss) && !bodyOnly) {
         val glow = when (e.kind) {
             EnemyKind.DEMON -> Color(0xFFF97316)
             EnemyKind.LICH -> Color(0xFF22D3EE)
@@ -605,6 +665,7 @@ private fun DrawScope.drawEnemy(cam: SurvivorsCamera, e: Enemy, theme: SurvivorT
             drawPath(crown, CoinGold)
         }
     }
+    if (bodyOnly) return
 
     if (e.kind == EnemyKind.ARCHER && e.windup > 0f) {
         // Ziellinie des Knochenschützen
@@ -828,20 +889,25 @@ private fun DrawScope.drawSkull(cam: SurvivorsCamera, x: Float, y: Float, time: 
 }
 
 private fun DrawScope.drawPlayerHp(cam: SurvivorsCamera, s: SurvivorsState, maxHp: Float) {
-    val w = cam.len(0.9f)
-    val h = max(4f, cam.len(0.08f))
-    val tl = cam.at(s.px, s.py) + Offset(-w / 2f, cam.len(0.6f))
-    drawRoundRect(Color.Black.copy(alpha = 0.6f), tl, Size(w, h), CornerRadius(h / 2f))
+    val w = cam.len(1.1f)
+    val h = max(6f, cam.len(0.12f))
+    val tl = cam.at(s.px, s.py) + Offset(-w / 2f, cam.len(0.65f))
+    val border = max(2f, cam.len(0.025f))
+    drawRoundRect(Color.Black.copy(alpha = 0.8f), tl, Size(w, h), CornerRadius(h / 2f))
     drawRoundRect(Color(0xFFEF4444), tl, Size(w * (s.hp / maxHp).coerceIn(0f, 1f), h), CornerRadius(h / 2f))
+    drawRoundRect(Color.White.copy(alpha = 0.9f), tl, Size(w, h), CornerRadius(h / 2f), style = Stroke(width = border))
 }
 
-/** Die Heldenfigur einer Klasse – auch für Klassenwahl und Shop-Vorschau. */
-fun DrawScope.drawHeroClass(heroClass: HeroClass, center: Offset, size: Float, time: Float, faceRight: Boolean = true) {
+/**
+ * Die Heldenfigur einer Klasse – auch für Klassenwahl und Shop-Vorschau.
+ * [bodyOnly]: ohne Schatten und Leuchten – für die Outline-Silhouette.
+ */
+fun DrawScope.drawHeroClass(heroClass: HeroClass, center: Offset, size: Float, time: Float, faceRight: Boolean = true, bodyOnly: Boolean = false) {
     val r = size / 2f
     val bob = sin(time * 8f) * r * 0.05f
     val c = center + Offset(0f, bob)
     val dir = if (faceRight) 1f else -1f
-    drawOval(Color.Black.copy(alpha = 0.3f), center + Offset(-r * 0.8f, r * 0.75f), Size(r * 1.6f, r * 0.4f))
+    if (!bodyOnly) drawOval(Color.Black.copy(alpha = 0.3f), center + Offset(-r * 0.8f, r * 0.75f), Size(r * 1.6f, r * 0.4f))
     when (heroClass) {
         HeroClass.KNIGHT -> {
             drawRoundRect(Color(0xFF1D4ED8), c + Offset(-r * 0.75f, -r * 0.2f), Size(r * 1.5f, r * 0.95f), CornerRadius(r * 0.3f)) // Umhang
@@ -878,7 +944,7 @@ fun DrawScope.drawHeroClass(heroClass: HeroClass, center: Offset, size: Float, t
                 c + Offset(dir * r * 0.4f - r * 0.45f, -r * 0.6f), Size(r * 0.9f, r * 1.2f), style = Stroke(width = r * 0.1f))
         }
         HeroClass.NECROMANCER -> {
-            drawCircle(Color(0xFFA78BFA).copy(alpha = 0.2f + 0.1f * sin(time * 3f)), r * 1.1f, c)
+            if (!bodyOnly) drawCircle(Color(0xFFA78BFA).copy(alpha = 0.2f + 0.1f * sin(time * 3f)), r * 1.1f, c)
             val robe = Path().apply {
                 moveTo(c.x, c.y - r * 0.6f)
                 lineTo(c.x + r * 0.75f, c.y + r * 0.65f)
@@ -994,6 +1060,11 @@ private fun DrawScope.drawFx(cam: SurvivorsCamera, fx: SurvivorsFx, textMeasurer
                 }
             }
         }
+        is SurvivorsFx.Puff -> {
+            val r = cam.len(fx.radius) * (0.6f + 0.6f * t)
+            drawCircle(Color(0xFFE2E8F0).copy(alpha = 0.35f * a), r, c)
+            drawCircle(Color.White.copy(alpha = 0.6f * a), r, c, style = Stroke(width = cam.len(0.05f)))
+        }
         is SurvivorsFx.Blast -> {
             val r = cam.len(fx.radius) * (0.4f + 0.6f * t)
             drawCircle(fx.color.copy(alpha = 0.4f * a), r, c)
@@ -1005,9 +1076,11 @@ private fun DrawScope.drawFx(cam: SurvivorsCamera, fx: SurvivorsFx, textMeasurer
             drawLine(Color.White.copy(alpha = 0.8f * a), c, to, strokeWidth = cam.len(0.12f))
         }
         is SurvivorsFx.Number -> {
-            val (label, color, size) = when (fx.crit) {
-                2 -> Triple("${fx.amount}!!", Color(0xFFF0ABFC), 0.5f)
-                1 -> Triple("${fx.amount}!", Color(0xFFFDE047), 0.36f)
+            val (label, color, size) = when {
+                fx.kind == DamageKind.POISON -> Triple("${fx.amount}", Color(0xFF4ADE80), 0.26f)
+                fx.kind == DamageKind.EXECUTE -> Triple("💀${fx.amount}", Color(0xFFF87171), 0.34f)
+                fx.crit == 2 -> Triple("${fx.amount}!!", Color(0xFFF0ABFC), 0.5f)
+                fx.crit == 1 -> Triple("${fx.amount}!", Color(0xFFFDE047), 0.36f)
                 else -> Triple("${fx.amount}", Color.White, 0.28f)
             }
             val layout = textMeasurer.measure(

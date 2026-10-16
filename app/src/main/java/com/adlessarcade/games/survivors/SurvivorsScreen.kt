@@ -424,6 +424,8 @@ private fun Hud(hud: SurvivorsHud, mode: SurvivorsMode, modifier: Modifier = Mod
                 modifier = Modifier.align(Alignment.Center),
             )
         }
+        Spacer(Modifier.height(4.dp))
+        HpBar(hud)
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -588,7 +590,8 @@ private fun PauseOverlay(engine: SurvivorsEngine, onResume: () -> Unit, onRestar
         val shape = RoundedCornerShape(28.dp)
         Column(
             Modifier
-                .padding(20.dp)
+                .padding(vertical = 20.dp, horizontal = 16.dp)
+                .fillMaxWidth()
                 .clip(shape)
                 .background(ArcadeSurface)
                 .border(1.dp, ArcadeOutline, shape)
@@ -603,54 +606,6 @@ private fun PauseOverlay(engine: SurvivorsEngine, onResume: () -> Unit, onRestar
             PrimaryButton("Weiter", onResume)
             SecondaryButton("Neuer Lauf", onRestart)
             SecondaryButton("Zum Menü", onMenu)
-        }
-    }
-}
-
-/** Werte des aktuellen Builds: Klassen-Passive, Schaden, Krit und Item-Effekte (nur, was aktiv ist). */
-@Composable
-private fun StatsPanel(engine: SurvivorsEngine) {
-    val s = engine.state
-    val st = engine.stats
-    fun pct(v: Float) = "${ItemKind.percent(v)} %"
-    val lines = buildList {
-        add("Schaden" to "×${"%.2f".format(st.damageMultiplier).replace('.', ',')}")
-        if (st.critChance > 0f) {
-            add("Krit-Chance" to pct(st.critChance.coerceAtMost(1f)))
-            add("Krit-Schaden" to "×${"%.2f".format(st.critMultiplier).replace('.', ',')}")
-        }
-        if (st.superCritChance > 0f) add("Superkrit-Chance" to pct(st.superCritChance))
-        if (st.poison > 0f) add("Gift" to "${pct(st.poison)} / ${"%.1f".format(st.poisonTime).replace('.', ',')} s")
-        if (st.lifesteal > 0f) add("Lebensraub" to pct(st.lifesteal))
-        if (st.sparkChance > 0f) add("Funken-Chance" to pct(st.sparkChance))
-        if (st.emberChance > 0f) add("Glut-Chance" to pct(st.emberChance))
-        if (st.freezeChance > 0f) add("Frost-Chance" to pct(st.freezeChance))
-        if (st.execute > 0f) add("Hinrichtung" to "< ${pct(st.execute)}")
-        if (st.dodge > 0f) add("Ausweichen" to pct(st.dodge))
-        if (st.giantSlayer > 0f) add("Gegen Bosse/Elite" to "+${pct(st.giantSlayer)}")
-        if (st.lootBonus > 0f) add("Coins & Erfahrung" to "+${pct(st.lootBonus)}")
-        add("Abklingzeit" to "×${"%.2f".format(st.cooldownMultiplier).replace('.', ',')}")
-        add("Rüstung" to "${st.armor}")
-        if (s.heroClass == HeroClass.NECROMANCER) add("Seelen" to "${s.souls} / ${HeroStats.NECRO_MAX_SOULS}")
-        val rage = engine.enemyScaling()
-        if (rage.speed > 1f) {
-            fun x(v: Float) = "×${"%.1f".format(v).replace('.', ',')}"
-            add("Gegner-Raserei" to "HP ${x(rage.hp)} · Schaden ${x(rage.damage)} · Tempo ${x(rage.speed)}")
-        }
-    }
-    Column(Modifier.width(260.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(
-            "${s.heroClass.passiveIcon} ${s.heroClass.passiveTitle}",
-            style = MaterialTheme.typography.titleSmall,
-            color = NeonYellow,
-        )
-        Text(s.heroClass.passiveDescription, style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
-        Spacer(Modifier.height(4.dp))
-        lines.forEach { (label, value) ->
-            Row(Modifier.fillMaxWidth()) {
-                Text(label, style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted, modifier = Modifier.weight(1f))
-                Text(value, style = MaterialTheme.typography.bodySmall, color = ArcadeText)
-            }
         }
     }
 }

@@ -390,6 +390,7 @@ object Upgrades {
             }
             offer.weapon != null -> {
                 state.weapons[offer.weapon] = ((state.weapons[offer.weapon] ?: 0) + 1).coerceAtMost(MAX_LEVEL)
+                state.weaponSince.putIfAbsent(offer.weapon, state.time)
             }
             offer.passive != null -> {
                 val before = HeroStats(state).maxHp

@@ -81,6 +81,40 @@ class SurvivorsEngineTest {
     }
 
     @Test
+    fun damage_isCreditedPerWeapon_withoutOverkill() {
+        val e = engine(HeroClass.KNIGHT)
+        e.clearSpawns()
+        e.state.invulnerable = 100f
+        e.spawnEnemy(EnemyKind.SLIME, 1f, 0f).hp = 2f
+        e.run(1.5f)
+        assertEquals(2f, e.state.weaponDamage[WeaponKind.SWORD]!!, 0.001f)
+        assertTrue(e.weaponDps(WeaponKind.SWORD) > 0f)
+    }
+
+    @Test
+    fun poison_dealsCreditedDamage_andShowsNumbers() {
+        val e = engine(HeroClass.KNIGHT)
+        e.clearSpawns()
+        e.state.weapons.clear()
+        e.state.invulnerable = 100f
+        val orc = e.spawnEnemy(EnemyKind.ORC, 5f, 0f, hpMultiplier = 100f)
+        orc.poisonDps = 10f
+        orc.poisonTimer = 2f
+        orc.poisonSource = WeaponKind.DAGGERS
+        val numbers = ArrayList<SurvivorsEvent.Damage>()
+        var t = 0f
+        while (t < 2.2f) {
+            e.update(1f / 60f)
+            numbers += e.drainEvents().filterIsInstance<SurvivorsEvent.Damage>()
+            t += 1f / 60f
+        }
+        assertEquals(20f, e.state.weaponDamage[WeaponKind.DAGGERS]!!, 0.5f)
+        assertTrue(numbers.size >= 3)
+        assertTrue(numbers.all { it.kind == DamageKind.POISON })
+        assertEquals(20f, numbers.sumOf { it.amount.toDouble() }.toFloat(), 0.5f)
+    }
+
+    @Test
     fun maxFourPassives() {
         val e = engine()
         PassiveKind.entries.take(MAX_PASSIVES).forEach { e.state.passives[it] = 1 }
@@ -703,10 +737,13 @@ class SurvivorsEngineTest {
         e.state.items[ItemKind.CRIT_CHANCE] = 3
         e.state.items[ItemKind.POISON] = 2
         e.state.souls = 42
+        e.state.weaponDamage[WeaponKind.BONE_ORBIT] = 1234f
         e.spawnEnemy(EnemyKind.ORC, 5f, 0f).apply { poisonDps = 3f; poisonTimer = 2f; poisonSource = WeaponKind.BONE_ORBIT }
         val restored = SurvivorsSaves.decode(SurvivorsSaves.encode(e.state, 0))!!.state
         assertEquals(mapOf(ItemKind.CRIT_CHANCE to 3, ItemKind.POISON to 2), restored.items.toMap())
         assertEquals(42, restored.souls)
+        assertEquals(1234f, restored.weaponDamage[WeaponKind.BONE_ORBIT]!!, 0.001f)
+        assertEquals(0f, restored.weaponSince[HeroClass.NECROMANCER.startWeapon]!!, 0.001f)
         assertEquals(3f, restored.enemies.single().poisonDps, 0.001f)
         assertEquals(WeaponKind.BONE_ORBIT, restored.enemies.single().poisonSource)
     }
