@@ -38,6 +38,9 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         const val SPARK_RANGE = 3.5f
         const val EMBER_RADIUS = 1.2f
         const val EMBER_DAMAGE = 12f
+        const val EMBER_HP_SHARE = 0.1f
+        /** Obergrenze des HP-Anteils als Vielfaches des aktuellen HP-Faktors neuer Gegner. */
+        const val EMBER_CAP = 10f
         const val POISON_SPREAD_RADIUS = 1.5f
         /** Gift pro Sekunde höchstens so viel wie das Vielfache eines Treffers. */
         const val POISON_MAX_HITS = 3f
@@ -647,9 +650,11 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         }
         if (st.emberChance > 0f && random.nextFloat() < st.emberChance) {
             source = kind
-            val radius = EMBER_RADIUS * st.areaMultiplier
+            val radius = EMBER_RADIUS * st.emberRadiusMultiplier * st.areaMultiplier
             events += SurvivorsEvent.Explosion(e.x, e.y, radius)
-            val amount = maxOf(EMBER_DAMAGE, e.maxHp * 0.5f) * st.damageMultiplier
+            // Anteil der Gegner-HP, gedeckelt mit der Zeit, damit Elite/Bosse keine Riesenexplosionen auslösen.
+            val hpShare = min(e.maxHp * EMBER_HP_SHARE, EMBER_CAP * hpMultiplier())
+            val amount = maxOf(EMBER_DAMAGE, hpShare) * st.damageMultiplier
             effect = EffectDamage.EMBER
             forEnemiesNear(e.x, e.y, radius) { damage(it, amount, proc = false) }
             effect = null
@@ -770,7 +775,17 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             weapon == WeaponKind.WIND -> 3f / st.speed
             else -> 1f
         }
-        return weapon.cooldown(level) * st.cooldownMultiplier * factor
+        // Die Abklingzeit beginnt erst nach dem letzten Echo/Folgeschlag.
+        return weapon.cooldown(level) * st.cooldownMultiplier * factor + echoSpacing(weapon) * st.extraProjectiles
+    }
+
+    /** Abstand der verzögerten Vielfalt-Echos/Folgeschläge; 0 = Waffe hat keine. */
+    private fun echoSpacing(weapon: WeaponKind): Float = when (weapon) {
+        WeaponKind.SWORD -> 0.12f
+        WeaponKind.HAMMER -> 0.2f
+        WeaponKind.THORNS -> 0.3f
+        WeaponKind.FROST_NOVA -> 0.35f
+        else -> 0f
     }
 
     private fun count(weapon: WeaponKind, level: Int, st: HeroStats): Int =
@@ -791,7 +806,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 swordSwing(level, st, damage, targetIndex = 0)
                 // Vielfalt: Folgeschläge auf die nächsten Gegner
                 repeat(st.extraProjectiles) { i ->
-                    state.pendingStrikes += PendingStrike(WeaponKind.SWORD, delay = 0.12f * (i + 1), targetIndex = i + 1)
+                    state.pendingStrikes += PendingStrike(WeaponKind.SWORD, delay = echoSpacing(weapon) * (i + 1), targetIndex = i + 1)
                 }
                 return true
             }
@@ -855,14 +870,14 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 nova(level, st, damage)
                 // Vielfalt: Echo-Wellen
                 repeat(st.extraProjectiles) { i ->
-                    state.pendingStrikes += PendingStrike(WeaponKind.FROST_NOVA, delay = 0.35f * (i + 1), damageFactor = 0.6f)
+                    state.pendingStrikes += PendingStrike(WeaponKind.FROST_NOVA, delay = echoSpacing(weapon) * (i + 1), damageFactor = 0.6f)
                 }
                 return true
             }
             WeaponKind.HAMMER -> {
                 hammerSmash(level, st, damage, targetIndex = 0)
                 repeat(st.extraProjectiles) { i ->
-                    state.pendingStrikes += PendingStrike(WeaponKind.HAMMER, delay = 0.2f * (i + 1), targetIndex = i + 1)
+                    state.pendingStrikes += PendingStrike(WeaponKind.HAMMER, delay = echoSpacing(weapon) * (i + 1), targetIndex = i + 1)
                 }
                 return true
             }
@@ -899,7 +914,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             WeaponKind.THORNS -> {
                 thornsPulse(level, st, damage)
                 repeat(st.extraProjectiles) { i ->
-                    state.pendingStrikes += PendingStrike(WeaponKind.THORNS, delay = 0.3f * (i + 1), damageFactor = 0.6f)
+                    state.pendingStrikes += PendingStrike(WeaponKind.THORNS, delay = echoSpacing(weapon) * (i + 1), damageFactor = 0.6f)
                 }
                 return true
             }

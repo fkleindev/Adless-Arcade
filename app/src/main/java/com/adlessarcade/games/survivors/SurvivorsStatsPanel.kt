@@ -132,6 +132,7 @@ fun StatsPanel(engine: SurvivorsEngine) {
             if (st.poison > 0f) StatRow("Gift", "${pct(st.poison)} über ${num(st.poisonTime)} s")
             if (st.sparkChance > 0f) StatRow("Funken-Chance", pct(st.sparkChance))
             if (st.emberChance > 0f) StatRow("Glut-Chance", pct(st.emberChance))
+            if (st.emberRadiusMultiplier > 1f) StatRow("Glut-Radius", times(st.emberRadiusMultiplier))
             if (st.freezeChance > 0f) StatRow("Frost-Chance", pct(st.freezeChance))
             if (st.execute > 0f) StatRow("Hinrichtung", "< ${pct(st.execute)} Leben")
             if (st.giantSlayer > 0f) StatRow("Gegen Bosse & Elite", "+${pct(st.giantSlayer)}")

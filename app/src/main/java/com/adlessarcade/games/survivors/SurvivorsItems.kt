@@ -41,7 +41,11 @@ enum class ItemKind(val title: String, val icon: String, val base: Float) {
             POISON -> "Treffer vergiften: +$p % des Schadens als Gift über 3 s."
             LIFESTEAL -> "+$p % Lebensraub."
             SPARK -> "+$p % Chance: Treffer springt als Blitz auf 2 Gegner über."
-            EMBER -> "+$p % Chance: Getötete Gegner explodieren."
+            EMBER -> if (owned == 0 || HeroStats.EMBER_RADIUS_PER_STACK * (owned - 1) >= HeroStats.EMBER_MAX_RADIUS_BONUS) {
+                "+$p % Chance: Getötete Gegner explodieren."
+            } else {
+                "+$p % Chance: Getötete Gegner explodieren. Explosion ${percent(HeroStats.EMBER_RADIUS_PER_STACK)} % größer."
+            }
             FROST -> "+$p % Chance, Gegner 1 s einzufrieren."
             EXECUTE -> "+$p % Hinrichtungsgrenze: Gegner (außer Bosse) darunter sterben sofort."
             DODGE -> "+$p % Ausweichen (höchstens ${percent(MAX_DODGE)} %)."

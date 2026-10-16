@@ -298,6 +298,9 @@ class HeroStats(private val state: SurvivorsState) {
     val sparkChance: Float = (item(ItemKind.SPARK) * elementFactor).coerceAtMost(1f)
     val freezeChance: Float = (item(ItemKind.FROST) * elementFactor).coerceAtMost(1f)
     val emberChance: Float = item(ItemKind.EMBER).coerceAtMost(1f)
+    /** Jeder weitere Glutkern vergrößert die Explosion etwas (höchstens [EMBER_MAX_RADIUS_BONUS]). */
+    val emberRadiusMultiplier: Float =
+        1f + (EMBER_RADIUS_PER_STACK * ((state.items[ItemKind.EMBER] ?: 0) - 1)).coerceIn(0f, EMBER_MAX_RADIUS_BONUS)
     val execute: Float = item(ItemKind.EXECUTE).coerceAtMost(ItemKind.MAX_EXECUTE)
     val dodge: Float = item(ItemKind.DODGE).coerceAtMost(ItemKind.MAX_DODGE)
     val giantSlayer: Float = item(ItemKind.GIANT_SLAYER)
@@ -314,6 +317,8 @@ class HeroStats(private val state: SurvivorsState) {
         const val MAGE_STATUS_BONUS = 0.2f
         const val NECRO_MAX_SOULS = 150
         const val NECRO_DAMAGE_PER_SOUL = 0.004f
+        const val EMBER_RADIUS_PER_STACK = 0.08f
+        const val EMBER_MAX_RADIUS_BONUS = 0.5f
     }
 }
 
