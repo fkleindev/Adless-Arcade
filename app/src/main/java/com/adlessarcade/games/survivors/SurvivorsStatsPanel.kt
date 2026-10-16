@@ -76,14 +76,18 @@ fun HpBar(hud: SurvivorsHud, modifier: Modifier = Modifier) {
         val regen = if (hud.regen > 0f) "  ·  +${num(hud.regen)}/s" else ""
         Text(
             "❤ ${hud.hp.toInt().coerceAtLeast(if (hud.hp > 0f) 1 else 0)} / ${hud.maxHp.toInt()}$regen",
-            style = MaterialTheme.typography.labelSmall.merge(
-                TextStyle(fontWeight = FontWeight.Bold, shadow = Shadow(Color.Black, blurRadius = 4f))
-            ),
+            style = BarLabelStyle(),
             color = Color.White,
             modifier = Modifier.align(Alignment.Center),
         )
     }
 }
+
+/** Beschriftung in HUD-Balken: fett mit Schatten, damit sie auf jeder Füllung lesbar ist. */
+@Composable
+fun BarLabelStyle(): TextStyle = MaterialTheme.typography.labelSmall.merge(
+    TextStyle(fontWeight = FontWeight.Bold, shadow = Shadow(Color.Black, blurRadius = 4f))
+)
 
 /** Vollständige Werte des Laufs für das Pause-Menü: Held, Angriff, Waffen mit Schadensanteil, Build und Lauf. */
 @Composable
@@ -91,6 +95,12 @@ fun StatsPanel(engine: SurvivorsEngine) {
     val s = engine.state
     val st = engine.stats
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        if (s.goals.isNotEmpty()) {
+            StatSection("Lauf-Ziele") {
+                s.goals.forEach { GoalLine(it, s) }
+            }
+        }
+
         Column {
             Text("${s.heroClass.passiveIcon} ${s.heroClass.passiveTitle}", style = MaterialTheme.typography.titleSmall, color = NeonYellow)
             Text(s.heroClass.passiveDescription, style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
@@ -128,10 +138,29 @@ fun StatsPanel(engine: SurvivorsEngine) {
             if (st.lootBonus > 0f) StatRow("Coins & Erfahrung", "+${pct(st.lootBonus)}")
         }
 
-        val total = s.weapons.keys.sumOf { (s.weaponDamage[it] ?: 0f).toDouble() }.toFloat()
-        StatSection("Waffen · ${big(total)} Schaden") {
+        val weaponTotal = s.weapons.keys.sumOf { (s.weaponDamage[it] ?: 0f).toDouble() }.toFloat()
+        val effects = EffectDamage.entries.filter { (s.effectDamage[it] ?: 0f) > 0f }
+        val total = weaponTotal + effects.sumOf { (s.effectDamage[it] ?: 0f).toDouble() }.toFloat()
+        StatSection("Waffen · ${big(total)} Schaden gesamt") {
             s.weapons.keys.sortedByDescending { s.weaponDamage[it] ?: 0f }.forEach { w ->
                 WeaponStatCard(engine, w, total)
+            }
+        }
+
+        if (effects.isNotEmpty()) {
+            StatSection("Weitere Schadensquellen") {
+                effects.sortedByDescending { s.effectDamage[it] ?: 0f }.forEach { kind ->
+                    val dealt = s.effectDamage[kind] ?: 0f
+                    DamageCard(
+                        icon = kind.icon,
+                        title = kind.title,
+                        badge = null,
+                        highlight = false,
+                        share = if (total > 0f) dealt / total else 0f,
+                        summary = "${big(dealt)} Schaden · ${pct(if (total > 0f) dealt / total else 0f)} · ${big(engine.effectDps(kind))} DPS",
+                        details = null,
+                    )
+                }
             }
         }
 
@@ -207,12 +236,58 @@ private fun BuildLine(icon: String, title: String, badge: String, detail: String
 }
 
 @Composable
+private fun GoalLine(goal: RunGoal, s: SurvivorsState) {
+    val done = goal in s.goalsDone
+    val progress = goal.progress(s)
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(if (done) "✔" else "○", color = if (done) Color(0xFF4ADE80) else ArcadeTextMuted, modifier = Modifier.width(22.dp))
+        Column(Modifier.weight(1f)) {
+            Text(goal.title, style = MaterialTheme.typography.bodySmall, color = if (done) ArcadeTextMuted else ArcadeText)
+            if (goal.hasCounter && !done) {
+                Box(Modifier.fillMaxWidth().padding(top = 2.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(Color.Black.copy(alpha = 0.4f))) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth(progress.toFloat() / goal.target).background(RuneViolet))
+                }
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            if (goal.hasCounter && !done) "$progress / ${goal.target}" else "",
+            style = MaterialTheme.typography.labelSmall,
+            color = ArcadeTextMuted,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text("$RUNE_SYMBOL ${goal.runes}", style = MaterialTheme.typography.labelMedium, color = RuneViolet, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
 private fun WeaponStatCard(engine: SurvivorsEngine, weapon: WeaponKind, total: Float) {
     val s = engine.state
     val level = s.weapons[weapon] ?: 1
     val evolved = engine.isEvolved(weapon)
     val dealt = s.weaponDamage[weapon] ?: 0f
     val share = if (total > 0f) dealt / total else 0f
+    val cooldown = engine.weaponCooldown(weapon)
+    val details = buildList {
+        add("${num(weapon.damage(level) * engine.stats.damageMultiplier)} / Treffer")
+        if (cooldown > 0f) add("alle ${num(cooldown, 2)} s")
+        if (weapon.usesExtraProjectiles || weapon.count(level) > 1) add("×${engine.weaponCount(weapon)}")
+        add("☠ ${s.weaponKills[weapon] ?: 0}")
+    }
+    DamageCard(
+        icon = if (evolved) weapon.evolutionIcon else weapon.icon,
+        title = if (evolved) weapon.evolutionTitle else weapon.title,
+        badge = if (evolved) "ENTWICKELT" else "Stufe $level",
+        highlight = evolved,
+        share = share,
+        summary = "${big(dealt)} Schaden · ${pct(share)} · ${big(engine.weaponDps(weapon))} DPS",
+        details = details.joinToString("  ·  "),
+    )
+}
+
+/** Karte einer Schadensquelle: Kopfzeile, Anteil als Balken, Zusammenfassung und optionale Details. */
+@Composable
+private fun DamageCard(icon: String, title: String, badge: String?, highlight: Boolean, share: Float, summary: String, details: String?) {
     val shape = RoundedCornerShape(12.dp)
     Column(
         Modifier
@@ -220,41 +295,22 @@ private fun WeaponStatCard(engine: SurvivorsEngine, weapon: WeaponKind, total: F
             .padding(vertical = 3.dp)
             .clip(shape)
             .background(ArcadeSurfaceHigh)
-            .border(if (evolved) 1.5.dp else 1.dp, if (evolved) Gold else ArcadeOutline, shape)
+            .border(if (highlight) 1.5.dp else 1.dp, if (highlight) Gold else ArcadeOutline, shape)
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (evolved) weapon.evolutionIcon else weapon.icon, fontSize = 18.sp)
+            Text(icon, fontSize = 18.sp)
             Spacer(Modifier.width(8.dp))
-            Text(
-                if (evolved) weapon.evolutionTitle else weapon.title,
-                style = MaterialTheme.typography.titleSmall,
-                color = ArcadeText,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                if (evolved) "ENTWICKELT" else "Stufe $level",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (evolved) Gold else Color(0xFF60A5FA),
-            )
+            Text(title, style = MaterialTheme.typography.titleSmall, color = ArcadeText, modifier = Modifier.weight(1f))
+            if (badge != null) {
+                Text(badge, style = MaterialTheme.typography.labelSmall, color = if (highlight) Gold else Color(0xFF60A5FA))
+            }
         }
-        // Anteil am Gesamtschaden
         Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color.Black.copy(alpha = 0.4f))) {
-            Box(Modifier.fillMaxHeight().fillMaxWidth(share).background(if (evolved) Gold else HpRed))
+            Box(Modifier.fillMaxHeight().fillMaxWidth(share).background(if (highlight) Gold else HpRed))
         }
-        Text(
-            "${big(dealt)} Schaden · ${pct(share)} · ${big(engine.weaponDps(weapon))} DPS",
-            style = MaterialTheme.typography.labelSmall,
-            color = ArcadeText,
-        )
-        val cooldown = engine.weaponCooldown(weapon)
-        val details = buildList {
-            add("${num(weapon.damage(level) * engine.stats.damageMultiplier)} / Treffer")
-            if (cooldown > 0f) add("alle ${num(cooldown, 2)} s")
-            if (weapon.usesExtraProjectiles || weapon.count(level) > 1) add("×${engine.weaponCount(weapon)}")
-            add("☠ ${s.weaponKills[weapon] ?: 0}")
-        }
-        Text(details.joinToString("  ·  "), style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted)
+        Text(summary, style = MaterialTheme.typography.labelSmall, color = ArcadeText)
+        if (details != null) Text(details, style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted)
     }
 }

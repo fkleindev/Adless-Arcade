@@ -18,19 +18,23 @@ internal class SurvivorsSpawner(private val e: SurvivorsEngine, private val rand
         const val MAX_RANGED = 5
         /** Endlos-Modus: ab hier werden die Gegner rasend (HP, Schaden und Tempo steigen stärker). */
         const val ENDLESS_RAMP_START = 1200f
-        const val MAX_ENRAGED_SPEED = 1.4f
+        const val MAX_ENRAGED_SPEED = 1.8f
 
         /** Minuten seit Beginn der Raserei (nur Endlos-Modus, sonst 0). */
         fun overtime(mode: SurvivorsMode, time: Float): Float =
             if (mode == SurvivorsMode.ENDLESS) ((time - ENDLESS_RAMP_START) / 60f).coerceAtLeast(0f) else 0f
 
-        /** Zusätzliche Faktoren der Raserei; vor Minute 20 bzw. im 15-Minuten-Modus alle 1. */
+        /**
+         * Zusätzliche Faktoren der Raserei; vor Minute 20 bzw. im 15-Minuten-Modus alle 1.
+         * Leben wächst zusätzlich exponentiell, damit Endlos-Läufe irgendwann sicher enden.
+         */
         fun enemyScaling(mode: SurvivorsMode, time: Float): EnemyScaling {
             val o = overtime(mode, time)
             return EnemyScaling(
-                hp = 1f + 0.15f * o + 0.02f * o * o,
-                damage = 1f + 0.08f * o + 0.004f * o * o,
-                speed = (1f + 0.02f * o).coerceAtMost(MAX_ENRAGED_SPEED),
+                hp = (1f + 0.25f * o + 0.04f * o * o) * 1.06f.pow(o),
+                damage = 1f + 0.1f * o + 0.008f * o * o,
+                speed = (1f + 0.035f * o).coerceAtMost(MAX_ENRAGED_SPEED),
+                spawn = 1f + 0.05f * o,
             )
         }
     }
@@ -47,7 +51,7 @@ internal class SurvivorsSpawner(private val e: SurvivorsEngine, private val rand
     /** Neue Gegner pro Sekunde. */
     fun spawnRate(time: Float): Float {
         val m = time / 60f
-        return (0.9f + 0.9f * m + 0.04f * m.pow(2f)) * e.state.stage.spawnFactor
+        return (0.9f + 0.9f * m + 0.04f * m.pow(2f)) * e.state.stage.spawnFactor * enemyScaling(e.state.mode, time).spawn
     }
 
     fun update(dt: Float) {
@@ -76,6 +80,7 @@ internal class SurvivorsSpawner(private val e: SurvivorsEngine, private val rand
         if (t >= s.nextBossTime) {
             s.nextBossTime += BOSS_INTERVAL
             spawnAround(state.stage.bossKind, hpMultiplier(t))
+            state.bossSpawnTime = t
             e.emit(SurvivorsEvent.BossSpawned(state.stage.bossKind))
         }
 

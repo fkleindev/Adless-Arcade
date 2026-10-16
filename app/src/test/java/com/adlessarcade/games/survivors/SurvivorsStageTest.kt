@@ -134,10 +134,16 @@ class SurvivorsStageTest {
         val grave = graveyard()
         assertTrue(grave.hpMultiplier() > meadow.hpMultiplier())
         assertTrue(grave.enemyHitScale() > meadow.enemyHitScale())
-        // 4 Minuten → 8 Runen auf der Wiese, 10 auf dem Friedhof
+        // 4 Minuten → 4 Runen auf der Wiese, 5 auf dem Friedhof (nur Minuten-Runen: keine Gegner, Steine, Ziele)
         grave.state.invulnerable = 100_000f
+        grave.state.spawner.spawnBudget = -1_000_000f
+        grave.state.spawner.eliteTimer = 10_000f
+        grave.state.spawner.swarmTimer = 10_000f
+        grave.state.spawner.nextBossTime = 10_000f
+        grave.state.spawner.runeStoneTimer = 10_000f
+        grave.state.goals = emptyList()
         grave.run(4 * 60f + 0.1f)
-        assertEquals(10, grave.state.runesEarned)
+        assertEquals(5, grave.state.runesEarned)
     }
 
     // --- Hindernisse ---

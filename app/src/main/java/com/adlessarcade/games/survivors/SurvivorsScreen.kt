@@ -418,8 +418,8 @@ private fun Hud(hud: SurvivorsHud, mode: SurvivorsMode, modifier: Modifier = Mod
                     .background(Color(0xFF60A5FA))
             )
             Text(
-                "STUFE ${hud.level}",
-                style = MaterialTheme.typography.labelSmall,
+                "STUFE ${hud.level}  ·  ${hud.xp} / ${hud.xpNeeded}",
+                style = BarLabelStyle(),
                 color = Color.White,
                 modifier = Modifier.align(Alignment.Center),
             )

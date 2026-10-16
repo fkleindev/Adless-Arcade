@@ -24,7 +24,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         /** Coins für jede überlebte Minute. */
         const val MINUTE_COINS = 3
         /** Runen (Währung der Runen-Schmiede) – ein starker 15-Minuten-Lauf bringt ca. 45–50. */
-        const val MINUTE_RUNES = 2
+        const val MINUTE_RUNES = 1
         const val ELITE_RUNES = 1
         const val BOSS_RUNES = 4
         const val VICTORY_RUNES = 10
@@ -69,6 +69,14 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         private const val RELOCATE_DISTANCE = 24f
         /** Giftschaden wird so oft als Zahl angezeigt (gesammelt). */
         private const val POISON_NUMBER_INTERVAL = 0.5f
+        /** Seltene Rune von normalen Gegnern. */
+        const val RARE_RUNE_CHANCE = 0.0005f
+        /** Runensteine: Runen, Ladezeit (Held im Radius), Lebensdauer, Radius, Abstand beim Erscheinen. */
+        const val RUNE_STONE_RUNES = 2
+        const val RUNE_STONE_CHARGE_TIME = 3f
+        const val RUNE_STONE_LIFE = 40f
+        const val RUNE_STONE_RADIUS = 1.3f
+        const val RUNE_STONE_INTERVAL = 120f
         private const val OBSTACLE_RANGE = 26f
 
         /** [availableWeapons]: Waffen, die angeboten werden dürfen (Grundwaffen + in der Runen-Schmiede freigeschaltete). */
@@ -82,6 +90,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             val state = SurvivorsState(heroClass, mode, stage)
             state.weapons[heroClass.startWeapon] = 1
             state.weaponSince[heroClass.startWeapon] = 0f
+            state.goals = RunGoal.roll(Random(seed * 13 + 7))
             state.availableWeapons.clear()
             state.availableWeapons += availableWeapons + WeaponKind.BASE
             return SurvivorsEngine(state, seed)
@@ -183,8 +192,8 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         return enemy
     }
 
-    fun spawnPickup(kind: PickupKind, x: Float, y: Float): Pickup =
-        Pickup(state.nextId++, kind, x, y).also { state.pickups += it }
+    fun spawnPickup(kind: PickupKind, x: Float, y: Float, amount: Int = 1): Pickup =
+        Pickup(state.nextId++, kind, x, y, amount).also { state.pickups += it }
 
     /** Gibt Erfahrung, z. B. für Tests. */
     fun addXp(amount: Int) {
@@ -225,6 +234,8 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         moveProjectiles(dt)
         removeDeadEnemies(st)
         collect(dt, st)
+        runeStone(dt)
+        checkGoals()
 
         state.minuteTimer += dt
         if (state.minuteTimer >= 60f) {
@@ -270,6 +281,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         }
         val damage = (raw - st.armor).coerceAtLeast(1f)
         state.hp -= damage
+        state.lastHurtTime = state.time
         state.invulnerable = INVULNERABLE_TIME
         events += SurvivorsEvent.PlayerHit(damage)
         if (state.hp <= 0f) {
@@ -411,7 +423,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                     val tick = min(e.poisonDps * dt, e.hp)
                     e.hp -= tick
                     e.poisonShown += tick
-                    e.poisonSource?.let { credit(it, tick) }
+                    creditEffect(EffectDamage.POISON, tick)
                     if (e.hp <= 0f) e.lastHit = e.poisonSource ?: e.lastHit
                 }
                 // Giftschaden gesammelt als grüne Zahl anzeigen statt pro Schritt
@@ -470,6 +482,9 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
     /** Waffe, die gerade Schaden austeilt – damit Kills der richtigen Waffe zugerechnet werden. */
     private var source: WeaponKind = WeaponKind.SWORD
 
+    /** Folgeeffekt, der gerade Schaden austeilt (Funken, Glut) – für die getrennte Schadensstatistik. */
+    private var effect: EffectDamage? = null
+
     /** Werte des aktuellen Schritts (für Krit, Gift und andere Item-Effekte im Treffer). */
     private var cur: HeroStats = HeroStats(state)
 
@@ -510,7 +525,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         if (st.poison > 0f) poison(e, amount * st.poison / HeroStats.POISON_TIME, amount * POISON_MAX_HITS, st.poisonTime)
         if (e.hp > 0f && !e.isBoss) {
             if (st.execute > 0f && e.hp < e.maxHp * st.execute) {
-                credit(source, e.hp)
+                creditEffect(EffectDamage.EXECUTE, e.hp)
                 damageNumber(e, e.hp, kind = DamageKind.EXECUTE)
                 e.hp = 0f
             } else if (st.freezeChance > 0f && random.nextFloat() < st.freezeChance) e.freezeTimer = maxOf(e.freezeTimer, 1f)
@@ -525,9 +540,19 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         }
     }
 
+    /** Bucht Schaden auf die Waffe – oder auf den laufenden Folgeeffekt (Funken, Glut). */
     private fun credit(weapon: WeaponKind, amount: Float) {
-        if (amount > 0f) state.weaponDamage[weapon] = (state.weaponDamage[weapon] ?: 0f) + amount
+        val e = effect
+        if (e != null) creditEffect(e, amount)
+        else if (amount > 0f) state.weaponDamage[weapon] = (state.weaponDamage[weapon] ?: 0f) + amount
     }
+
+    private fun creditEffect(kind: EffectDamage, amount: Float) {
+        if (amount > 0f) state.effectDamage[kind] = (state.effectDamage[kind] ?: 0f) + amount
+    }
+
+    /** Schaden pro Sekunde eines Folgeeffekts über den ganzen Lauf. */
+    fun effectDps(kind: EffectDamage): Float = (state.effectDamage[kind] ?: 0f) / maxOf(1f, state.time)
 
     /** Schaden pro Sekunde einer Waffe, seit sie im Lauf ist. */
     fun weaponDps(weapon: WeaponKind): Float {
@@ -546,10 +571,13 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         val near = ArrayList<Enemy>(8)
         forEnemiesNear(from.x, from.y, SPARK_RANGE) { if (it !== from) near += it }
         near.sortBy { (it.x - from.x) * (it.x - from.x) + (it.y - from.y) * (it.y - from.y) }
+        val previous = effect
+        effect = EffectDamage.SPARK
         for (t in near.take(SPARK_TARGETS)) {
             events += SurvivorsEvent.Chain(from.x, from.y, t.x, t.y)
             damage(t, amount, proc = false)
         }
+        effect = previous
     }
 
     private fun removeDeadEnemies(st: HeroStats) {
@@ -578,18 +606,22 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 }
                 e.kind.isMidBoss -> {
                     spawnPickup(PickupKind.CHEST, e.x, e.y)
+                    spawnPickup(PickupKind.RUNE, e.x + 0.8f, e.y, amount = BOSS_RUNES)
                     earnCoins(e.x, e.y, BOSS_COINS)
-                    earnRunes(e.x, e.y, BOSS_RUNES)
                     state.bossesKilled++
+                    if (state.bossSpawnTime >= 0f && state.time - state.bossSpawnTime <= RunGoal.FAST_BOSS_TIME) state.fastBossKill = true
+                    state.bossSpawnTime = -1f
                 }
                 e.elite -> {
                     spawnPickup(PickupKind.CHEST, e.x, e.y)
+                    spawnPickup(PickupKind.RUNE, e.x + 0.6f, e.y, amount = ELITE_RUNES)
                     earnCoins(e.x, e.y, ELITE_COINS)
-                    earnRunes(e.x, e.y, ELITE_RUNES)
+                    state.elitesKilled++
                 }
                 else -> {
                     val roll = random.nextFloat()
                     when {
+                        roll < RARE_RUNE_CHANCE -> spawnPickup(PickupKind.RUNE, e.x, e.y)
                         roll < 0.004f -> spawnPickup(PickupKind.POTION, e.x, e.y)
                         roll < 0.0055f -> spawnPickup(PickupKind.MAGNET, e.x, e.y)
                         roll < 0.02f -> spawnPickup(PickupKind.COIN, e.x, e.y)
@@ -618,7 +650,9 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             val radius = EMBER_RADIUS * st.areaMultiplier
             events += SurvivorsEvent.Explosion(e.x, e.y, radius)
             val amount = maxOf(EMBER_DAMAGE, e.maxHp * 0.5f) * st.damageMultiplier
+            effect = EffectDamage.EMBER
             forEnemiesNear(e.x, e.y, radius) { damage(it, amount, proc = false) }
+            effect = null
         }
     }
 
@@ -646,6 +680,58 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         val amount = state.xpRemainder.toInt()
         state.xpRemainder -= amount
         state.xp += amount
+    }
+
+    // --- Runensteine & Lauf-Ziele ---
+
+    /** Alle [RUNE_STONE_INTERVAL] Sekunden erscheint ein Runenstein; daneben stehen lädt ihn auf. */
+    private fun runeStone(dt: Float) {
+        val timedOver = state.mode == SurvivorsMode.TIMED && state.time >= SurvivorsSpawner.TIMED_DURATION
+        val stone = state.runeStone
+        if (stone == null) {
+            if (timedOver) return
+            state.spawner.runeStoneTimer -= dt
+            if (state.spawner.runeStoneTimer > 0f) return
+            state.spawner.runeStoneTimer = RUNE_STONE_INTERVAL
+            spawnRuneStone()
+            return
+        }
+        stone.life -= dt
+        val near = hypot(state.px - stone.x, state.py - stone.y) < RUNE_STONE_RADIUS
+        stone.charge = if (near) stone.charge + dt / RUNE_STONE_CHARGE_TIME
+        else (stone.charge - dt / RUNE_STONE_CHARGE_TIME * 0.5f).coerceAtLeast(0f)
+        if (stone.charge >= 1f) {
+            state.runeStone = null
+            state.runeStonesActivated++
+            earnRunes(stone.x, stone.y, RUNE_STONE_RUNES)
+            events += SurvivorsEvent.RuneStoneActivated(stone.x, stone.y)
+        } else if (stone.life <= 0f || timedOver) {
+            state.runeStone = null
+        }
+    }
+
+    private fun spawnRuneStone() {
+        val nearObstacles = if (state.stage.hasObstacles) SurvivorsObstacles.near(state.px, state.py, 12f) else emptyList()
+        repeat(12) {
+            val angle = random.nextFloat() * 2f * PI.toFloat()
+            val d = 7f + random.nextFloat() * 2f
+            val x = state.px + cos(angle) * d
+            val y = state.py + sin(angle) * d
+            if (!SurvivorsObstacles.blocked(x, y, RUNE_STONE_RADIUS, nearObstacles)) {
+                state.runeStone = RuneStone(x, y, RUNE_STONE_LIFE)
+                events += SurvivorsEvent.RuneStoneSpawned
+                return
+            }
+        }
+    }
+
+    private fun checkGoals() {
+        for (goal in state.goals) {
+            if (goal in state.goalsDone || !goal.isReached(state)) continue
+            state.goalsDone += goal
+            earnRunes(state.px, state.py, goal.runes)
+            events += SurvivorsEvent.GoalCompleted(goal, goal.runes)
+        }
     }
 
     private fun earnRunes(x: Float, y: Float, base: Int) {
@@ -1403,8 +1489,9 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         while (pickups.hasNext()) {
             val p = pickups.next()
             val d = hypot(state.px - p.x, state.py - p.y)
-            // Gold wird wie Kristalle vom Sammelradius angezogen; in der Siegesrunde alles.
-            if (state.victorySweep || (p.kind == PickupKind.COIN && d < st.pickupRadius)) p.magnetized = true
+            // Gold und Runen werden wie Kristalle vom Sammelradius angezogen; in der Siegesrunde alles.
+            val attracted = p.kind == PickupKind.COIN || p.kind == PickupKind.RUNE
+            if (state.victorySweep || (attracted && d < st.pickupRadius)) p.magnetized = true
             if (p.magnetized) pull(p.x, p.y, dt) { mx, my -> p.x += mx; p.y += my }
             if (d > PICKUP_DISTANCE) continue
             pickups.remove()
@@ -1415,9 +1502,10 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                     if (state.hp > before) events += SurvivorsEvent.Healed(state.hp - before)
                 }
                 PickupKind.COIN -> earnCoins(p.x, p.y, 1)
+                PickupKind.RUNE -> earnRunes(p.x, p.y, p.amount)
                 PickupKind.MAGNET -> {
                     state.gems.forEach { it.magnetized = true }
-                    state.pickups.forEach { if (it.kind == PickupKind.COIN) it.magnetized = true }
+                    state.pickups.forEach { if (it.kind == PickupKind.COIN || it.kind == PickupKind.RUNE) it.magnetized = true }
                 }
                 // Nach dem Sieg wird eine Truhe nicht mehr geöffnet, sondern in Coins umgewandelt.
                 PickupKind.CHEST -> if (state.victorySweep) earnCoins(p.x, p.y, ELITE_COINS) else openChest()
@@ -1452,6 +1540,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 when (p.kind) {
                     PickupKind.COIN -> earnCoins(p.x, p.y, 1)
                     PickupKind.CHEST -> earnCoins(p.x, p.y, ELITE_COINS)
+                    PickupKind.RUNE -> earnRunes(p.x, p.y, p.amount)
                     else -> Unit
                 }
             }

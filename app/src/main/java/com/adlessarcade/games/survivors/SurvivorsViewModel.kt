@@ -422,6 +422,16 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
                 is SurvivorsEvent.CoinsEarned -> effects += SurvivorsFx.CoinPop(event.x, event.y, event.amount)
                 is SurvivorsEvent.RunesEarned -> effects += SurvivorsFx.RunePop(event.x, event.y, event.amount)
                 is SurvivorsEvent.Healed -> effects += SurvivorsFx.Text(e.state.px, e.state.py, "+${event.amount.toInt()}", Color(0xFF4ADE80))
+                is SurvivorsEvent.RuneStoneSpawned -> showBanner("EIN RUNENSTEIN ERSCHEINT!")
+                is SurvivorsEvent.RuneStoneActivated -> {
+                    showBanner("RUNENSTEIN AKTIVIERT!")
+                    effects += SurvivorsFx.Blast(event.x, event.y, 2.2f, RuneViolet)
+                    rewardTick++
+                }
+                is SurvivorsEvent.GoalCompleted -> {
+                    showBanner("ZIEL ERREICHT: ${event.goal.title}\n$RUNE_SYMBOL +${event.runes}")
+                    rewardTick++
+                }
                 is SurvivorsEvent.Swing ->
                     effects += SurvivorsFx.Swing(event.x, event.y, event.angle, event.range, event.fullCircle, event.evolved)
                 is SurvivorsEvent.Lightning -> if (effects.size < MAX_FX) effects += SurvivorsFx.Bolt(event.x, event.y, event.radius)

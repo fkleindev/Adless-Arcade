@@ -108,7 +108,8 @@ class SurvivorsEngineTest {
             numbers += e.drainEvents().filterIsInstance<SurvivorsEvent.Damage>()
             t += 1f / 60f
         }
-        assertEquals(20f, e.state.weaponDamage[WeaponKind.DAGGERS]!!, 0.5f)
+        assertEquals(20f, e.state.effectDamage[EffectDamage.POISON]!!, 0.5f)
+        assertEquals(null, e.state.weaponDamage[WeaponKind.DAGGERS])
         assertTrue(numbers.size >= 3)
         assertTrue(numbers.all { it.kind == DamageKind.POISON })
         assertEquals(20f, numbers.sumOf { it.amount.toDouble() }.toFloat(), 0.5f)
@@ -627,10 +628,77 @@ class SurvivorsEngineTest {
         e.state.weapons[WeaponKind.AURA] = MAX_LEVEL // trifft rundherum
         e.spawnEnemy(EnemyKind.SLIME, 1f, 0f, elite = true).hp = 0.1f
         e.spawnEnemy(EnemyKind.BOSS, -1f, 0f).hp = 0.1f
-        e.run(1f)
+        e.run(0.3f)
+        // Elite und Boss lassen Runen-Kristalle fallen, die erst beim Einsammeln zählen (die Boss-Rune liegt
+        // direkt beim Helden und ist schon eingesammelt, die Elite-Rune liegt außerhalb des Sammelradius).
+        assertTrue(e.state.pickups.any { it.kind == PickupKind.RUNE && it.amount == SurvivorsEngine.ELITE_RUNES })
+        assertTrue(e.state.runesEarned < SurvivorsEngine.MINUTE_RUNES + SurvivorsEngine.ELITE_RUNES + SurvivorsEngine.BOSS_RUNES)
+        e.state.pickups.forEach { if (it.kind == PickupKind.RUNE) it.magnetized = true }
+        repeat(120) {
+            if (e.awaitingChest) e.chooseChestReward(0)
+            if (e.awaitingChoice) e.choose(0)
+            e.update(1f / 60f)
+        }
         assertEquals(SurvivorsEngine.MINUTE_RUNES + SurvivorsEngine.ELITE_RUNES + SurvivorsEngine.BOSS_RUNES, e.state.runesEarned)
         assertEquals(1, e.state.bossesKilled)
+        assertEquals(1, e.state.elitesKilled)
         assertTrue(e.drainEvents().any { it is SurvivorsEvent.RunesEarned })
+    }
+
+    @Test
+    fun runeStone_chargesNextToHero_andGivesRunes() {
+        val e = engine()
+        e.clearSpawns()
+        e.state.invulnerable = 1_000f
+        e.state.spawner.runeStoneTimer = 0.01f
+        e.run(0.1f)
+        val stone = e.state.runeStone!!
+        e.state.px = stone.x
+        e.state.py = stone.y
+        e.run(SurvivorsEngine.RUNE_STONE_CHARGE_TIME - 0.5f)
+        assertNotNull(e.state.runeStone) // noch nicht voll
+        e.run(1f)
+        assertEquals(null, e.state.runeStone)
+        assertEquals(1, e.state.runeStonesActivated)
+        assertEquals(SurvivorsEngine.RUNE_STONE_RUNES, e.state.runesEarned)
+    }
+
+    @Test
+    fun runeStone_expiresWhenIgnored() {
+        val e = engine()
+        e.clearSpawns()
+        e.state.invulnerable = 1_000f
+        e.state.spawner.runeStoneTimer = 0.01f
+        e.run(SurvivorsEngine.RUNE_STONE_LIFE + 1f)
+        assertEquals(0, e.state.runeStonesActivated)
+        assertEquals(0, e.state.runesEarned - e.state.time.toInt() / 60 * SurvivorsEngine.MINUTE_RUNES)
+    }
+
+    @Test
+    fun runGoal_isRewardedOnce() {
+        val e = engine()
+        e.clearSpawns()
+        e.state.invulnerable = 1_000f
+        e.state.goals = listOf(RunGoal.ELITES)
+        e.state.elitesKilled = RunGoal.ELITES.target
+        e.run(0.1f)
+        e.run(0.1f)
+        assertEquals(setOf(RunGoal.ELITES), e.state.goalsDone)
+        assertEquals(RunGoal.ELITES.runes, e.state.runesEarned)
+        assertEquals(RunGoal.PER_RUN, engine().state.goals.distinct().size)
+    }
+
+    @Test
+    fun sparkDamage_isCreditedSeparately() {
+        val e = engine(HeroClass.KNIGHT)
+        e.clearSpawns()
+        e.state.invulnerable = 100f
+        e.state.items[ItemKind.SPARK] = 100 // springt (fast) immer über
+        e.spawnEnemy(EnemyKind.ORC, 1.2f, 0f, hpMultiplier = 1_000f)
+        e.spawnEnemy(EnemyKind.ORC, 1.6f, 0.4f, hpMultiplier = 1_000f)
+        e.run(1.5f)
+        assertTrue((e.state.effectDamage[EffectDamage.SPARK] ?: 0f) > 0f)
+        assertTrue((e.state.weaponDamage[WeaponKind.SWORD] ?: 0f) > 0f)
     }
 
     @Test
@@ -738,11 +806,16 @@ class SurvivorsEngineTest {
         e.state.items[ItemKind.POISON] = 2
         e.state.souls = 42
         e.state.weaponDamage[WeaponKind.BONE_ORBIT] = 1234f
+        e.state.effectDamage[EffectDamage.POISON] = 56f
+        e.state.runeStone = RuneStone(3f, 4f, 20f).apply { charge = 0.5f }
         e.spawnEnemy(EnemyKind.ORC, 5f, 0f).apply { poisonDps = 3f; poisonTimer = 2f; poisonSource = WeaponKind.BONE_ORBIT }
         val restored = SurvivorsSaves.decode(SurvivorsSaves.encode(e.state, 0))!!.state
         assertEquals(mapOf(ItemKind.CRIT_CHANCE to 3, ItemKind.POISON to 2), restored.items.toMap())
         assertEquals(42, restored.souls)
         assertEquals(1234f, restored.weaponDamage[WeaponKind.BONE_ORBIT]!!, 0.001f)
+        assertEquals(56f, restored.effectDamage[EffectDamage.POISON]!!, 0.001f)
+        assertEquals(0.5f, restored.runeStone!!.charge, 0.001f)
+        assertEquals(e.state.goals, restored.goals)
         assertEquals(0f, restored.weaponSince[HeroClass.NECROMANCER.startWeapon]!!, 0.001f)
         assertEquals(3f, restored.enemies.single().poisonDps, 0.001f)
         assertEquals(WeaponKind.BONE_ORBIT, restored.enemies.single().poisonSource)

@@ -382,7 +382,10 @@ object Upgrades {
 
     fun apply(state: SurvivorsState, offer: UpgradeOffer) {
         when {
-            offer.evolution != null -> state.evolved += offer.evolution
+            offer.evolution != null -> {
+                state.evolved += offer.evolution
+                if (state.firstEvolutionTime < 0f) state.firstEvolutionTime = state.time
+            }
             offer.item != null -> {
                 val before = HeroStats(state).maxHp
                 state.items.merge(offer.item, 1, Int::plus)

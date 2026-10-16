@@ -270,7 +270,9 @@ class SurvivorsItemsTest {
             previous = s
         }
         assertEquals(SurvivorsSpawner.MAX_ENRAGED_SPEED, previous.speed, 0.0001f)
-        assertEquals(4.5f, SurvivorsSpawner.enemyScaling(SurvivorsMode.ENDLESS, 1_800f).hp, 0.001f)
+        // Minute 30: (1 + 2,5 + 4) · 1,06^10 ≈ 13,4
+        assertEquals(13.43f, SurvivorsSpawner.enemyScaling(SurvivorsMode.ENDLESS, 1_800f).hp, 0.01f)
+        assertEquals(1.5f, SurvivorsSpawner.enemyScaling(SurvivorsMode.ENDLESS, 1_800f).spawn, 0.001f)
     }
 
     private fun endless(time: Float) = SurvivorsEngine.newGame(HeroClass.KNIGHT, SurvivorsMode.ENDLESS, seed = 7).apply {

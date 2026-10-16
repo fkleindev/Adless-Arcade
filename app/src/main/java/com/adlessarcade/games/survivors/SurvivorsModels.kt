@@ -260,10 +260,11 @@ class Gem(var x: Float, var y: Float, var value: Int) {
     var magnetized: Boolean = false
 }
 
-enum class PickupKind { POTION, CHEST, COIN, MAGNET }
+enum class PickupKind { POTION, CHEST, COIN, MAGNET, RUNE }
 
+/** [amount]: Runen eines Runen-Kristalls (andere Pickups ignorieren den Wert). */
 @Serializable
-class Pickup(val id: Long, val kind: PickupKind, var x: Float, var y: Float) {
+class Pickup(val id: Long, val kind: PickupKind, var x: Float, var y: Float, val amount: Int = 1) {
     /** Wird gerade vom Helden angezogen (Coins im Sammelradius, Magnet, Sieg). */
     var magnetized: Boolean = false
 }
@@ -292,13 +293,30 @@ data class SpawnerState(
     var finalBossSpawned: Boolean = false,
     /** Endlos-Modus: Raserei ab Minute 20 bereits angekündigt. */
     var enraged: Boolean = false,
+    /** Zeit bis zum nächsten Runenstein. */
+    var runeStoneTimer: Float = 60f,
 )
 
-/** Zusätzliche Gegner-Skalierung (Raserei im Endlos-Modus). */
 /** Art einer Schadenszahl: normaler Treffer, Gift oder Hinrichtung (Henkersmal). */
 enum class DamageKind { HIT, POISON, EXECUTE }
 
-data class EnemyScaling(val hp: Float, val damage: Float, val speed: Float)
+/** Schaden, der keiner Waffe direkt gehört – in der Statistik getrennt aufgeführt. */
+enum class EffectDamage(val title: String, val icon: String) {
+    POISON("Gift", "☠"),
+    SPARK("Funken", "⚡"),
+    EMBER("Glut-Explosion", "☄"),
+    EXECUTE("Hinrichtung", "💀"),
+}
+
+/** Runenstein: lädt sich auf, solange der Held daneben steht, und gibt dann Runen. */
+@Serializable
+class RuneStone(val x: Float, val y: Float, var life: Float) {
+    /** Ladung 0..1. */
+    var charge: Float = 0f
+}
+
+/** Zusätzliche Gegner-Skalierung (Raserei im Endlos-Modus). */
+data class EnemyScaling(val hp: Float, val damage: Float, val speed: Float, val spawn: Float = 1f)
 
 /** Gesamter Zustand eines Laufs – wird 1:1 als Spielstand gespeichert. */
 @Serializable
@@ -343,6 +361,22 @@ class SurvivorsState(
     val weaponDamage: MutableMap<WeaponKind, Float> = LinkedHashMap()
     /** Spielzeit, zu der die Waffe dazukam (für Schaden pro Sekunde). */
     val weaponSince: MutableMap<WeaponKind, Float> = LinkedHashMap()
+    /** Schaden aus Gift, Funken, Glut und Hinrichtungen (nicht bei den Waffen mitgezählt). */
+    val effectDamage: MutableMap<EffectDamage, Float> = LinkedHashMap()
+    /** Aktiver Runenstein (höchstens einer). */
+    var runeStone: RuneStone? = null
+    var runeStonesActivated: Int = 0
+    /** Lauf-Ziele (3 pro Lauf) und bereits erreichte. */
+    var goals: List<RunGoal> = emptyList()
+    val goalsDone: MutableSet<RunGoal> = LinkedHashSet()
+    var elitesKilled: Int = 0
+    /** Zeitpunkt des letzten Treffers am Helden (für „ohne Treffer“). */
+    var lastHurtTime: Float = 0f
+    /** Erscheinen des aktuellen Zwischenbosses (−1 = keiner) und ob einer schnell besiegt wurde. */
+    var bossSpawnTime: Float = -1f
+    var fastBossKill: Boolean = false
+    /** Spielzeit der ersten Entwicklung (−1 = noch keine). */
+    var firstEvolutionTime: Float = -1f
     val passives: MutableMap<PassiveKind, Int> = LinkedHashMap()
     val cooldowns: MutableMap<WeaponKind, Float> = LinkedHashMap()
     val enemies: MutableList<Enemy> = ArrayList()
@@ -397,6 +431,9 @@ sealed interface SurvivorsEvent {
     data class CoinsEarned(val x: Float, val y: Float, val amount: Int) : SurvivorsEvent
     data class RunesEarned(val x: Float, val y: Float, val amount: Int) : SurvivorsEvent
     data class Healed(val amount: Float) : SurvivorsEvent
+    data object RuneStoneSpawned : SurvivorsEvent
+    data class RuneStoneActivated(val x: Float, val y: Float) : SurvivorsEvent
+    data class GoalCompleted(val goal: RunGoal, val runes: Int) : SurvivorsEvent
 
     // Rein visuelle Waffeneffekte
     data class Swing(val x: Float, val y: Float, val angle: Float, val range: Float, val fullCircle: Boolean, val evolved: Boolean = false) : SurvivorsEvent

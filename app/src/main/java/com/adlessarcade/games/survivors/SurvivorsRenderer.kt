@@ -73,22 +73,26 @@ sealed class SurvivorsFx(val x: Float, val y: Float, val lifetime: Float) {
     class CoinPop(x: Float, y: Float, val amount: Int) : SurvivorsFx(x, y, 1f)
     class RunePop(x: Float, y: Float, val amount: Int) : SurvivorsFx(x, y, 1.2f)
 
-    /** Zahlen und Texte werden über Gegnern gezeichnet, alle anderen Effekte darunter. */
+    /** Zahlen und Texte werden über allem gezeichnet, Waffeneffekte in der Verdecker-Ebene. */
     val isLabel: Boolean get() = this is Number || this is Text || this is CoinPop || this is RunePop
 }
 
-private val ENEMY_OUTLINE = Color(0xFFFF4D4D).copy(alpha = 0.85f)
+/** Gegner-Rand, nur sichtbar, wo Effekte oder Projektile über dem Gegner liegen. */
+private val ENEMY_OUTLINE = Color(0xFFFF6B6B).copy(alpha = 0.55f)
 /** Breite der Gegner-Outline in Welteinheiten – unabhängig von der Gegnergröße. */
-private const val ENEMY_OUTLINE_WIDTH = 0.07f
+private const val ENEMY_OUTLINE_WIDTH = 0.045f
 private val HERO_OUTLINE = Color(0xFF67E8F9)
 
-/** Zeichnet [block] als einfarbige Silhouette in [color] (eine Ebene für alle Formen darin). */
-private inline fun DrawScope.silhouette(color: Color, block: DrawScope.() -> Unit) {
-    val paint = Paint().apply { colorFilter = ColorFilter.tint(color, BlendMode.SrcIn) }
+/** Zeichnet [block] in eine eigene Ebene, die beim Zurückschreiben mit [paint] verrechnet wird. */
+private inline fun DrawScope.layer(paint: Paint = Paint(), block: DrawScope.() -> Unit) {
     drawIntoCanvas { it.saveLayer(Rect(Offset.Zero, size), paint) }
     block()
     drawIntoCanvas { it.restore() }
 }
+
+/** Zeichnet [block] als einfarbige Silhouette in [color] (eine Ebene für alle Formen darin). */
+private inline fun DrawScope.silhouette(color: Color, block: DrawScope.() -> Unit) =
+    layer(Paint().apply { colorFilter = ColorFilter.tint(color, BlendMode.SrcIn) }, block)
 
 fun DrawScope.drawSurvivors(
     engine: SurvivorsEngine,
@@ -140,33 +144,42 @@ fun DrawScope.drawSurvivors(
         drawCircle(Color(0xFFFDE68A), cam.len(0.15f), rock)
     }
 
-    // Waffeneffekte liegen unter allem Wichtigen, damit sie Held, Gegner, Drops und Warnungen nicht verdecken.
-    effects.forEach { if (!it.isLabel) drawFx(cam, it, textMeasurer) }
-
-    // Warn-Indikatoren der Gegnerangriffe (am Boden, füllen sich bis zum Einschlag)
-    s.enemyAttacks.forEach { drawAttackIndicator(cam, it, s.time) }
-
-    // Hindernisse (Friedhof)
+    // Hindernisse (Friedhof) und Runenstein
     if (s.stage.hasObstacles) {
         SurvivorsObstacles.near(s.px, s.py, cam.halfWorldH + margin).forEach { if (visible(it.x, it.y)) drawObstacle(cam, it, theme) }
     }
+    s.runeStone?.let { if (visible(it.x, it.y)) drawRuneStone(cam, it, s.time) }
 
-    s.projectiles.forEach { if (visible(it.x, it.y)) drawProjectile(cam, it, s.time, engine.isEvolved(it.weapon)) }
-    val soulVortex = engine.isEvolved(WeaponKind.BONE_ORBIT)
-    engine.orbitPositions().forEach { (x, y) -> drawSkull(cam, x, y, s.time, soulVortex) }
-    engine.shieldPositions().forEach { (x, y) -> drawShield(cam.at(x, y), cam.len(0.42f), s.time * 6f, glow = true) }
+    // Gegner nach y sortiert (weiter unten = weiter vorne)
+    val enemies = s.enemies.filter { visible(it.x, it.y) }.sortedBy { it.y }
+    enemies.forEach { drawEnemy(cam, it, theme, s.time) }
+
+    // Verdecker (Projektile, Waffeneffekte) in eigener Ebene. Darin wird der Gegner-Rand nur dort eingeblendet,
+    // wo ein Verdecker über dem Gegner liegt (SrcAtop) – frei stehende Gegner bleiben ohne Outline.
+    layer {
+        s.projectiles.forEach { if (visible(it.x, it.y)) drawProjectile(cam, it, s.time, engine.isEvolved(it.weapon)) }
+        val soulVortex = engine.isEvolved(WeaponKind.BONE_ORBIT)
+        engine.orbitPositions().forEach { (x, y) -> drawSkull(cam, x, y, s.time, soulVortex) }
+        engine.shieldPositions().forEach { (x, y) -> drawShield(cam.at(x, y), cam.len(0.42f), s.time * 6f, glow = true) }
+        effects.forEach { if (!it.isLabel) drawFx(cam, it, textMeasurer) }
+        if (enemies.isNotEmpty()) layer(Paint().apply { blendMode = BlendMode.SrcAtop }) {
+            silhouette(ENEMY_OUTLINE) {
+                enemies.forEach { e ->
+                    scale(1f + ENEMY_OUTLINE_WIDTH / e.radius, pivot = cam.at(e.x, e.y)) { drawEnemy(cam, e, theme, s.time, bodyOnly = true) }
+                }
+            }
+            // Inneres ausstanzen: übrig bleibt nur der Rand
+            layer(Paint().apply { blendMode = BlendMode.DstOut }) {
+                enemies.forEach { drawEnemy(cam, it, theme, s.time, bodyOnly = true) }
+            }
+        }
+    }
 
     s.gems.forEach { if (visible(it.x, it.y)) drawGem(cam, it, s.time) }
     s.pickups.forEach { if (visible(it.x, it.y)) drawPickup(cam, it, s.time) }
 
-    // Gegner nach y sortiert (weiter unten = weiter vorne), mit leuchtender Outline in einer gemeinsamen Ebene
-    val enemies = s.enemies.filter { visible(it.x, it.y) }.sortedBy { it.y }
-    silhouette(ENEMY_OUTLINE) {
-        enemies.forEach { e ->
-            scale(1f + ENEMY_OUTLINE_WIDTH / e.radius, pivot = cam.at(e.x, e.y)) { drawEnemy(cam, e, theme, s.time, bodyOnly = true) }
-        }
-    }
-    enemies.forEach { drawEnemy(cam, it, theme, s.time) }
+    // Warn-Indikatoren der Gegnerangriffe (füllen sich bis zum Einschlag) und gegnerische Geschosse
+    s.enemyAttacks.forEach { drawAttackIndicator(cam, it, s.time) }
     s.enemyShots.forEach { if (visible(it.x, it.y)) drawEnemyShot(cam, it, s.time) }
 
     // Schadenszahlen und Texte, darüber der Held – er bleibt immer sichtbar.
@@ -185,7 +198,7 @@ fun DrawScope.drawSurvivors(
         drawHeroClass(s.heroClass, hero, cam.len(0.9f), s.time, faceRight)
     }
     drawPlayerHp(cam, s, engine.stats.maxHp)
-    drawBossIndicators(cam, s)
+    drawEdgeIndicators(cam, s)
 
     // Vignette und Treffer-Blitz
     drawRect(
@@ -332,21 +345,20 @@ private fun DrawScope.drawGem(cam: SurvivorsCamera, g: Gem, time: Float) {
         g.value >= 5 -> Color(0xFF4ADE80)
         else -> Color(0xFF60A5FA)
     }
-    val r = cam.len(0.17f + min(0.12f, g.value * 0.004f))
+    val r = cam.len(0.13f + min(0.1f, g.value * 0.004f))
     val c = cam.at(g.x, g.y) + Offset(0f, sin(time * 4f + g.x) * r * 0.2f)
-    // Leuchthof, dunkler Rand und Glanzlicht: auch auf hellem Boden und unter Effekten gut erkennbar.
-    drawCircle(color.copy(alpha = 0.22f + 0.08f * sin(time * 5f + g.y)), r * 1.5f, c + Offset(0f, -r * 0.35f))
-    val h = r * 1.5f
+    // Schwacher Leuchthof, damit Kristalle auf dunklem Boden nicht untergehen.
+    drawCircle(color.copy(alpha = 0.12f), r * 1.3f, c + Offset(0f, -r * 0.3f))
+    val h = r * 1.4f
     val path = Path().apply {
         moveTo(c.x, c.y - h)
-        lineTo(c.x + h * 0.45f, c.y)
-        lineTo(c.x, c.y + h * 0.45f)
-        lineTo(c.x - h * 0.45f, c.y)
+        lineTo(c.x + h * 0.42f, c.y)
+        lineTo(c.x, c.y + h * 0.42f)
+        lineTo(c.x - h * 0.42f, c.y)
         close()
     }
-    drawPath(path, color)
-    drawPath(path, Color(0xFF0F172A), style = Stroke(width = max(2f, r * 0.18f)))
-    drawLine(Color.White.copy(alpha = 0.85f), Offset(c.x - h * 0.12f, c.y - h * 0.55f), Offset(c.x - h * 0.25f, c.y - h * 0.1f), strokeWidth = max(1.5f, r * 0.12f))
+    drawPath(path, color.copy(alpha = 0.85f))
+    drawPath(path, Color.White.copy(alpha = 0.6f), style = Stroke(width = 1.5f))
 }
 
 private fun DrawScope.drawPickup(cam: SurvivorsCamera, p: Pickup, time: Float) {
@@ -372,6 +384,24 @@ private fun DrawScope.drawPickup(cam: SurvivorsCamera, p: Pickup, time: Float) {
             drawRect(CoinGold, tl + Offset(w * 0.42f, h * 0.3f), Size(w * 0.16f, h * 0.3f))
         }
         PickupKind.COIN -> drawCoin(c + Offset(0f, bob), u * 0.18f)
+        PickupKind.RUNE -> {
+            // Violetter Runen-Kristall mit Runenzeichen; größere Beute leuchtet stärker.
+            val at = c + Offset(0f, bob)
+            val h = u * (0.26f + 0.03f * p.amount.coerceAtMost(4))
+            drawCircle(RuneViolet.copy(alpha = 0.2f + 0.15f * pulse), h * 1.2f, at)
+            val gem = Path().apply {
+                moveTo(at.x, at.y - h)
+                lineTo(at.x + h * 0.6f, at.y)
+                lineTo(at.x, at.y + h * 0.75f)
+                lineTo(at.x - h * 0.6f, at.y)
+                close()
+            }
+            drawPath(gem, RuneViolet)
+            drawPath(gem, Color.White.copy(alpha = 0.7f), style = Stroke(width = 1.5f))
+            drawLine(Color.White, at + Offset(0f, -h * 0.45f), at + Offset(0f, h * 0.4f), strokeWidth = u * 0.035f)
+            drawLine(Color.White, at + Offset(0f, -h * 0.45f), at + Offset(h * 0.25f, -h * 0.2f), strokeWidth = u * 0.035f)
+            drawLine(Color.White, at + Offset(h * 0.25f, -h * 0.2f), at + Offset(0f, 0f), strokeWidth = u * 0.035f)
+        }
         PickupKind.MAGNET -> {
             drawArc(Color(0xFFEF4444), 180f, 180f, false, c + Offset(-u * 0.22f, -u * 0.22f + bob), Size(u * 0.44f, u * 0.44f), style = Stroke(width = u * 0.1f))
             drawRect(Color(0xFFE5E7EB), c + Offset(-u * 0.27f, bob), Size(u * 0.1f, u * 0.12f))
@@ -1124,26 +1154,66 @@ private fun DrawScope.drawFx(cam: SurvivorsCamera, fx: SurvivorsFx, textMeasurer
     }
 }
 
-/** Pfeil am Bildrand, wenn ein Boss außerhalb des Bildes ist. */
-private fun DrawScope.drawBossIndicators(cam: SurvivorsCamera, s: SurvivorsState) {
-    s.enemies.filter { it.isBoss }.forEach { b ->
-        val dx = b.x - s.px
-        val dy = b.y - s.py
-        if (abs(dx) < cam.halfWorldW && abs(dy) < cam.halfWorldH) return@forEach
-        val angle = atan2(dy, dx)
-        val margin = 36f
-        val edge = Offset(
-            (size.width / 2f + cos(angle) * size.width).coerceIn(margin, size.width - margin),
-            (size.height / 2f + sin(angle) * size.height).coerceIn(margin, size.height - margin),
-        )
-        val arrow = Path().apply {
-            moveTo(edge.x + cos(angle) * 22f, edge.y + sin(angle) * 22f)
-            lineTo(edge.x + cos(angle + 2.5f) * 16f, edge.y + sin(angle + 2.5f) * 16f)
-            lineTo(edge.x + cos(angle - 2.5f) * 16f, edge.y + sin(angle - 2.5f) * 16f)
-            close()
-        }
-        drawPath(arrow, Color(0xFFF43F5E))
+/** Pfeile am Bildrand zu Bossen und zum Runenstein, wenn sie außerhalb des Bildes sind. */
+private fun DrawScope.drawEdgeIndicators(cam: SurvivorsCamera, s: SurvivorsState) {
+    s.enemies.filter { it.isBoss }.forEach { drawEdgeArrow(cam, s, it.x, it.y, Color(0xFFF43F5E)) }
+    s.runeStone?.let { drawEdgeArrow(cam, s, it.x, it.y, RuneViolet) }
+}
+
+private fun DrawScope.drawEdgeArrow(cam: SurvivorsCamera, s: SurvivorsState, x: Float, y: Float, color: Color) {
+    val dx = x - s.px
+    val dy = y - s.py
+    if (abs(dx) < cam.halfWorldW && abs(dy) < cam.halfWorldH) return
+    val angle = atan2(dy, dx)
+    val margin = 36f
+    val edge = Offset(
+        (size.width / 2f + cos(angle) * size.width).coerceIn(margin, size.width - margin),
+        (size.height / 2f + sin(angle) * size.height).coerceIn(margin, size.height - margin),
+    )
+    val arrow = Path().apply {
+        moveTo(edge.x + cos(angle) * 22f, edge.y + sin(angle) * 22f)
+        lineTo(edge.x + cos(angle + 2.5f) * 16f, edge.y + sin(angle + 2.5f) * 16f)
+        lineTo(edge.x + cos(angle - 2.5f) * 16f, edge.y + sin(angle - 2.5f) * 16f)
+        close()
     }
+    drawPath(arrow, color)
+}
+
+/** Runenstein: Obelisk mit Lade-Ring (füllt sich) und Restzeit-Bogen. */
+private fun DrawScope.drawRuneStone(cam: SurvivorsCamera, stone: RuneStone, time: Float) {
+    val c = cam.at(stone.x, stone.y)
+    val u = cam.scale
+    val r = cam.len(SurvivorsEngine.RUNE_STONE_RADIUS)
+    val pulse = 0.5f + 0.5f * sin(time * 3f)
+    drawCircle(RuneViolet.copy(alpha = 0.08f + 0.06f * pulse + 0.15f * stone.charge), r, c)
+    drawCircle(RuneViolet.copy(alpha = 0.5f), r, c, style = Stroke(width = u * 0.03f))
+    // Ladung als Bogen am Rand, Restzeit als dünner Bogen innen
+    val ring = Size(r * 2f, r * 2f)
+    drawArc(RuneViolet, -90f, 360f * stone.charge, false, c - Offset(r, r), ring, style = Stroke(width = u * 0.08f))
+    val inner = r * 0.82f
+    drawArc(Color.White.copy(alpha = 0.35f), -90f, 360f * (stone.life / SurvivorsEngine.RUNE_STONE_LIFE).coerceIn(0f, 1f), false,
+        c - Offset(inner, inner), Size(inner * 2f, inner * 2f), style = Stroke(width = u * 0.025f))
+    // Obelisk
+    val w = u * 0.32f
+    val h = u * 0.9f
+    drawOval(Color.Black.copy(alpha = 0.3f), c + Offset(-w * 0.8f, -u * 0.06f), Size(w * 1.6f, u * 0.2f))
+    val body = Path().apply {
+        moveTo(c.x - w / 2f, c.y)
+        lineTo(c.x - w * 0.35f, c.y - h * 0.82f)
+        lineTo(c.x, c.y - h)
+        lineTo(c.x + w * 0.35f, c.y - h * 0.82f)
+        lineTo(c.x + w / 2f, c.y)
+        close()
+    }
+    drawPath(body, Color(0xFF3B2F5C))
+    drawPath(body, RuneViolet.copy(alpha = 0.8f), style = Stroke(width = 1.5f))
+    // Leuchtende Rune, heller mit wachsender Ladung
+    val glyph = RuneViolet.copy(alpha = 0.55f + 0.45f * maxOf(stone.charge, pulse * 0.5f))
+    val gx = c.x
+    val top = c.y - h * 0.7f
+    drawLine(glyph, Offset(gx, top), Offset(gx, top + h * 0.5f), strokeWidth = u * 0.045f)
+    drawLine(glyph, Offset(gx, top), Offset(gx + w * 0.28f, top + h * 0.12f), strokeWidth = u * 0.045f)
+    drawLine(glyph, Offset(gx + w * 0.28f, top + h * 0.12f), Offset(gx, top + h * 0.24f), strokeWidth = u * 0.045f)
 }
 
 /** Ausschnitt einer Welt für die Shop-Vorschau. */
