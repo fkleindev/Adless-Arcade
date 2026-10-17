@@ -8,7 +8,7 @@ object GalaxyTowers {
 
 /**
  * Spielmodi wie im ersten Teil: [rounds] feste Runden, bei [timed] mit Rundenzeit.
- * Die Tägliche Challenge nutzt die Classic-Regeln mit festem Seed und ohne gekaufte Power-ups.
+ * Die Tägliche Challenge nutzt die Classic-Regeln mit festem Seed.
  */
 @Serializable
 enum class GalaxyTowersMode(val id: String, val rounds: Int, val timed: Boolean) {
@@ -16,8 +16,6 @@ enum class GalaxyTowersMode(val id: String, val rounds: Int, val timed: Boolean)
     TIMELESS("timeless", 10, false),
     SINGLE("single", 1, true),
     DAILY("daily", 10, true);
-
-    val canBuy: Boolean get() = this != DAILY
 
     /** Sekunden für Runde [round] (1-basiert); 0 ohne Zeitlimit. */
     fun roundTime(round: Int): Float = when {

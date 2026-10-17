@@ -13,14 +13,15 @@ import kotlin.random.Random
 object GalaxyTowersEngine {
     const val TOWER_SIZE = 28
     const val PEAKS = 3
-    const val STOCK_SIZE = 52 - TOWER_SIZE - 1
+    /** Die Ablage ist zum Rundenstart leer – alle übrigen Karten liegen im Stapel. */
+    const val STOCK_SIZE = 52 - TOWER_SIZE
+    const val WRONG_CARD_PENALTY = 100
     const val CARD_POINTS = 100
     const val PEAK_BONUS = 1000
     const val CLEAR_BONUS = 3000
     const val STOCK_CARD_BONUS = 200
     const val TIME_BONUS_PER_SECOND = 20
     const val SECOND_PILE_STREAK = 3
-    const val REWARD_STREAK = 10
     const val GOLD_MIN_STREAK = 3
     const val WARP_CARDS = 3
     private const val HISTORY_LIMIT = 20
@@ -75,8 +76,8 @@ object GalaxyTowersEngine {
         return base.copy(
             round = round,
             tower = deck.take(TOWER_SIZE),
-            waste = listOf(deck[TOWER_SIZE]),
-            stock = deck.drop(TOWER_SIZE + 1),
+            waste = emptyList(),
+            stock = deck.drop(TOWER_SIZE),
             waste2 = null,
             streak = 0,
             scanActive = false,
@@ -104,9 +105,9 @@ object GalaxyTowersEngine {
         return diff == 1 || diff == 12
     }
 
-    /** Ablage, auf die [card] passt: 0 = Hauptablage (Vorrang), 1 = zweite Ablage, null = keine. */
+    /** Ablage, auf die [card] passt: 0 = Hauptablage (Vorrang, leer nimmt sie jede Karte), 1 = zweite Ablage, null = keine. */
     fun targetPile(state: GameState, card: Card): Int? = when {
-        fits(card, state.top) -> 0
+        state.waste.isEmpty() || fits(card, state.top) -> 0
         fits(card, state.top2) -> 1
         else -> null
     }
@@ -126,7 +127,19 @@ object GalaxyTowersEngine {
         isStuck(state) && state.charges(PowerUp.JOKER) == 0 && state.charges(PowerUp.WARP) == 0 &&
             (state.charges(PowerUp.UNDO) == 0 || state.history.isEmpty())
 
-    private fun GameState.snapshot() = Snapshot(tower, waste, stock, score, streak, waste2)
+    private fun GameState.snapshot() = Snapshot(tower, waste, stock, score, streak, waste2, penaltyTotal)
+
+    /**
+     * Strafe für das Antippen einer offenen Karte, die auf keine Ablage passt. Kostet nur Punkte (nicht unter 0),
+     * die Kette bleibt bestehen. null, wenn die Karte verdeckt ist, passt oder die Runde nicht läuft.
+     */
+    fun misplay(state: GameState, index: Int): GameState? {
+        if (!state.inPlay || !isFree(state.tower, index) || canPlay(state, index)) return null
+        return state.copy(
+            score = (state.score - WRONG_CARD_PENALTY).coerceAtLeast(0),
+            penaltyTotal = state.penaltyTotal + WRONG_CARD_PENALTY,
+        )
+    }
 
     private fun GameState.pushHistory() = (history + snapshot()).takeLast(HISTORY_LIMIT)
 
@@ -156,12 +169,9 @@ object GalaxyTowersEngine {
         val timeBonus = if (cleared && state.mode.timed) scaled(TIME_BONUS_PER_SECOND * state.timeLeft.toInt(), state.round) else 0
         val gold = goldDrop(state, streak)
         val coins = (if (cleared) roundCoins(state.round) else 0) + gold
-        val reward = if (streak % REWARD_STREAK == 0) {
-            PowerUp.entries[roundRandom(state.seed, state.round, state.score + streak).nextInt(PowerUp.entries.size)]
-        } else {
-            null
-        }
+        val reward = powerUpDrop(state, streak)
         val charges = if (reward != null) state.charges + (reward to state.charges(reward) + 1) else state.charges
+        val timeDrop = if (cleared) 0 else timeDrop(state, streak)
         val next = state.copy(
             tower = tower,
             waste = waste,
@@ -176,9 +186,17 @@ object GalaxyTowersEngine {
             coinsEarned = state.coinsEarned + coins,
             roundOver = if (cleared) RoundEnd.CLEARED else null,
             roundsCleared = state.roundsCleared + if (cleared) 1 else 0,
+            timeLeft = state.timeLeft + timeDrop,
+            moves = state.moves + 1,
         )
-        return PlayResult(next, pile, points, peakCleared, cleared, clearBonus, timeBonus, coins, reward, opens, gold)
+        return PlayResult(next, pile, points, peakCleared, cleared, clearBonus, timeBonus, coins, reward, opens, gold, timeDrop)
     }
+
+    /**
+     * Zufall für Drops einer gelegten Karte. [GameState.moves] zählt jeden Zug und wird vom Zeitsprung nicht
+     * zurückgesetzt – ein zurückgenommener und erneut gespielter Zug würfelt also neu (kein Endlos-Farmen).
+     */
+    private fun dropRandom(state: GameState, salt: Int): Random = roundRandom(state.seed, state.round, salt + state.moves * 31)
 
     /** Chance auf Gold für eine Karte mit Kettenlänge [streak]: ab 3 steigend, höchstens 60 %. */
     fun goldChance(streak: Int): Float = if (streak < GOLD_MIN_STREAK) 0f else minOf(0.6f, 0.08f * (streak - 2))
@@ -186,9 +204,29 @@ object GalaxyTowersEngine {
     /** Gold (Coins), das die Karte mit Kettenlänge [streak] abwirft; deterministisch aus dem Spielstand. */
     private fun goldDrop(state: GameState, streak: Int): Int {
         if (streak < GOLD_MIN_STREAK) return 0
-        val rng = roundRandom(state.seed, state.round, 5000 + state.score + streak)
+        val rng = dropRandom(state, 5000)
         if (rng.nextFloat() >= goldChance(streak)) return 0
         return rng.nextInt(1, if (streak >= 8) 6 else 4)
+    }
+
+    /** Chance, dass eine gelegte Karte ein Power-up abwirft: 3 % + 0,5 % pro Kettenglied. */
+    fun powerUpChance(streak: Int): Float = 0.03f + 0.005f * streak
+
+    private fun powerUpDrop(state: GameState, streak: Int): PowerUp? {
+        val rng = dropRandom(state, 6000)
+        if (rng.nextFloat() >= powerUpChance(streak)) return null
+        return PowerUp.entries[rng.nextInt(PowerUp.entries.size)]
+    }
+
+    /** Chance auf Bonuszeit (nur mit Zeitlimit): 4 % + 0,5 % pro Kettenglied, höchstens 12 %. */
+    fun timeDropChance(streak: Int): Float = minOf(0.12f, 0.04f + 0.005f * streak)
+
+    /** Bonuszeit in Sekunden, die eine gelegte Karte abwirft (5 s, ab Kette 6 8 s). */
+    private fun timeDrop(state: GameState, streak: Int): Int {
+        if (!state.mode.timed) return 0
+        val rng = dropRandom(state, 7000)
+        if (rng.nextFloat() >= timeDropChance(streak)) return 0
+        return if (streak >= 6) 8 else 5
     }
 
     /** Nächste Karte auf die Hauptablage; beendet die Kette und schließt die zweite Ablage. */
@@ -201,6 +239,7 @@ object GalaxyTowersEngine {
             streak = 0,
             scanActive = false,
             history = state.pushHistory(),
+            moves = state.moves + 1,
         )
     }
 
@@ -237,7 +276,8 @@ object GalaxyTowersEngine {
                     waste = last.waste,
                     waste2 = last.waste2,
                     stock = last.stock,
-                    score = last.score,
+                    // Strafen seit dem zurückgenommenen Zug bleiben bestehen.
+                    score = (last.score - (spent.penaltyTotal - last.penaltyTotal)).coerceAtLeast(0),
                     streak = last.streak,
                     history = spent.history.dropLast(1),
                     scanActive = false,

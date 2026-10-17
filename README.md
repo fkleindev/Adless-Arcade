@@ -21,11 +21,12 @@ Eine werbefreie Sammlung kleiner Spiele für Android – offline, ohne Tracking,
 - **Galaxy Towers 2**: TriPeaks-Solitaire im Weltraum (im Querformat), Nachfolger von Galaxy Towers. Freie Karten aus drei Türmen ablegen,
   die einen Wert höher oder tiefer sind (K–A rundum). Ab einer 3er-Kette öffnet sich eine zweite Ablage mit der nächsten
   Stapelkarte, Nachziehen schließt sie wieder. Lange Ketten, Turmspitzen, abgeräumte Runden und Restzeit bringen Punkte; Ketten ab 3 Karten können Gold abwerfen.
-  Power-ups: Joker, Zeitsprung, Scanner und Warp (auch für Coins); Kartenrückseiten und Hintergründe gibt es im Shop.
+  Beim Ablegen fallen zufällig Power-ups (Joker, Zeitsprung, Scanner, Warp) und in Modi mit Zeitlimit Bonuszeit;
+  Kartenrückseiten und Hintergründe gibt es im Shop.
   - Modus *Classic*: 10 Runden mit Sanduhr (90 s, jede Runde 5 s weniger); weiter geht es auch ohne Abräumen.
   - Modus *Timeless*: 10 Runden ohne Zeitlimit.
   - Modus *Single Round*: eine Runde mit 80 Sekunden.
-  - Modus *Tägliche Challenge*: Classic mit gleichen Karten für alle pro Tag, ohne gekaufte Power-ups, eigener Tagesrekord.
+  - Modus *Tägliche Challenge*: Classic mit gleichen Karten und Funden für alle pro Tag, eigener Tagesrekord.
 
 **Rund um die Spiele**
 - **Coins & Shop**: In allen Spielen Coins verdienen und gegen Skins, Kartenrückseiten, Hintergründe, App-Themes, Avatare und Titel tauschen.

@@ -25,11 +25,11 @@ data class Card(val rank: Int, val suit: Int) {
 }
 
 @Serializable
-enum class PowerUp(val title: String, val symbol: String, val price: Int, val description: String) {
-    JOKER("Joker", "★", 40, "Wildkarte auf die Ablage – jede Karte passt, die Kette läuft weiter."),
-    UNDO("Zeitsprung", "↶", 20, "Nimmt den letzten Zug zurück."),
-    SCAN("Scanner", "◎", 30, "Zeigt alle verdeckten Karten bis zum nächsten Zug."),
-    WARP("Warp", "+3", 50, "Legt 3 neue Karten unter den Nachziehstapel."),
+enum class PowerUp(val title: String, val symbol: String, val description: String) {
+    JOKER("Joker", "★", "Wildkarte auf die Ablage – jede Karte passt, die Kette läuft weiter."),
+    UNDO("Zeitsprung", "↶", "Nimmt den letzten Zug zurück."),
+    SCAN("Scanner", "◎", "Zeigt alle verdeckten Karten bis zum nächsten Zug."),
+    WARP("Warp", "+3", "Legt 3 neue Karten unter den Nachziehstapel."),
 }
 
 /** Warum eine Runde endete. */
@@ -45,6 +45,7 @@ data class Snapshot(
     val score: Int,
     val streak: Int,
     val waste2: List<Card>? = null,
+    val penaltyTotal: Int = 0,
 )
 
 /**
@@ -64,7 +65,8 @@ data class GameState(
     val score: Int = 0,
     val streak: Int = 0,
     val bestStreak: Int = 0,
-    val charges: Map<PowerUp, Int> = PowerUp.entries.associateWith { 1 },
+    /** Power-up-Ladungen; ein Run startet ohne, gefunden werden sie beim Ablegen. */
+    val charges: Map<PowerUp, Int> = emptyMap(),
     val scanActive: Boolean = false,
     val history: List<Snapshot> = emptyList(),
     val coinsEarned: Int = 0,
@@ -75,6 +77,10 @@ data class GameState(
     val roundsCleared: Int = 0,
     /** Anzahl genutzter Warps in dieser Runde (für deterministische Warp-Karten). */
     val warps: Int = 0,
+    /** Alle Züge des Laufs (auch zurückgenommene) – Teil des Drop-Zufalls, damit Zeitsprung nicht neu würfeln lässt. */
+    val moves: Int = 0,
+    /** Summe aller Strafpunkte für falsch angetippte Karten. */
+    val penaltyTotal: Int = 0,
     val isGameOver: Boolean = false,
 ) {
     val top: Card? get() = waste.lastOrNull()
@@ -101,4 +107,6 @@ data class PlayResult(
     val secondPileOpened: Boolean,
     /** Gold (Coins), das die Karte dank der Kette abgeworfen hat; ist in [coins] enthalten. */
     val gold: Int = 0,
+    /** Bonuszeit in Sekunden, die die Karte abgeworfen hat (nur mit Zeitlimit). */
+    val timeDrop: Int = 0,
 )

@@ -141,7 +141,7 @@ object GameRegistry {
             tagline = "Räume die Sternentürme ab",
             description = "Solitaire mit drei Kartentürmen: Lege freie Karten ab, die einen Wert höher oder tiefer sind " +
                 "als die Ablage (K–A geht rundum). Ab einer 3er-Kette öffnet sich eine zweite Ablage – bis du nachziehst. " +
-                "Joker, Zeitsprung, Scanner und Warp helfen in der Not.",
+                "Beim Ablegen findest du Gold, Bonuszeit und Power-ups wie Joker, Zeitsprung, Scanner und Warp.",
             accent = Color(0xFF7C3AED),
             accentSecondary = Color(0xFFF59E0B),
             modes = listOf(
@@ -163,7 +163,7 @@ object GameRegistry {
                 ModeInfo(
                     id = GalaxyTowersMode.DAILY.id,
                     title = "Tägliche Challenge",
-                    description = "Classic mit den gleichen Karten für alle – ohne gekaufte Power-ups. Eigener Tagesrekord.",
+                    description = "Classic mit den gleichen Karten und Funden für alle. Eigener Tagesrekord.",
                     scoreKey = { DailyChallenge.scoreKey(GalaxyTowersMode.DAILY.id) },
                 ),
             ),

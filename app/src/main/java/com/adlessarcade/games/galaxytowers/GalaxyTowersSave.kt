@@ -8,7 +8,7 @@ import kotlinx.serialization.Serializable
 data class GalaxyTowersSave(val version: Int, val game: GameState, val bestAtStart: Int = 0)
 
 object GalaxyTowersSaves {
-    const val VERSION = 2
+    const val VERSION = 3
 
     fun encode(game: GameState, bestAtStart: Int): String =
         SaveJson.encodeToString(GalaxyTowersSave.serializer(), GalaxyTowersSave(VERSION, game, bestAtStart))
@@ -19,7 +19,6 @@ object GalaxyTowersSaves {
         val game = save.game
         val valid = save.version == VERSION &&
             game.tower.size == GalaxyTowersEngine.TOWER_SIZE &&
-            game.waste.isNotEmpty() &&
             (mode == null || game.mode == mode) &&
             !game.isGameOver
         return if (valid) save else null

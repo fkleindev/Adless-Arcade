@@ -3,6 +3,10 @@ package com.adlessarcade.games.galaxytowers
 import android.content.pm.ActivityInfo
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateIntAsState
@@ -56,6 +60,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.lerp
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
@@ -98,35 +103,75 @@ import com.adlessarcade.ui.theme.NeonYellow
 import com.adlessarcade.ui.theme.SpaceBackdrop
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.PI
 import kotlin.math.ceil
 import kotlin.math.sin
+
+/** Abstand von Kartenmitte zu Kartenmitte in Kartenbreiten (kleine Lücke zwischen den Turmkarten). */
+private const val PITCH = 1.12f
+/** Zusätzlicher Abstand zwischen den Türmen in Kartenbreiten. */
+private const val TOWER_GAP = 0.5f
+/** Vertikaler Versatz der Turmreihen in Kartenhöhen. */
+private const val ROW_STEP = 0.55f
+/** Größe der Stapel- und Ablagekarten relativ zu den Turmkarten. */
+private const val PILE_SCALE = 1.1f
 
 /**
  * Geometrie des Spieltischs im Querformat wie im ersten Teil: Türme oben, darunter Nachziehstapel, Ablage,
  * Sanduhr und zweite Ablage. Die Kartengröße richtet sich nach Breite und Höhe des Bereichs.
  */
 private class TableLayout(width: Float, height: Float, gap: Float) {
-    val cardW = minOf(width / 10.4f, (height - gap * 2.1f) / 5.62f)
+    val cardW = minOf(
+        width / (9f * PITCH + 1f + 2f * TOWER_GAP),
+        (height - gap * 2f) / (3f * ROW_STEP * CARD_RATIO + CARD_RATIO + PILE_SCALE * CARD_RATIO),
+    )
     val cardSize = Size(cardW, cardW * CARD_RATIO)
-    private val margin = (width - cardW * 10f) / 2f
-    private val rowStep = cardSize.height * 0.5f
-    val pileSize = Size(cardW * 1.45f, cardW * 1.45f * CARD_RATIO)
+    private val pitch = cardW * PITCH
+    private val towerGap = cardW * TOWER_GAP
+    private val margin = (width - (9f * pitch + cardW + 2f * towerGap)) / 2f
+    private val rowStep = cardSize.height * ROW_STEP
+    val pileSize = Size(cardW * PILE_SCALE, cardW * PILE_SCALE * CARD_RATIO)
     private val used = rowStep * 3f + cardSize.height + gap * 1.2f + pileSize.height
     private val towerTop = ((height - used) / 2f).coerceAtLeast(gap * 0.4f)
     val pileY = towerTop + rowStep * 3f + cardSize.height + gap * 1.2f
     private val center = width / 2f
-    val stockTopLeft = Offset(margin + cardW * 0.2f, pileY)
-    val wasteTopLeft = Offset(center - pileSize.width * 1.35f, pileY)
+    val stockTopLeft = Offset(margin, pileY)
+    val wasteTopLeft = Offset(center - pileSize.width * 1.5f, pileY)
     /** Zweite Ablage rechts neben der Sanduhr wie im ersten Teil. */
-    val waste2TopLeft = Offset(center + pileSize.width * 0.35f, pileY)
+    val waste2TopLeft = Offset(center + pileSize.width * 0.5f, pileY)
     /** Mitte der Sanduhr zwischen den beiden Ablagen. */
     val hourglassCenter = Offset(center, pileY + pileSize.height / 2f)
+    /** Freier Bereich rechts neben der zweiten Ablage für Ketten-Banner und Punkte (reicht etwas in die Höhe). */
+    val infoArea: Rect = run {
+        val left = waste2TopLeft.x + pileSize.width + gap * 0.5f
+        val right = maxOf(left + cardW * 2f, margin + 9f * pitch + cardW + 2f * towerGap)
+        val top = (pileY - cardW * 0.6f).coerceAtLeast(0f)
+        Rect(left, top, right, (pileY + pileSize.height).coerceAtMost(height))
+    }
 
     fun pileTopLeft(pile: Int) = if (pile == 0) wasteTopLeft else waste2TopLeft
 
     fun slotTopLeft(index: Int): Offset {
         val (x, row) = GalaxyTowersEngine.slotPosition(index)
-        return Offset(margin + x * cardW, towerTop + row * rowStep)
+        return Offset(margin + x * pitch + gapOffset(index), towerTop + row * rowStep)
+    }
+
+    /**
+     * Zusätzlicher Abstand zwischen den drei Türmen. Die durchgehende untere Reihe teilt sich die Karten 3 und 6
+     * mit zwei Türmen – sie liegen mittig in der Lücke.
+     */
+    private fun gapOffset(index: Int): Float {
+        val peak = when (GalaxyTowersEngine.rowOf(index)) {
+            0 -> index.toFloat()
+            1 -> ((index - 3) / 2).toFloat()
+            2 -> ((index - 9) / 3).toFloat()
+            else -> when (val j = index - 18) {
+                3 -> 0.5f
+                6 -> 1.5f
+                else -> (j / 3).toFloat().coerceAtMost(2f)
+            }
+        }
+        return peak * towerGap
     }
 
     fun slotRect(index: Int) = Rect(slotTopLeft(index), cardSize)
@@ -143,7 +188,7 @@ fun GalaxyTowersScreen(
     val haptics = LocalHapticFeedback.current
     val cosmetics = LocalCosmetics.current
     val textMeasurer = rememberTextMeasurer(cacheSize = 64)
-    var buyDialog by remember { mutableStateOf<PowerUp?>(null) }
+    var infoDialog by remember { mutableStateOf<PowerUp?>(null) }
     var showRestartDialog by remember { mutableStateOf(false) }
 
     // Flug der zuletzt abgelegten Karte von ihrem Ursprung (Turm oder Stapel) zur Ablage
@@ -156,6 +201,16 @@ fun GalaxyTowersScreen(
         scope.launch {
             animate(0f, 1f, animationSpec = tween(230, easing = FastOutSlowInEasing)) { v, _ -> flight = v }
             if (flightFrom === from) flightFrom = null
+        }
+    }
+
+    // Falsch angetippte Karte: kurzes Wackeln und rote Strafpunkte
+    val misplay = viewModel.lastMisplay
+    val misplayProgress = remember { Animatable(1f) }
+    LaunchedEffect(misplay?.id) {
+        if (misplay != null) {
+            misplayProgress.snapTo(0f)
+            misplayProgress.animateTo(1f, tween(1100, easing = LinearOutSlowInEasing))
         }
     }
 
@@ -204,6 +259,8 @@ fun GalaxyTowersScreen(
                                                 if (result?.peakCleared == true || result?.roundCleared == true) HapticFeedbackType.LongPress
                                                 else HapticFeedbackType.TextHandleMove
                                             )
+                                        } else if (viewModel.misplay(i)) {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                         }
                                         return@detectTapGestures
                                     }
@@ -216,21 +273,30 @@ fun GalaxyTowersScreen(
                                 }
                             },
                     ) {
-                        drawTable(game, layout, textMeasurer, cosmetics.cardBack, flightFrom, flight)
+                        drawTable(game, layout, textMeasurer, cosmetics.cardBack, flightFrom, flight, misplay, misplayProgress.value)
                     }
                     GoldBurst(viewModel.lastPlay, layout)
-                    // Einblendung über der Ablage-Reihe, damit sie die Türme möglichst wenig verdeckt
-                    PlayPopup(
-                        viewModel.lastPlay,
+                    TimeGlow(viewModel.lastPlay, layout)
+                    // Kette und Punkte im freien Bereich rechts neben der zweiten Ablage – verdecken keine Karten.
+                    val area = layout.infoArea
+                    Column(
                         Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = with(density) { (layout.pileY.toDp() - 96.dp).coerceAtLeast(0.dp) }),
-                    )
+                            .padding(
+                                start = with(density) { area.left.toDp() },
+                                top = with(density) { area.top.toDp() },
+                            )
+                            .size(with(density) { area.width.toDp() }, with(density) { area.height.toDp() }),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        ChainBanner(game.streak, viewModel.chainPoints)
+                        PlayPopup(viewModel.lastPlay)
+                    }
                 }
                 Spacer(Modifier.width(8.dp))
                 Column(
                     Modifier
-                        .width(212.dp)
+                        .width(164.dp)
                         .fillMaxHeight()
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -239,27 +305,21 @@ fun GalaxyTowersScreen(
                         ArcadeIconButton(onClick = onExit) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
                         }
-                        Spacer(Modifier.width(8.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Galaxy Towers 2", style = MaterialTheme.typography.titleSmall, color = ArcadeText, maxLines = 1)
-                            if (modeTitle != null) {
-                                Text(modeTitle.uppercase(), style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted, maxLines = 1)
-                            }
-                        }
+                        Spacer(Modifier.weight(1f))
                         ArcadeIconButton(onClick = { if (viewModel.paused) viewModel.resume() else viewModel.pause() }) {
                             PauseGlyph()
                         }
                     }
-                    InfoPanel(game = game, best = viewModel.best, wallet = viewModel.walletCoins)
+                    InfoPanel(game = game, modeTitle = modeTitle, best = viewModel.best, wallet = viewModel.walletCoins)
                     if (GalaxyTowersEngine.isStuck(game)) StuckPanel(onEndRound = viewModel::endRound)
                     PowerUpGrid(
                         game = game,
-                        canBuy = viewModel.canBuy,
+                        foundTick = viewModel.lastPlay?.takeIf { it.reward != null },
                         onUse = { p ->
                             if (game.charges(p) > 0) {
                                 if (viewModel.usePowerUp(p)) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            } else if (viewModel.canBuy) {
-                                buyDialog = p
+                            } else {
+                                infoDialog = p
                             }
                         },
                     )
@@ -300,31 +360,20 @@ fun GalaxyTowersScreen(
         }
     }
 
-    buyDialog?.let { p ->
-        val affordable = viewModel.walletCoins >= p.price
+    infoDialog?.let { p ->
         AlertDialog(
-            onDismissRequest = { buyDialog = null },
+            onDismissRequest = { infoDialog = null },
             containerColor = ArcadeSurface,
-            title = { Text("${p.title} kaufen?") },
+            title = { Text("${p.symbol}  ${p.title}") },
             text = {
                 Column {
                     Text(p.description, color = ArcadeTextMuted)
                     Spacer(Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CoinIcon(16.dp)
-                        Spacer(Modifier.width(6.dp))
-                        Text("${p.price}  (du hast ${viewModel.walletCoins})", color = CoinGold)
-                    }
+                    Text("Noch nicht gefunden – Power-ups fallen zufällig beim Ablegen von Karten, mit langen Ketten öfter.", color = ArcadeText)
                 }
             },
             confirmButton = {
-                TextButton(enabled = affordable, onClick = {
-                    buyDialog = null
-                    viewModel.buyPowerUp(p)
-                }) { Text(if (affordable) "Kaufen" else "Zu wenig Coins", color = if (affordable) NeonCyan else ArcadeTextMuted) }
-            },
-            dismissButton = {
-                TextButton(onClick = { buyDialog = null }) { Text("Abbrechen", color = ArcadeTextMuted) }
+                TextButton(onClick = { infoDialog = null }) { Text("OK", color = NeonCyan) }
             },
         )
     }
@@ -355,20 +404,39 @@ private fun DrawScope.drawTable(
     back: CardBack,
     flightFrom: Flight?,
     flight: Float,
+    misplay: MisplayEvent?,
+    misplayProgress: Float,
 ) {
-    // Türme: von hinten (Spitzen) nach vorne (untere Reihe)
+    // Türme: von hinten (Spitzen) nach vorne (untere Reihe); spielbare Karten werden bewusst nicht markiert.
+    val shaking = misplay?.index?.takeIf { misplayProgress < 0.35f }
     for (i in 0 until GalaxyTowersEngine.TOWER_SIZE) {
         val card = game.tower[i] ?: continue
-        val topLeft = layout.slotTopLeft(i)
+        var topLeft = layout.slotTopLeft(i)
+        if (i == shaking) {
+            val p = misplayProgress / 0.35f
+            topLeft += Offset(sin(p * PI.toFloat() * 6f) * (1f - p) * layout.cardW * 0.15f, 0f)
+        }
         val open = GalaxyTowersEngine.isFree(game.tower, i)
         when {
-            open -> drawCardFace(topLeft, layout.cardSize, card, textMeasurer, highlight = GalaxyTowersEngine.canPlay(game, i))
+            open -> drawCardFace(topLeft, layout.cardSize, card, textMeasurer)
             game.scanActive -> {
                 drawCardFace(topLeft, layout.cardSize, card, textMeasurer)
                 drawRoundRect(NeonCyan.copy(alpha = 0.28f), topLeft, layout.cardSize, CornerRadius(layout.cardW * 0.1f))
             }
             else -> drawCardBack(topLeft, layout.cardSize, back)
         }
+        if (i == shaking) {
+            drawRoundRect(NeonPink.copy(alpha = 0.35f * (1f - misplayProgress / 0.35f)), topLeft, layout.cardSize, CornerRadius(layout.cardW * 0.1f))
+        }
+    }
+    // Rote Strafpunkte steigen über der falschen Karte auf
+    if (misplay != null && misplayProgress < 1f) {
+        val tl = layout.slotTopLeft(misplay.index)
+        val text = textMeasurer.measure(
+            "−${misplay.penalty}",
+            TextStyle(color = NeonPink.copy(alpha = if (misplayProgress < 0.7f) 1f else (1f - misplayProgress) / 0.3f), fontSize = (layout.cardW * 0.42f).toSp(), fontWeight = FontWeight.Black, shadow = Shadow(Color.Black, Offset(0f, 2f), 8f)),
+        )
+        drawText(text, topLeft = tl + Offset((layout.cardW - text.size.width) / 2f, -text.size.height * 0.6f - misplayProgress * layout.cardW * 0.6f))
     }
 
     // Nachziehstapel, die Kartenzahl steht wie im ersten Teil auf dem Stapel
@@ -455,7 +523,16 @@ private fun DrawScope.drawPile(
 ) {
     val tl = layout.pileTopLeft(pile)
     drawCardSlot(tl, layout.pileSize)
-    val top = cards.lastOrNull() ?: return
+    val top = cards.lastOrNull()
+    if (top == null) {
+        // Leere Ablage zum Rundenstart: jede offene Karte passt.
+        val hint = textMeasurer.measure(
+            "frei",
+            TextStyle(color = Color.White.copy(alpha = 0.45f), fontSize = (layout.cardW * 0.3f).toSp(), fontWeight = FontWeight.Bold),
+        )
+        drawText(hint, topLeft = tl + Offset((layout.pileSize.width - hint.size.width) / 2f, (layout.pileSize.height - hint.size.height) / 2f))
+        return
+    }
     if (flightFrom == null || flightFrom.pile != pile) {
         drawCardFace(tl, layout.pileSize, top, textMeasurer)
         return
@@ -483,7 +560,7 @@ private fun Backdrop(backdrop: SpaceBackdrop, modifier: Modifier = Modifier) {
 
 /** Info-Box wie im ersten Teil: Runde, Punkte, Kette – dazu Rekord und Coins. */
 @Composable
-private fun InfoPanel(game: GameState, best: Int, wallet: Int) {
+private fun InfoPanel(game: GameState, modeTitle: String?, best: Int, wallet: Int) {
     val animatedScore by animateIntAsState(game.score, tween(350), label = "score")
     val shape = RoundedCornerShape(14.dp)
     Column(
@@ -492,11 +569,14 @@ private fun InfoPanel(game: GameState, best: Int, wallet: Int) {
             .clip(shape)
             .background(Color(0xFF3F3F46).copy(alpha = 0.85f))
             .border(2.dp, Color(0xFF52525B), shape)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Runde ${game.round} / ${game.mode.rounds}", style = MaterialTheme.typography.titleSmall, color = ArcadeText)
-        Text("$animatedScore", style = MaterialTheme.typography.headlineSmall, color = ArcadeText)
+        if (modeTitle != null) {
+            Text(modeTitle.uppercase(), style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted, maxLines = 1)
+        }
+        Text("Runde ${game.round} / ${game.mode.rounds}", style = MaterialTheme.typography.labelLarge, color = ArcadeText)
+        Text("$animatedScore", style = MaterialTheme.typography.titleLarge, color = ArcadeText, maxLines = 1)
         val mult = GalaxyTowersEngine.multiplier(game.round)
         Text(
             if (game.streak > 1) "Kette x${game.streak}" else if (mult > 1f) "Punkte ×${"%.2f".format(mult).trimEnd('0').trimEnd('.')}" else " ",
@@ -505,65 +585,66 @@ private fun InfoPanel(game: GameState, best: Int, wallet: Int) {
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(14.dp))
-            Spacer(Modifier.width(4.dp))
-            Text("$best", style = MaterialTheme.typography.labelLarge, color = ArcadeTextMuted)
-            Spacer(Modifier.width(14.dp))
-            Text("$wallet", style = MaterialTheme.typography.labelLarge, color = CoinGold)
-            Spacer(Modifier.width(4.dp))
-            CoinIcon(14.dp)
+            Spacer(Modifier.width(3.dp))
+            Text("$best", style = MaterialTheme.typography.labelMedium, color = ArcadeTextMuted, maxLines = 1)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("$wallet", style = MaterialTheme.typography.labelMedium, color = CoinGold, maxLines = 1)
+            Spacer(Modifier.width(3.dp))
+            CoinIcon(13.dp)
         }
     }
 }
 
-/** Power-ups als 2×2-Raster für die Seitenleiste. */
+/** Power-ups als 2×2-Raster für die Seitenleiste; ein frisch gefundenes Power-up leuchtet kurz auf. */
 @Composable
-private fun PowerUpGrid(game: GameState, canBuy: Boolean, onUse: (PowerUp) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun PowerUpGrid(game: GameState, foundTick: PlayEvent?, onUse: (PowerUp) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         PowerUp.entries.chunked(2).forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { p -> PowerUpButton(game, p, canBuy, onUse, Modifier.weight(1f)) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                row.forEach { p ->
+                    PowerUpButton(game, p, foundTick?.takeIf { it.reward == p }?.id, onUse, Modifier.weight(1f))
+                }
             }
         }
     }
 }
 
 @Composable
-private fun PowerUpButton(game: GameState, p: PowerUp, canBuy: Boolean, onUse: (PowerUp) -> Unit, modifier: Modifier) {
+private fun PowerUpButton(game: GameState, p: PowerUp, foundId: Long?, onUse: (PowerUp) -> Unit, modifier: Modifier) {
     val charges = game.charges(p)
     val usable = GalaxyTowersEngine.canUse(game, p)
-    val buyable = charges == 0 && canBuy && game.inPlay
-    val enabled = usable || buyable
-    val shape = RoundedCornerShape(14.dp)
+    val glow = remember { Animatable(0f) }
+    LaunchedEffect(foundId) {
+        if (foundId != null) {
+            glow.snapTo(1f)
+            glow.animateTo(0f, tween(1400))
+        }
+    }
+    val shape = RoundedCornerShape(12.dp)
     Box(
         modifier
-            .height(56.dp)
+            .height(48.dp)
             .clip(shape)
             .background(ArcadeSurface.copy(alpha = 0.9f))
+            .background(NeonYellow.copy(alpha = 0.35f * glow.value))
             .border(1.dp, if (usable) NeonCyan.copy(alpha = 0.7f) else ArcadeOutline, shape)
-            .clickable(enabled = enabled) { onUse(p) }
-            .alpha(if (enabled) 1f else 0.4f),
+            // Leere Power-ups bleiben antippbar und erklären, wie man sie findet.
+            .clickable(enabled = usable || charges == 0) { onUse(p) }
+            .alpha(if (usable) 1f else 0.4f),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(p.symbol, style = MaterialTheme.typography.titleLarge, color = NeonYellow)
-            Text(p.title, style = MaterialTheme.typography.labelSmall, color = ArcadeText, maxLines = 1)
-        }
-        Box(
-            Modifier
-                .align(Alignment.TopEnd)
-                .padding(4.dp)
-                .clip(RoundedCornerShape(50))
-                .background(if (charges > 0) NeonPink else Color.Transparent)
-                .padding(horizontal = 6.dp, vertical = 1.dp),
-        ) {
-            if (charges > 0) {
+        Text(p.symbol, style = MaterialTheme.typography.titleLarge, color = NeonYellow)
+        if (charges > 0) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(3.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(NeonPink)
+                    .padding(horizontal = 5.dp),
+            ) {
                 Text("$charges", style = MaterialTheme.typography.labelSmall, color = Color.White)
-            } else if (canBuy) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CoinIcon(10.dp)
-                    Spacer(Modifier.width(2.dp))
-                    Text("${p.price}", style = MaterialTheme.typography.labelSmall, color = CoinGold)
-                }
             }
         }
     }
@@ -584,6 +665,24 @@ private fun StuckPanel(onEndRound: () -> Unit) {
         Text("Keine Züge mehr", style = MaterialTheme.typography.titleSmall, color = ArcadeText)
         Text("Power-up einsetzen oder", style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
         TextButton(onClick = onEndRound) { Text("Runde beenden", color = NeonPink) }
+    }
+}
+
+/** Die Sanduhr glüht kurz auf, wenn eine Karte Bonuszeit abgeworfen hat. */
+@Composable
+private fun TimeGlow(event: PlayEvent?, layout: TableLayout) {
+    if (event == null || event.timeDrop <= 0) return
+    val progress = remember(event.id) { Animatable(0f) }
+    LaunchedEffect(event.id) { progress.animateTo(1f, tween(1200, easing = LinearOutSlowInEasing)) }
+    if (progress.value >= 1f) return
+    Canvas(Modifier.fillMaxSize()) {
+        val p = progress.value
+        val c = layout.hourglassCenter
+        val r = layout.cardW * (0.6f + 0.5f * p)
+        drawCircle(
+            Brush.radialGradient(listOf(NeonYellow.copy(alpha = 0.55f * (1f - p)), Color.Transparent), c, r),
+            r, c,
+        )
     }
 }
 
@@ -609,19 +708,58 @@ private fun GoldBurst(event: PlayEvent?, layout: TableLayout) {
     }
 }
 
-/** Punkte, Kette und Bonus der zuletzt abgelegten Karte; bleiben gut lesbar stehen und verblassen dann. */
+/**
+ * Dauerhafte Kettenanzeige: Länge und Punktesumme der laufenden Kette. Sie wächst bei jeder Karte kurz an
+ * und bleibt nach dem Ende der Kette noch einen Moment mit dem Endergebnis stehen.
+ */
+@Composable
+private fun ChainBanner(streak: Int, points: Int) {
+    var shownStreak by remember { mutableIntStateOf(0) }
+    var shownPoints by remember { mutableIntStateOf(0) }
+    val currentPoints by rememberUpdatedState(points)
+    val alpha = remember { Animatable(0f) }
+    val pop = remember { Animatable(1f) }
+    LaunchedEffect(streak) {
+        if (streak >= 2) {
+            shownStreak = streak
+            shownPoints = currentPoints
+            alpha.snapTo(1f)
+            pop.snapTo(1.25f)
+            pop.animateTo(1f, spring(dampingRatio = 0.5f, stiffness = 500f))
+        } else if (shownStreak >= 2) {
+            delay(2500)
+            alpha.animateTo(0f, tween(600))
+            shownStreak = 0
+        }
+    }
+    if (shownStreak < 2 || alpha.value <= 0f) return
+    val textStyle = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.8f), Offset(0f, 3f), 10f), textAlign = TextAlign.Center)
+    Column(
+        Modifier.graphicsLayer {
+            this.alpha = alpha.value
+            scaleX = pop.value
+            scaleY = pop.value
+        },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Kette x$shownStreak", style = MaterialTheme.typography.headlineSmall.merge(textStyle), color = NeonPink)
+        Text("+$shownPoints", style = MaterialTheme.typography.titleLarge.merge(textStyle), color = ArcadeText)
+    }
+}
+
+/** Einzelpunkte und Extras der zuletzt abgelegten Karte; bleiben gut lesbar stehen und verblassen dann. */
 @Composable
 private fun PlayPopup(event: PlayEvent?, modifier: Modifier = Modifier) {
     if (event == null) return
     val progress = remember(event.id) { Animatable(0f) }
-    LaunchedEffect(event.id) { progress.animateTo(1f, tween(1800, easing = LinearOutSlowInEasing)) }
+    LaunchedEffect(event.id) { progress.animateTo(1f, tween(3000, easing = LinearOutSlowInEasing)) }
     if (progress.value >= 1f) return
     val textStyle = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.8f), Offset(0f, 3f), 10f), textAlign = TextAlign.Center)
     Column(
         modifier.graphicsLayer {
             val p = progress.value
-            translationY = -p * 30.dp.toPx()
-            alpha = if (p < 0.8f) 1f else (1f - p) / 0.2f
+            translationY = -p * 12.dp.toPx()
+            alpha = if (p < 0.85f) 1f else (1f - p) / 0.15f
             val pop = 0.75f + 0.25f * minOf(1f, p * 6f)
             scaleX = pop
             scaleY = pop
@@ -637,10 +775,10 @@ private fun PlayPopup(event: PlayEvent?, modifier: Modifier = Modifier) {
         if (event.reward != null) {
             Text("+1 ${event.reward.title}", style = MaterialTheme.typography.titleMedium.merge(textStyle), color = NeonCyan)
         }
-        if (event.streak > 1) {
-            Text("Kette x${event.streak}", style = MaterialTheme.typography.titleMedium.merge(textStyle), color = NeonPink)
+        Text("+${event.points}", style = MaterialTheme.typography.titleLarge.merge(textStyle), color = NeonYellow)
+        if (event.timeDrop > 0) {
+            Text("⌛ +${event.timeDrop} s", style = MaterialTheme.typography.titleLarge.merge(textStyle), color = NeonYellow)
         }
-        Text("+${event.points}", style = MaterialTheme.typography.headlineMedium.merge(textStyle), color = ArcadeText)
         if (event.gold > 0) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CoinIcon(20.dp)

@@ -30,7 +30,11 @@ data class PlayEvent(
     val reward: PowerUp?,
     val secondPileOpened: Boolean,
     val gold: Int,
+    val timeDrop: Int,
 )
+
+/** Eine falsch angetippte Karte, die wackelt und Strafpunkte zeigt. */
+data class MisplayEvent(val id: Long, val index: Int, val penalty: Int)
 
 /** Punkte der zuletzt abgeräumten Runde (für die Runden-Einblendung). */
 data class ClearBonus(val clear: Int, val time: Int, val coins: Int)
@@ -50,9 +54,6 @@ class GalaxyTowersViewModel(app: Application, savedStateHandle: SavedStateHandle
     /** Schlüssel für Highscore und Spielstand (bei der Täglichen Challenge pro Tag). */
     private val scoreKey = if (mode == GalaxyTowersMode.DAILY) DailyChallenge.scoreKey(mode.id) else mode.id
 
-    /** In der Täglichen Challenge gibt es keine gekauften Power-ups – gleiche Bedingungen für alle. */
-    val canBuy: Boolean get() = mode.canBuy
-
     private fun newSeed(): Long = if (mode == GalaxyTowersMode.DAILY) DailyChallenge.todaySeed() else System.nanoTime()
 
     /** Rekord zu Spielbeginn – Grundlage für "Neuer Rekord!". */
@@ -71,6 +72,11 @@ class GalaxyTowersViewModel(app: Application, savedStateHandle: SavedStateHandle
     var lastPlay by mutableStateOf<PlayEvent?>(null)
         private set
     var lastClear by mutableStateOf(ClearBonus(0, 0, 0))
+        private set
+    var lastMisplay by mutableStateOf<MisplayEvent?>(null)
+        private set
+    /** Summe der Punkte der laufenden (bzw. zuletzt beendeten) Kette – nur für den Ketten-Banner. */
+    var chainPoints by mutableIntStateOf(0)
         private set
     var walletCoins by mutableIntStateOf(0)
         private set
@@ -116,7 +122,9 @@ class GalaxyTowersViewModel(app: Application, savedStateHandle: SavedStateHandle
             reward = result.reward,
             secondPileOpened = result.secondPileOpened,
             gold = result.gold,
+            timeDrop = result.timeDrop,
         )
+        chainPoints = if (game.streak == 0) result.points else chainPoints + result.points
         if (result.roundCleared) lastClear = ClearBonus(result.clearBonus, result.timeBonus, result.coins - result.gold)
         profile.addCoins(result.coins)
         update(result.state)
@@ -129,6 +137,15 @@ class GalaxyTowersViewModel(app: Application, savedStateHandle: SavedStateHandle
     fun draw(): Boolean {
         if (paused) return false
         val next = GalaxyTowersEngine.draw(game) ?: return false
+        update(next)
+        return true
+    }
+
+    /** Offene, aber unpassende Karte angetippt: Strafpunkte. */
+    fun misplay(index: Int): Boolean {
+        if (paused) return false
+        val next = GalaxyTowersEngine.misplay(game, index) ?: return false
+        lastMisplay = MisplayEvent(++eventCounter, index, GalaxyTowersEngine.WRONG_CARD_PENALTY)
         update(next)
         return true
     }
@@ -160,18 +177,9 @@ class GalaxyTowersViewModel(app: Application, savedStateHandle: SavedStateHandle
         return true
     }
 
-    /** Kauft eine Ladung mit Coins (nicht in der Täglichen Challenge). */
-    fun buyPowerUp(p: PowerUp) {
-        if (!canBuy || game.isGameOver) return
-        viewModelScope.launch {
-            if (profile.spendCoins(p.price) && !game.isGameOver) update(GalaxyTowersEngine.addCharge(game, p))
-        }
-    }
-
     private fun update(next: GameState) {
-        // Ohne Rettung (keine Ladung, nichts kaufbar) endet eine festgefahrene Runde sofort.
-        val cannotBuy = !canBuy || walletCoins < PowerUp.entries.minOf { it.price }
-        val state = if (GalaxyTowersEngine.isHopeless(next) && cannotBuy) GalaxyTowersEngine.endRound(next, RoundEnd.STUCK) else next
+        // Ohne rettende Ladung endet eine festgefahrene Runde sofort.
+        val state = if (GalaxyTowersEngine.isHopeless(next)) GalaxyTowersEngine.endRound(next, RoundEnd.STUCK) else next
         game = state
         if (state.score > best) best = state.score
         isNewBest = state.score > bestAtStart
@@ -217,6 +225,8 @@ class GalaxyTowersViewModel(app: Application, savedStateHandle: SavedStateHandle
         leaderboardRank = null
         lastPlay = null
         lastClear = ClearBonus(0, 0, 0)
+        lastMisplay = null
+        chainPoints = 0
         paused = false
     }
 }
