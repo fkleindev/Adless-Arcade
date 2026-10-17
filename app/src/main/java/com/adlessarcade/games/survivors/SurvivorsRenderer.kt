@@ -281,8 +281,9 @@ private fun DrawScope.drawDecor(theme: SurvivorTheme, at: Offset, unit: Float, v
             else -> Unit
         }
         DecorStyle.GRAVEYARD -> when (variant) {
-            in 0..2 -> gravestone(at, unit, theme.detail)
-            3 -> deadTree(at, unit)
+            // Flach und blass, damit die Deko nicht mit den festen Hindernissen verwechselt wird
+            in 0..2 -> gravestone(at, unit * 0.75f, theme.detail.copy(alpha = 0.35f))
+            3 -> deadTree(at, unit * 0.8f, Color(0xFF3F2E25).copy(alpha = 0.45f))
             in 4..6 -> drawCircle(theme.accent.copy(alpha = 0.08f), unit * 0.6f, at)
             else -> Unit
         }
@@ -325,13 +326,13 @@ private fun DrawScope.crystal(at: Offset, size: Float, color: Color) {
 private fun DrawScope.gravestone(at: Offset, unit: Float, color: Color) {
     val w = unit * 0.32f
     val h = unit * 0.42f
+    val cross = Color.Black.copy(alpha = 0.4f * color.alpha)
     drawRoundRect(color, at - Offset(w / 2f, h), Size(w, h), CornerRadius(w / 2f, w / 2f))
-    drawLine(Color.Black.copy(alpha = 0.4f), at + Offset(0f, -h * 0.8f), at + Offset(0f, -h * 0.35f), strokeWidth = unit * 0.03f)
-    drawLine(Color.Black.copy(alpha = 0.4f), at + Offset(-w * 0.25f, -h * 0.65f), at + Offset(w * 0.25f, -h * 0.65f), strokeWidth = unit * 0.03f)
+    drawLine(cross, at + Offset(0f, -h * 0.8f), at + Offset(0f, -h * 0.35f), strokeWidth = unit * 0.03f)
+    drawLine(cross, at + Offset(-w * 0.25f, -h * 0.65f), at + Offset(w * 0.25f, -h * 0.65f), strokeWidth = unit * 0.03f)
 }
 
-private fun DrawScope.deadTree(at: Offset, unit: Float) {
-    val brown = Color(0xFF3F2E25)
+private fun DrawScope.deadTree(at: Offset, unit: Float, brown: Color) {
     drawLine(brown, at, at + Offset(0f, -unit * 0.6f), strokeWidth = unit * 0.07f)
     drawLine(brown, at + Offset(0f, -unit * 0.35f), at + Offset(unit * 0.25f, -unit * 0.55f), strokeWidth = unit * 0.05f)
     drawLine(brown, at + Offset(0f, -unit * 0.45f), at + Offset(-unit * 0.2f, -unit * 0.62f), strokeWidth = unit * 0.05f)
@@ -428,17 +429,25 @@ private fun enemyColor(kind: EnemyKind): Color = when (kind) {
 // --- Friedhof: Hindernisse, Indikatoren, Geschosse ---
 
 private val DangerRed = Color(0xFFF43F5E)
+private val ObstacleOutline = Color(0xFF0B0B12)
 
 private fun DrawScope.drawObstacle(cam: SurvivorsCamera, o: Obstacle, theme: SurvivorTheme) {
     val c = cam.at(o.x, o.y)
     val r = cam.len(o.radius)
-    val stone = Color(0xFF4B5563)
-    val light = Color(0xFF6B7280)
-    drawOval(Color.Black.copy(alpha = 0.35f), c + Offset(-r * 1.05f, r * 0.35f), Size(r * 2.1f, r * 0.8f))
+    val stone = Color(0xFF64748B)
+    val light = Color(0xFF94A3B8)
+    val outline = Stroke(width = cam.len(0.05f))
+    drawOval(Color.Black.copy(alpha = 0.45f), c + Offset(-r * 1.05f, r * 0.35f), Size(r * 2.1f, r * 0.8f))
+    // Fester Sockel in Größe der Kollisionsfläche: zeigt, wo man nicht durchkommt
+    drawCircle(Color(0xFF0F0E16).copy(alpha = 0.55f), r, c)
+    drawCircle(Color(0xFF9CA3AF).copy(alpha = 0.35f), r, c, style = outline)
     when (o.kind) {
         ObstacleKind.CRYPT -> {
             // Gruft: Steinhaus mit Giebel und dunkler Tür
-            drawRoundRect(stone, c + Offset(-r, -r * 0.7f), Size(r * 2f, r * 1.4f), CornerRadius(r * 0.1f))
+            val bodyTl = c + Offset(-r, -r * 0.7f)
+            val bodySize = Size(r * 2f, r * 1.4f)
+            drawRoundRect(stone, bodyTl, bodySize, CornerRadius(r * 0.1f))
+            drawRoundRect(ObstacleOutline, bodyTl, bodySize, CornerRadius(r * 0.1f), style = outline)
             val roof = Path().apply {
                 moveTo(c.x - r * 1.12f, c.y - r * 0.65f)
                 lineTo(c.x, c.y - r * 1.35f)
@@ -446,6 +455,7 @@ private fun DrawScope.drawObstacle(cam: SurvivorsCamera, o: Obstacle, theme: Sur
                 close()
             }
             drawPath(roof, light)
+            drawPath(roof, ObstacleOutline, style = outline)
             drawRoundRect(Color(0xFF111827), c + Offset(-r * 0.3f, -r * 0.2f), Size(r * 0.6f, r * 0.9f), CornerRadius(r * 0.3f, r * 0.3f))
             drawCircle(theme.accent.copy(alpha = 0.5f), r * 0.08f, c + Offset(0f, -r * 0.95f))
         }
@@ -456,14 +466,14 @@ private fun DrawScope.drawObstacle(cam: SurvivorsCamera, o: Obstacle, theme: Sur
                 val w = r * 0.6f
                 val h = r * 0.85f
                 drawRoundRect(light, p - Offset(w / 2f, h * 0.7f), Size(w, h), CornerRadius(w / 2f, w / 2f))
+                drawRoundRect(ObstacleOutline, p - Offset(w / 2f, h * 0.7f), Size(w, h), CornerRadius(w / 2f, w / 2f), style = outline)
                 drawLine(Color.Black.copy(alpha = 0.4f), p + Offset(0f, -h * 0.5f), p + Offset(0f, -h * 0.05f), strokeWidth = r * 0.06f)
             }
         }
         ObstacleKind.STATUE -> {
             // Engelsstatue auf Sockel
             drawRect(stone, c + Offset(-r * 0.7f, -r * 0.1f), Size(r * 1.4f, r * 0.7f))
-            drawRoundRect(light, c + Offset(-r * 0.3f, -r * 1.1f), Size(r * 0.6f, r * 1.05f), CornerRadius(r * 0.25f))
-            drawCircle(light, r * 0.25f, c + Offset(0f, -r * 1.25f))
+            drawRect(ObstacleOutline, c + Offset(-r * 0.7f, -r * 0.1f), Size(r * 1.4f, r * 0.7f), style = outline)
             listOf(-1f, 1f).forEach { side ->
                 val wing = Path().apply {
                     moveTo(c.x + side * r * 0.2f, c.y - r * 0.9f)
@@ -471,15 +481,26 @@ private fun DrawScope.drawObstacle(cam: SurvivorsCamera, o: Obstacle, theme: Sur
                     lineTo(c.x + side * r * 0.6f, c.y - r * 0.45f)
                     close()
                 }
-                drawPath(wing, Color(0xFF9CA3AF))
+                drawPath(wing, Color(0xFFCBD5E1))
+                drawPath(wing, ObstacleOutline, style = outline)
             }
+            drawRoundRect(light, c + Offset(-r * 0.3f, -r * 1.1f), Size(r * 0.6f, r * 1.05f), CornerRadius(r * 0.25f))
+            drawRoundRect(ObstacleOutline, c + Offset(-r * 0.3f, -r * 1.1f), Size(r * 0.6f, r * 1.05f), CornerRadius(r * 0.25f), style = outline)
+            drawCircle(light, r * 0.25f, c + Offset(0f, -r * 1.25f))
+            drawCircle(ObstacleOutline, r * 0.25f, c + Offset(0f, -r * 1.25f), style = outline)
         }
         ObstacleKind.DEAD_TREE -> {
-            val brown = Color(0xFF3F2E25)
+            val brown = Color(0xFF57412F)
+            val rim = cam.len(0.1f)
+            val trunk = listOf(
+                Triple(c, c + Offset(0f, -r * 1.8f), r * 0.3f),
+                Triple(c + Offset(0f, -r * 1.1f), c + Offset(r * 0.8f, -r * 1.7f), r * 0.18f),
+                Triple(c + Offset(0f, -r * 1.35f), c + Offset(-r * 0.7f, -r * 1.95f), r * 0.16f),
+            )
             drawCircle(Color(0xFF292524), r * 0.55f, c)
-            drawLine(brown, c, c + Offset(0f, -r * 1.8f), strokeWidth = r * 0.3f)
-            drawLine(brown, c + Offset(0f, -r * 1.1f), c + Offset(r * 0.8f, -r * 1.7f), strokeWidth = r * 0.18f)
-            drawLine(brown, c + Offset(0f, -r * 1.35f), c + Offset(-r * 0.7f, -r * 1.95f), strokeWidth = r * 0.16f)
+            // Dunkle, breitere Linie darunter ergibt die Kontur
+            trunk.forEach { (a, b, w) -> drawLine(ObstacleOutline, a, b, strokeWidth = w + rim) }
+            trunk.forEach { (a, b, w) -> drawLine(brown, a, b, strokeWidth = w) }
         }
     }
 }
@@ -1156,27 +1177,57 @@ private fun DrawScope.drawFx(cam: SurvivorsCamera, fx: SurvivorsFx, textMeasurer
 
 /** Pfeile am Bildrand zu Bossen und zum Runenstein, wenn sie außerhalb des Bildes sind. */
 private fun DrawScope.drawEdgeIndicators(cam: SurvivorsCamera, s: SurvivorsState) {
-    s.enemies.filter { it.isBoss }.forEach { drawEdgeArrow(cam, s, it.x, it.y, Color(0xFFF43F5E)) }
-    s.runeStone?.let { drawEdgeArrow(cam, s, it.x, it.y, RuneViolet) }
+    s.enemies.filter { it.isBoss }.forEach { drawEdgeArrow(cam, s, it.x, it.y, DangerRed, EdgeIcon.BOSS) }
+    s.runeStone?.let { drawEdgeArrow(cam, s, it.x, it.y, RuneViolet, EdgeIcon.RUNE) }
 }
 
-private fun DrawScope.drawEdgeArrow(cam: SurvivorsCamera, s: SurvivorsState, x: Float, y: Float, color: Color) {
+private enum class EdgeIcon { BOSS, RUNE }
+
+/** Pulsierende Plakette mit Symbol, an der außen eine Pfeilspitze in Richtung Ziel sitzt. */
+private fun DrawScope.drawEdgeArrow(cam: SurvivorsCamera, s: SurvivorsState, x: Float, y: Float, color: Color, icon: EdgeIcon) {
     val dx = x - s.px
     val dy = y - s.py
     if (abs(dx) < cam.halfWorldW && abs(dy) < cam.halfWorldH) return
     val angle = atan2(dy, dx)
-    val margin = 36f
+    val d = density
+    val margin = 48f * d // Platz für die nach außen zeigende Spitze
     val edge = Offset(
         (size.width / 2f + cos(angle) * size.width).coerceIn(margin, size.width - margin),
         (size.height / 2f + sin(angle) * size.height).coerceIn(margin, size.height - margin),
     )
+    val wave = sin(s.time * 5f)
+    val k = d * (1f + 0.12f * wave)
+    val badge = 16f * k
+    fun polar(a: Float, len: Float) = edge + Offset(cos(a), sin(a)) * len
+
+    drawCircle(color.copy(alpha = 0.35f + 0.1f * wave), badge * 1.6f, edge)
     val arrow = Path().apply {
-        moveTo(edge.x + cos(angle) * 22f, edge.y + sin(angle) * 22f)
-        lineTo(edge.x + cos(angle + 2.5f) * 16f, edge.y + sin(angle + 2.5f) * 16f)
-        lineTo(edge.x + cos(angle - 2.5f) * 16f, edge.y + sin(angle - 2.5f) * 16f)
+        val tip = polar(angle, badge + 20f * k)
+        moveTo(tip.x, tip.y)
+        polar(angle + 0.62f, badge + 2f * k).let { lineTo(it.x, it.y) }
+        polar(angle - 0.62f, badge + 2f * k).let { lineTo(it.x, it.y) }
         close()
     }
     drawPath(arrow, color)
+    drawPath(arrow, Color.White, style = Stroke(width = 2f * d))
+    drawCircle(Color.Black.copy(alpha = 0.6f), badge, edge)
+    drawCircle(color, badge, edge, style = Stroke(width = 2.5f * d))
+
+    val line = 2.5f * d
+    when (icon) {
+        EdgeIcon.RUNE -> {
+            // Runenzeichen wie beim Runen-Drop
+            val h = badge * 0.55f
+            drawLine(Color.White, edge + Offset(0f, -h), edge + Offset(0f, h), strokeWidth = line)
+            drawLine(Color.White, edge + Offset(0f, -h), edge + Offset(h * 0.55f, -h * 0.45f), strokeWidth = line)
+            drawLine(Color.White, edge + Offset(h * 0.55f, -h * 0.45f), edge + Offset(0f, 0f), strokeWidth = line)
+        }
+        EdgeIcon.BOSS -> {
+            val h = badge * 0.55f
+            drawLine(Color.White, edge + Offset(0f, -h), edge + Offset(0f, h * 0.25f), strokeWidth = line * 1.2f)
+            drawCircle(Color.White, line * 0.7f, edge + Offset(0f, h * 0.7f))
+        }
+    }
 }
 
 /** Runenstein: Obelisk mit Lade-Ring (füllt sich) und Restzeit-Bogen. */
