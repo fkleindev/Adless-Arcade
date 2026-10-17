@@ -20,6 +20,7 @@ enum class WeaponKind(val title: String, val icon: String) {
     AURA("Heilige Aura", "✺"),
     DAGGERS("Wurfdolche", "🗡"),
     FROST_NOVA("Frostnova", "❄"),
+    ANCHOR("Kettenanker", "⚓"),
 
     // In der Runen-Schmiede freischaltbar – je eine zweite Waffe pro Entwicklungs-Talent
     HAMMER("Kriegshammer", "🔨"),
@@ -33,7 +34,7 @@ enum class WeaponKind(val title: String, val icon: String) {
     GRAVITY("Gravitationsbrunnen", "🌀");
 
     /** Von Anfang an verfügbar (sonst in der Runen-Schmiede freizuschalten). */
-    val isBase: Boolean get() = ordinal <= FROST_NOVA.ordinal
+    val isBase: Boolean get() = ordinal <= ANCHOR.ordinal
 
     /** ID in der Runen-Schmiede. */
     val unlockId: String get() = "weapon_${name.lowercase()}"
@@ -47,6 +48,7 @@ enum class WeaponKind(val title: String, val icon: String) {
         AURA -> 0.5f
         DAGGERS -> listOf(0.6f, 0.55f, 0.5f, 0.42f, 0.35f).at(level)
         FROST_NOVA -> listOf(4f, 3.6f, 3.2f, 2.8f, 2.5f).at(level)
+        ANCHOR -> listOf(2.0f, 1.85f, 1.7f, 1.5f, 1.3f).at(level)
         HAMMER -> listOf(1.6f, 1.5f, 1.4f, 1.25f, 1.1f).at(level)
         ARCANE -> listOf(0.8f, 0.72f, 0.64f, 0.55f, 0.45f).at(level)
         WIND -> listOf(0.5f, 0.45f, 0.4f, 0.35f, 0.3f).at(level)
@@ -67,6 +69,7 @@ enum class WeaponKind(val title: String, val icon: String) {
         AURA -> listOf(4f, 5f, 6.5f, 8f, 10f).at(level)
         DAGGERS -> listOf(7f, 8.5f, 10f, 12f, 14f).at(level)
         FROST_NOVA -> listOf(10f, 14f, 18f, 21f, 25f).at(level)
+        ANCHOR -> listOf(14f, 18f, 23f, 28f, 34f).at(level)
         HAMMER -> listOf(30f, 38f, 47f, 57f, 70f).at(level)
         ARCANE -> listOf(9f, 11f, 13.5f, 16.5f, 20f).at(level)
         WIND -> listOf(8f, 10f, 12.5f, 15f, 18f).at(level)
@@ -90,6 +93,7 @@ enum class WeaponKind(val title: String, val icon: String) {
         VINES -> listOf(1, 1, 2, 2, 2).at(level)
         SHARDS -> listOf(1, 2, 2, 3, 3).at(level)
         SHIELD -> listOf(1, 1, 2, 2, 2).at(level)
+        ANCHOR -> listOf(1, 1, 2, 2, 3).at(level)
         WIND -> 1
         else -> 1
     }
@@ -123,7 +127,7 @@ enum class WeaponKind(val title: String, val icon: String) {
 
     /** Waffen, bei denen „Vielfalt“ zusätzliche Projektile/Einschläge/Schädel bringt. */
     val usesExtraProjectiles: Boolean
-        get() = this in setOf(FIREBALL, ARROWS, BONE_ORBIT, LIGHTNING, DAGGERS, ARCANE, SPEAR, VINES, SHARDS, SHIELD, WIND, GRAVITY)
+        get() = this in setOf(FIREBALL, ARROWS, BONE_ORBIT, LIGHTNING, DAGGERS, ARCANE, SPEAR, VINES, SHARDS, SHIELD, WIND, GRAVITY, ANCHOR)
 
     /** Was „Vielfalt“ bei dieser Waffe bewirkt. */
     val multiEffect: String
@@ -137,6 +141,7 @@ enum class WeaponKind(val title: String, val icon: String) {
             LIGHTNING -> "+1 Einschlag"
             VINES -> "+1 Ranke"
             WIND -> "+1 Klinge"
+            ANCHOR -> "+1 Anker"
             else -> "+1 Projektil"
         }
 
@@ -151,10 +156,10 @@ enum class WeaponKind(val title: String, val icon: String) {
             AURA, VINES -> PassiveKind.REGEN
             DAGGERS, SHARDS -> PassiveKind.MULTI
             FROST_NOVA, SHIELD -> PassiveKind.ARMOR
-            GRAVITY -> PassiveKind.MAGNET
+            ANCHOR, GRAVITY -> PassiveKind.MAGNET
         }
 
-    /** Grundwaffe mit demselben Entwicklungs-Talent (Voraussetzung zum Freischalten); null bei Grundwaffen und Magnet. */
+    /** Grundwaffe mit demselben Entwicklungs-Talent (Voraussetzung zum Freischalten); null bei Grundwaffen. */
     val partner: WeaponKind?
         get() = if (isBase) null else entries.firstOrNull { it.isBase && it.evolutionPassive == evolutionPassive }
 
@@ -168,6 +173,7 @@ enum class WeaponKind(val title: String, val icon: String) {
             AURA -> "Heiliges Licht"
             DAGGERS -> "Klingensturm"
             FROST_NOVA -> "Eiszeit"
+            ANCHOR -> "Leviathan"
             HAMMER -> "Erdbrecher"
             ARCANE -> "Arkansturm"
             WIND -> "Orkan"
@@ -189,6 +195,7 @@ enum class WeaponKind(val title: String, val icon: String) {
             AURA -> "☀️"
             DAGGERS -> "🌀"
             FROST_NOVA -> "🧊"
+            ANCHOR -> "🐋"
             HAMMER -> "🌋"
             ARCANE -> "✨"
             WIND -> "🌪️"
@@ -210,6 +217,7 @@ enum class WeaponKind(val title: String, val icon: String) {
             AURA -> "Größere Aura, die dich mit jedem Treffer heilt."
             DAGGERS -> "Dolche fliegen in alle Richtungen und kehren zurück."
             FROST_NOVA -> "Friert Gegner ein – eingefrorene Gegner erleiden mehr Schaden."
+            ANCHOR -> "Der Anker reißt eine ganze Gruppe mit, die bei dir zusammenprallt und kurz betäubt wird."
             HAMMER -> "Zusätzlich eine Schockwelle rundherum, die Gegner kurz betäubt."
             ARCANE -> "Dauerfeuer – Kugeln springen nach jedem Treffer zum nächsten Gegner."
             WIND -> "Wirbelstürme statt Klingen: ziehen Gegner an und treffen sie immer wieder."
@@ -230,6 +238,7 @@ enum class WeaponKind(val title: String, val icon: String) {
         AURA -> if (level <= 1) "Schadet Gegnern in deiner Nähe dauerhaft." else "Größere und stärkere Aura."
         DAGGERS -> if (level <= 1) "Wirft Dolche in Laufrichtung." else "Mehr Dolche, schnellere Würfe."
         FROST_NOVA -> if (level <= 1) "Eiswelle um dich, verlangsamt Gegner." else "Größere, häufigere Nova."
+        ANCHOR -> if (level <= 1) "Schleudert einen Anker zum fernsten Gegner im Sammelradius und reißt ihn heran. Magnet erhöht die Reichweite." else "Mehr Anker, mehr Schaden, häufiger."
         HAMMER -> if (level <= 1) "Wuchtiger Hieb nach vorn, stößt Gegner zurück." else "Mehr Schaden, größere Schockwelle."
         ARCANE -> if (level <= 1) "Zielsuchende Magiekugeln." else "Mehr Kugeln, schnellere Folge."
         WIND -> if (level <= 1) "Beim Laufen bleiben schneidende Klingen zurück – je schneller, desto mehr." else "Größere, häufigere Klingen."
@@ -252,7 +261,7 @@ enum class PassiveKind(val title: String, val icon: String, val description: Str
     HASTE("Eile", "👟", "+10 % Lauftempo"),
     WISDOM("Weisheit", "📖", "−8 % Abklingzeit, schnellerer Orbit und Aura-Takt"),
     REACH("Reichweite", "◎", "+10 % Fläche, Radius, Projektilgröße und Flugweite"),
-    MAGNET("Magnet", "🧲", "+30 % Sammelradius, stärkerer Sog des Gravitationsbrunnens"),
+    MAGNET("Magnet", "🧲", "+30 % Sammelradius, weitere Kettenanker, stärkerer Sog des Gravitationsbrunnens"),
     ARMOR("Rüstung", "🛡", "−1 Schaden pro Treffer"),
     REGEN("Regeneration", "✚", "+0,3 Leben pro Sekunde"),
     MULTI("Vielfalt", "✳", "+1 Projektil, Folgeschlag oder Echo"),
@@ -265,7 +274,8 @@ class HeroStats(private val state: SurvivorsState) {
     private val c = state.heroClass
 
     val maxHp: Float = c.maxHp * (1f + 0.2f * lv(PassiveKind.VITALITY) + item(ItemKind.AMULET))
-    val speed: Float = c.speed * (1f + 0.1f * lv(PassiveKind.HASTE))
+    val speed: Float = c.speed * (1f + 0.1f * lv(PassiveKind.HASTE)) *
+        if (c == HeroClass.ASSASSIN && state.shadowStep > 0f) 1f + ASSASSIN_SHADOW_STEP_SPEED else 1f
     val cooldownMultiplier: Float = (1f - c.cooldownBonus) * (1f - 0.08f * lv(PassiveKind.WISDOM)) *
         (1f - item(ItemKind.HOURGLASS).coerceAtMost(ItemKind.MAX_COOLDOWN_REDUCTION))
     val areaMultiplier: Float = 1f + 0.1f * lv(PassiveKind.REACH)
@@ -281,7 +291,10 @@ class HeroStats(private val state: SurvivorsState) {
         else -> 0f
     }
     val damageMultiplier: Float = 1f + 0.1f * lv(PassiveKind.MIGHT) + berserk * missingHp + classDamageBonus
-    val regen: Float = 0.3f * lv(PassiveKind.REGEN)
+    /** Gottesschild: Regeneration wirkt beim Paladin doppelt. */
+    val regen: Float = 0.3f * lv(PassiveKind.REGEN) * if (c == HeroClass.PALADIN) 2f else 1f
+    /** Obergrenze des Gottesschilds (nur Paladin). */
+    val maxShield: Float = if (c == HeroClass.PALADIN) maxHp * PALADIN_SHIELD_SHARE else 0f
     val extraProjectiles: Int = lv(PassiveKind.MULTI)
 
     // --- Items & Klassen-Passiven ---
@@ -321,6 +334,11 @@ class HeroStats(private val state: SurvivorsState) {
         const val NECRO_DAMAGE_PER_SOUL = 0.004f
         const val CRYO_COLD_BONUS = 0.15f
         const val CRYO_FROST_FACTOR = 2f
+        const val PALADIN_SHIELD_SHARE = 0.3f
+        const val PALADIN_UNDEAD_BONUS = 0.25f
+        const val ASSASSIN_AMBUSH_CRIT_DAMAGE = 0.5f
+        const val ASSASSIN_SHADOW_STEP_SPEED = 0.15f
+        const val ASSASSIN_SHADOW_STEP_TIME = 1f
         const val EMBER_RADIUS_PER_STACK = 0.08f
         const val EMBER_MAX_RADIUS_BONUS = 0.5f
     }
@@ -380,6 +398,10 @@ object Upgrades {
             HeroClass.RANGER -> item in setOf(ItemKind.CRIT_CHANCE, ItemKind.CRIT_DAMAGE)
             HeroClass.NECROMANCER -> item in setOf(ItemKind.POISON, ItemKind.EMBER, ItemKind.EXECUTE)
             HeroClass.CRYOMANCER -> item in setOf(ItemKind.FROST, ItemKind.EXECUTE, ItemKind.SPARK)
+            HeroClass.PALADIN -> item in setOf(ItemKind.LIFESTEAL, ItemKind.AMULET, ItemKind.GIANT_SLAYER, ItemKind.EXECUTE)
+            HeroClass.ASSASSIN -> item in setOf(ItemKind.CRIT_DAMAGE, ItemKind.CRIT_CHANCE, ItemKind.DODGE)
+            HeroClass.STORMCALLER -> item in setOf(ItemKind.SPARK, ItemKind.HOURGLASS, ItemKind.GIANT_SLAYER)
+            HeroClass.PIRATE -> item in setOf(ItemKind.GOLD, ItemKind.CRIT_CHANCE, ItemKind.EMBER)
         }
         return if (fits) "Synergie: ${heroClass.passiveIcon} ${heroClass.passiveTitle}" else null
     }

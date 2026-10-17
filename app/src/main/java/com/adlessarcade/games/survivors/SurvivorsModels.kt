@@ -68,6 +68,34 @@ enum class HeroClass(
         passiveTitle = "Permafrost", passiveIcon = "❄",
         passiveDescription = "Verlangsamte und gefrorene Gegner nehmen +15 % Schaden. Gefrorene Gegner zerspringen " +
             "beim Tod in 3 Eissplitter, die Gegner in der Nähe treffen und einfrieren. Frostsplitter wirken doppelt.",
+    ),
+    PALADIN(
+        "class_paladin", "Paladin", "Heiliger Streiter: hält viel aus und richtet seine Feinde. Startet mit der Heiligen Aura.",
+        maxHp = 130f, speed = 2.9f, armor = 1, startWeapon = WeaponKind.AURA,
+        passiveTitle = "Gottesschild & Richturteil", passiveIcon = "✚",
+        passiveDescription = "Überheilung wird zu einem Schild (bis 30 % des max. Lebens), Regeneration wirkt doppelt. " +
+            "Die Aura baut auf Gegnern ein Urteil auf – bei 6 trifft sie ein heiliger Strahl. Untote nehmen +25 % Schaden.",
+    ),
+    ASSASSIN(
+        "class_assassin", "Assassine", "Schnell, zerbrechlich und tödlich beim ersten Stich. Startet mit Wurfdolchen.",
+        maxHp = 85f, speed = 3.4f, armor = 0, startWeapon = WeaponKind.DAGGERS,
+        passiveTitle = "Hinterhalt", passiveIcon = "🗡",
+        passiveDescription = "Der erste Treffer auf jeden Gegner ist immer ein Krit mit +50 % Krit-Schaden. " +
+            "Kills durch Krits geben 1 s lang +15 % Lauftempo (Schattenschritt).",
+    ),
+    STORMCALLER(
+        "class_storm", "Sturmrufer", "Ruft Blitz und Donner herbei. Startet mit dem Blitz.",
+        maxHp = 95f, speed = 3.1f, armor = 0, startWeapon = WeaponKind.LIGHTNING,
+        passiveTitle = "Donnerhall", passiveIcon = "⚡",
+        passiveDescription = "Jede 3. Blitzsalve löst einen Donnerschlag um dich aus: 150 % Blitzschaden, " +
+            "stößt Gegner zurück und betäubt sie 0,6 s.",
+    ),
+    PIRATE(
+        "class_pirate", "Piratin", "Kapert jede Beute, die sie kriegen kann. Startet mit dem Kettenanker.",
+        maxHp = 105f, speed = 3.1f, armor = 0, startWeapon = WeaponKind.ANCHOR,
+        passiveTitle = "Schatzsucher", passiveIcon = "🏴‍☠️",
+        passiveDescription = "Truhen bieten 4 statt 3 Belohnungen zur Wahl. +25 % Coins aus allen Quellen, " +
+            "Eliten lassen 3 zusätzliche Münzen fallen.",
     );
 
     companion object {
@@ -104,6 +132,8 @@ enum class EnemyKind(
 
     val isFinalBoss: Boolean get() = this == DEMON || this == LICH
     val isMidBoss: Boolean get() = this == BOSS || this == GRAVE_GUARDIAN
+    /** Untote: der Paladin richtet sie härter. */
+    val isUndead: Boolean get() = this in setOf(SKELETON, GHOST, ZOMBIE, ARCHER, GRAVE_GUARDIAN, LICH)
     /** Fernkämpfer: nähern sich nur bis auf Schussweite. */
     val keepsDistance: Boolean get() = this == ARCHER || this == WITCH
 }
@@ -141,6 +171,12 @@ class Enemy(
     /** Gesammelter Giftschaden für die nächste Schadenszahl und Zeit bis dahin. */
     var poisonShown: Float = 0f
     var poisonNumberTimer: Float = 0f
+    /** Richturteil (Paladin): Aura-Treffer bis zum heiligen Strahl. */
+    var judgment: Int = 0
+    /** Hinterhalt (Assassine): der garantierte Erstschlag-Krit ist verbraucht. */
+    var ambushed: Boolean = false
+    /** Der letzte Treffer war kritisch (Schattenschritt der Assassine). */
+    var lastCrit: Boolean = false
     /** Abklingzeit bis zum nächsten eigenen Angriff (Schützen, Hexen, Friedhof-Bosse). */
     var attackTimer: Float = 2f
     /** Holt gerade aus bzw. stürmt (steht still bzw. bewegt sich nicht selbst). */
@@ -314,6 +350,8 @@ enum class EffectDamage(val title: String, val icon: String) {
     EMBER("Glut-Explosion", "☄"),
     EXECUTE("Hinrichtung", "💀"),
     SHATTER("Eissplitter", "❄"),
+    SMITE("Richturteil", "⚖"),
+    THUNDER("Donnerhall", "⚡"),
 }
 
 /** Runenstein: lädt sich auf, solange der Held daneben steht, und gibt dann Runen. */
@@ -403,6 +441,12 @@ class SurvivorsState(
     var pendingChests: Int = 0
     /** Seelen des Nekromanten (Seelenernte). */
     var souls: Int = 0
+    /** Gottesschild des Paladins: fängt Schaden vor dem Leben ab. */
+    var shield: Float = 0f
+    /** Schattenschritt der Assassine: Restdauer des Tempo-Bonus nach einem Krit-Kill. */
+    var shadowStep: Float = 0f
+    /** Donnerhall des Sturmrufers: Blitzsalven seit dem letzten Donnerschlag. */
+    var thunderCount: Int = 0
     /** Bruchteile von Coins und Erfahrung (Goldene Gans). */
     var coinRemainder: Float = 0f
     var xpRemainder: Float = 0f
@@ -449,6 +493,12 @@ sealed interface SurvivorsEvent {
     data class Nova(val x: Float, val y: Float, val radius: Float, val freeze: Boolean = false) : SurvivorsEvent
     /** Gewittersturm: Blitz springt von (x1, y1) nach (x2, y2). */
     data class Chain(val x1: Float, val y1: Float, val x2: Float, val y2: Float) : SurvivorsEvent
+    /** Kettenanker: Kette vom Helden zum Ziel ([evolved] = Leviathan). */
+    data class Anchor(val x1: Float, val y1: Float, val x2: Float, val y2: Float, val evolved: Boolean) : SurvivorsEvent
+    /** Donnerhall: Donnerschlag um den Sturmrufer. */
+    data class Thunder(val x: Float, val y: Float, val radius: Float) : SurvivorsEvent
+    /** Richturteil: heiliger Strahl auf einen Gegner. */
+    data class Smite(val x: Float, val y: Float) : SurvivorsEvent
     /** Permafrost: ein Eissplitter fliegt von einem zersprungenen Gegner zum nächsten. */
     data class IceShard(val x1: Float, val y1: Float, val x2: Float, val y2: Float) : SurvivorsEvent
     /** Kriegshammer-Hieb (Kegel) bzw. Erdbrecher-Schockwelle ([ring]). */

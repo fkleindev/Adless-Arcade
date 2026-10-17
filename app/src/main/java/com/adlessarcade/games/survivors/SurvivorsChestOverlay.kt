@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -189,11 +191,22 @@ fun ChestOverlay(state: SurvivorsState, roll: ChestRoll, onChoose: (Int) -> Unit
             ChestGraphic(chestOpen.value, glow, evolutionShown, Modifier.size(120.dp))
 
             Spacer(Modifier.height(6.dp))
-            Box(
+            androidx.compose.foundation.layout.BoxWithConstraints(
                 Modifier.fillMaxWidth().height(REEL_HEIGHT),
                 contentAlignment = Alignment.Center,
             ) {
-                androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(CARD_GAP)) {
+                // Mehr als 3 Karten (Schatzsucher der Piratin): die Reihe passend zur Breite verkleinern.
+                val rowWidth = (CARD_WIDTH + 8.dp) * offers.size + CARD_GAP * (offers.size - 1)
+                val fit = (maxWidth / rowWidth).coerceAtMost(1f)
+                androidx.compose.foundation.layout.Row(
+                    Modifier
+                        .requiredWidth(rowWidth)
+                        .graphicsLayer {
+                            scaleX = fit
+                            scaleY = fit
+                        },
+                    horizontalArrangement = Arrangement.spacedBy(CARD_GAP),
+                ) {
                     offers.indices.forEach { slot ->
                         SlotReel(
                             strip = strips[slot],

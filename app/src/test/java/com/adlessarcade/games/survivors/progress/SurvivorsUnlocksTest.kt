@@ -15,10 +15,11 @@ class SurvivorsUnlocksTest {
     private val mage = SurvivorsUnlocks.forClass(HeroClass.MAGE)
 
     @Test
-    fun everyClass_hasAnUnlock_andKnightIsFree() {
+    fun everyClass_hasAnUnlock_andStarterClassesAreFree() {
         HeroClass.entries.forEach { SurvivorsUnlocks.forClass(it) }
-        assertTrue(UnlockLogic.isUnlocked(SurvivorsProgress(), HeroClass.KNIGHT))
-        HeroClass.entries.filter { it != HeroClass.KNIGHT }.forEach {
+        val free = setOf(HeroClass.KNIGHT, HeroClass.PALADIN, HeroClass.ASSASSIN, HeroClass.STORMCALLER, HeroClass.PIRATE)
+        free.forEach { assertTrue(UnlockLogic.isUnlocked(SurvivorsProgress(), it)) }
+        HeroClass.entries.filter { it !in free }.forEach {
             assertFalse(UnlockLogic.isUnlocked(SurvivorsProgress(), it))
         }
     }

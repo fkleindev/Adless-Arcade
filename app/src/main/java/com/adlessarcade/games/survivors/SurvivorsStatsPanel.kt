@@ -40,6 +40,7 @@ import com.adlessarcade.ui.theme.NeonYellow
 import java.util.Locale
 
 private val HpRed = Color(0xFFEF4444)
+private val ShieldGold = Color(0xFFFDE68A)
 private val Gold = Color(0xFFFACC15)
 private const val LOW_HP = 0.3f
 
@@ -73,9 +74,14 @@ fun HpBar(hud: SurvivorsHud, modifier: Modifier = Modifier) {
             .border(if (low) 1.5.dp else 1.dp, if (low) HpRed.copy(alpha = 0.5f + 0.5f * pulse) else ArcadeOutline, shape)
     ) {
         Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(HpRed))
+        if (hud.shield > 0f) {
+            // Gottesschild: goldenes Segment am oberen Rand
+            Box(Modifier.fillMaxHeight(0.4f).fillMaxWidth((hud.shield / hud.maxHp).coerceIn(0f, 1f)).background(ShieldGold))
+        }
         val regen = if (hud.regen > 0f) "  ·  +${num(hud.regen)}/s" else ""
+        val shield = if (hud.shield >= 1f) "  ·  ✚ ${hud.shield.toInt()}" else ""
         Text(
-            "❤ ${hud.hp.toInt().coerceAtLeast(if (hud.hp > 0f) 1 else 0)} / ${hud.maxHp.toInt()}$regen",
+            "❤ ${hud.hp.toInt().coerceAtLeast(if (hud.hp > 0f) 1 else 0)} / ${hud.maxHp.toInt()}$shield$regen",
             style = BarLabelStyle(),
             color = Color.White,
             modifier = Modifier.align(Alignment.Center),

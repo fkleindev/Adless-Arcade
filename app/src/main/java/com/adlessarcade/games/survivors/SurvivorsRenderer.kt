@@ -59,6 +59,12 @@ sealed class SurvivorsFx(val x: Float, val y: Float, val lifetime: Float) {
     class Bolt(x: Float, y: Float, val radius: Float) : SurvivorsFx(x, y, 0.3f)
     class Nova(x: Float, y: Float, val radius: Float, val freeze: Boolean) : SurvivorsFx(x, y, 0.45f)
     class Arc(x: Float, y: Float, val x2: Float, val y2: Float) : SurvivorsFx(x, y, 0.25f)
+    /** Kettenanker: Kette schnellt zum Ziel und wird mit der Beute eingeholt. */
+    class Anchor(x: Float, y: Float, val x2: Float, val y2: Float, val evolved: Boolean) : SurvivorsFx(x, y, 0.4f)
+    /** Donnerhall des Sturmrufers: Schockwelle mit Blitzzacken. */
+    class Thunder(x: Float, y: Float, val radius: Float) : SurvivorsFx(x, y, 0.45f)
+    /** Richturteil des Paladins: goldener Lichtstrahl von oben. */
+    class Smite(x: Float, y: Float) : SurvivorsFx(x, y, 0.35f)
     /** Eissplitter der Kryomantin: fliegt vom zersprungenen Gegner zum Ziel. */
     class Shard(x: Float, y: Float, val x2: Float, val y2: Float) : SurvivorsFx(x, y, 0.28f)
     class Smash(x: Float, y: Float, val angle: Float, val range: Float, val ring: Boolean) : SurvivorsFx(x, y, if (ring) 0.4f else 0.25f)
@@ -190,6 +196,15 @@ fun DrawScope.drawSurvivors(
     val hero = cam.at(s.px, s.py)
     val faceRight = s.faceX >= 0f
     drawOval(HERO_OUTLINE.copy(alpha = 0.7f), hero + Offset(-cam.len(0.5f), cam.len(0.28f)), Size(cam.len(1f), cam.len(0.3f)), style = Stroke(width = cam.len(0.05f)))
+    if (s.shadowStep > 0f && !blink) {
+        // Schattenschritt: violette Nachbilder hinter der Assassine
+        val back = Offset(if (faceRight) -1f else 1f, 0f)
+        for (i in 1..2) {
+            silhouette(Color(0xFF9333EA).copy(alpha = 0.45f * s.shadowStep / i)) {
+                drawHeroClass(s.heroClass, hero + back * cam.len(0.28f * i), cam.len(0.9f), s.time, faceRight, bodyOnly = true)
+            }
+        }
+    }
     if (!blink) {
         silhouette(HERO_OUTLINE.copy(alpha = 0.35f)) {
             scale(1.35f, pivot = hero) { drawHeroClass(s.heroClass, hero, cam.len(0.9f), s.time, faceRight, bodyOnly = true) }
@@ -198,6 +213,21 @@ fun DrawScope.drawSurvivors(
             scale(1.16f, pivot = hero) { drawHeroClass(s.heroClass, hero, cam.len(0.9f), s.time, faceRight, bodyOnly = true) }
         }
         drawHeroClass(s.heroClass, hero, cam.len(0.9f), s.time, faceRight)
+    }
+    if (s.heroClass == HeroClass.STORMCALLER) {
+        // Donnerhall-Ladung: drei Blitzpunkte über dem Lebensbalken füllen sich bis zum Donnerschlag
+        val y = hero.y + cam.len(0.55f)
+        for (i in 0 until SurvivorsEngine.THUNDER_SALVOS) {
+            val p = Offset(hero.x + (i - 1) * cam.len(0.22f), y)
+            val filled = i < s.thunderCount
+            drawCircle(if (filled) Color(0xFFFDE047) else Color.Black.copy(alpha = 0.5f), cam.len(0.06f), p)
+            drawCircle(Color.White.copy(alpha = 0.8f), cam.len(0.06f), p, style = Stroke(width = max(1.5f, cam.len(0.015f))))
+        }
+    }
+    if (s.shield > 0f) {
+        // Gottesschild: schimmernder goldener Ring, kräftiger je voller der Schild
+        val fill = (s.shield / engine.stats.maxShield.coerceAtLeast(1f)).coerceIn(0f, 1f)
+        drawCircle(Color(0xFFFDE68A).copy(alpha = (0.25f + 0.35f * fill) * (0.8f + 0.2f * sin(s.time * 4f))), cam.len(0.75f), hero, style = Stroke(width = cam.len(0.06f)))
     }
     drawPlayerHp(cam, s, engine.stats.maxHp)
     drawEdgeIndicators(cam, s)
@@ -564,6 +594,12 @@ private fun DrawScope.drawEnemy(cam: SurvivorsCamera, e: Enemy, theme: SurvivorT
             else -> CoinGold
         }
         drawCircle(glow.copy(alpha = 0.25f + 0.1f * sin(time * 5f)), r * 1.35f, c)
+    }
+    if (e.judgment > 0 && !bodyOnly) {
+        // Richturteil: goldener Bogen füllt sich bis zum heiligen Strahl
+        val ring = r * 1.25f
+        val sweep = 360f * e.judgment / SurvivorsEngine.JUDGMENT_STACKS
+        drawArc(Color(0xFFFDE68A).copy(alpha = 0.85f), -90f, sweep, false, c - Offset(ring, ring), Size(ring * 2f, ring * 2f), style = Stroke(width = max(2f, cam.len(0.05f))))
     }
     when (e.kind) {
         EnemyKind.SLIME -> {
@@ -948,6 +984,10 @@ private fun DrawScope.drawPlayerHp(cam: SurvivorsCamera, s: SurvivorsState, maxH
     val border = max(2f, cam.len(0.025f))
     drawRoundRect(Color.Black.copy(alpha = 0.8f), tl, Size(w, h), CornerRadius(h / 2f))
     drawRoundRect(Color(0xFFEF4444), tl, Size(w * (s.hp / maxHp).coerceIn(0f, 1f), h), CornerRadius(h / 2f))
+    if (s.shield > 0f) {
+        // Gottesschild als goldenes Segment über dem Lebensbalken
+        drawRoundRect(Color(0xFFFDE68A), tl, Size(w * (s.shield / maxHp).coerceIn(0f, 1f), h * 0.45f), CornerRadius(h / 4f))
+    }
     drawRoundRect(Color.White.copy(alpha = 0.9f), tl, Size(w, h), CornerRadius(h / 2f), style = Stroke(width = border))
 }
 
@@ -1036,6 +1076,104 @@ fun DrawScope.drawHeroClass(heroClass: HeroClass, center: Offset, size: Float, t
             drawPath(crystal, Color(0xFFE0F2FE))
             if (!bodyOnly) drawCircle(Color(0xFF7DD3FC).copy(alpha = 0.35f + 0.2f * sin(time * 6f)), k * 1.4f, staffTop)
         }
+        HeroClass.PALADIN -> {
+            val gold = Color(0xFFFACC15)
+            if (!bodyOnly) {
+                // Heiligenschein über dem Helm
+                drawOval(gold.copy(alpha = 0.55f + 0.2f * sin(time * 3f)), c + Offset(-r * 0.38f, -r * 1.25f), Size(r * 0.76f, r * 0.22f), style = Stroke(width = r * 0.07f))
+            }
+            drawRoundRect(Color(0xFFD1D5DB), c + Offset(-r * 0.58f, -r * 0.3f), Size(r * 1.16f, r * 1.02f), CornerRadius(r * 0.32f)) // Rüstung
+            drawRoundRect(Color.White, c + Offset(-r * 0.36f, -r * 0.22f), Size(r * 0.72f, r * 0.9f), CornerRadius(r * 0.15f)) // Wappenrock
+            drawLine(gold, c + Offset(0f, -r * 0.12f), c + Offset(0f, r * 0.5f), strokeWidth = r * 0.12f)
+            drawLine(gold, c + Offset(-r * 0.22f, r * 0.08f), c + Offset(r * 0.22f, r * 0.08f), strokeWidth = r * 0.12f)
+            // Topfhelm mit goldenem Sehschlitz-Kreuz
+            drawRoundRect(Color(0xFFE5E7EB), c + Offset(-r * 0.4f, -r * 1.02f), Size(r * 0.8f, r * 0.78f), CornerRadius(r * 0.18f))
+            drawLine(gold, c + Offset(-r * 0.26f, -r * 0.68f), c + Offset(r * 0.26f, -r * 0.68f), strokeWidth = r * 0.09f)
+            drawLine(gold, c + Offset(0f, -r * 0.88f), c + Offset(0f, -r * 0.42f), strokeWidth = r * 0.09f)
+            // Runder Schild mit Lichtsymbol und Streitkolben
+            val shieldC = c + Offset(-dir * r * 0.8f, r * 0.12f)
+            drawCircle(gold, r * 0.36f, shieldC)
+            drawCircle(Color(0xFFFEF3C7), r * 0.16f, shieldC)
+            drawLine(Color(0xFF9CA3AF), c + Offset(dir * r * 0.62f, r * 0.45f), c + Offset(dir * r * 0.95f, -r * 0.6f), strokeWidth = r * 0.1f)
+            drawCircle(gold, r * 0.17f, c + Offset(dir * r * 0.98f, -r * 0.68f))
+        }
+        HeroClass.ASSASSIN -> {
+            val scarf = Color(0xFF9333EA)
+            drawRoundRect(Color(0xFF1F2937), c + Offset(-r * 0.5f, -r * 0.3f), Size(r * 1f, r * 0.95f), CornerRadius(r * 0.3f)) // Lederwams
+            drawLine(Color(0xFF111827), c + Offset(-r * 0.5f, r * 0.2f), c + Offset(r * 0.5f, r * 0.2f), strokeWidth = r * 0.1f) // Gürtel
+            // Wehender Schal hinter dem Kopf
+            val flutter = sin(time * 10f) * r * 0.08f
+            drawLine(scarf, c + Offset(-dir * r * 0.15f, -r * 0.3f), c + Offset(-dir * r * 0.75f, -r * 0.18f + flutter), strokeWidth = r * 0.16f)
+            drawCircle(Color(0xFF111827), r * 0.46f, c + Offset(0f, -r * 0.58f)) // Kapuze
+            drawCircle(Color(0xFF374151), r * 0.3f, c + Offset(dir * r * 0.06f, -r * 0.52f)) // Gesicht im Schatten
+            drawRect(scarf, c + Offset(-r * 0.3f + dir * r * 0.06f, -r * 0.45f), Size(r * 0.6f, r * 0.14f)) // Maske
+            drawCircle(Color(0xFFF5F3FF), r * 0.06f, c + Offset(dir * r * 0.16f, -r * 0.58f)) // Augenblitz
+            // Zwei Dolche
+            drawLine(Color(0xFFE5E7EB), c + Offset(dir * r * 0.5f, r * 0.1f), c + Offset(dir * r * 0.95f, -r * 0.3f), strokeWidth = r * 0.08f)
+            drawLine(Color(0xFFE5E7EB), c + Offset(-dir * r * 0.5f, r * 0.15f), c + Offset(-dir * r * 0.85f, -r * 0.15f), strokeWidth = r * 0.08f)
+        }
+        HeroClass.STORMCALLER -> {
+            val storm = Color(0xFF1E3A8A)
+            val bolt = Color(0xFFFDE047)
+            if (!bodyOnly) drawCircle(Color(0xFF60A5FA).copy(alpha = 0.12f + 0.08f * sin(time * 9f)), r * 1.1f, c) // Knistern
+            val cloak = Path().apply {
+                moveTo(c.x, c.y - r * 0.5f)
+                lineTo(c.x + r * 0.75f, c.y + r * 0.62f)
+                lineTo(c.x - r * 0.75f, c.y + r * 0.62f)
+                close()
+            }
+            drawPath(cloak, storm)
+            // Blitzsymbol auf dem Mantel
+            val emblem = Path().apply {
+                moveTo(c.x + r * 0.08f, c.y - r * 0.15f)
+                lineTo(c.x - r * 0.12f, c.y + r * 0.15f)
+                lineTo(c.x + r * 0.02f, c.y + r * 0.15f)
+                lineTo(c.x - r * 0.08f, c.y + r * 0.45f)
+                lineTo(c.x + r * 0.14f, c.y + r * 0.08f)
+                lineTo(c.x, c.y + r * 0.08f)
+                close()
+            }
+            drawPath(emblem, bolt)
+            drawCircle(Color(0xFF1E40AF), r * 0.48f, c + Offset(0f, -r * 0.58f)) // Kapuze
+            drawCircle(Color(0xFFFDE68A), r * 0.3f, c + Offset(dir * r * 0.05f, -r * 0.52f))
+            drawCircle(Color(0xFF93C5FD), r * 0.05f, c + Offset(dir * r * 0.15f, -r * 0.56f)) // leuchtende Augen
+            // Stab mit knisternder Spitze
+            val tip = c + Offset(dir * r * 0.8f, -r * 1f)
+            drawLine(Color(0xFF6B7280), c + Offset(dir * r * 0.8f, r * 0.6f), tip, strokeWidth = r * 0.09f)
+            drawCircle(bolt, r * 0.14f, tip)
+            if (!bodyOnly) {
+                val k = sin(time * 20f) * r * 0.12f
+                drawLine(Color.White.copy(alpha = 0.8f), tip, tip + Offset(r * 0.25f, -r * 0.2f + k), strokeWidth = r * 0.04f)
+                drawLine(Color.White.copy(alpha = 0.8f), tip, tip + Offset(-r * 0.22f, -r * 0.25f - k), strokeWidth = r * 0.04f)
+            }
+        }
+        HeroClass.PIRATE -> {
+            val coat = Color(0xFF7F1D1D)
+            val gold = Color(0xFFFACC15)
+            drawRoundRect(coat, c + Offset(-r * 0.6f, -r * 0.3f), Size(r * 1.2f, r * 1f), CornerRadius(r * 0.3f)) // Mantel
+            drawRect(Color(0xFFF5F5F4), c + Offset(-r * 0.22f, -r * 0.28f), Size(r * 0.44f, r * 0.7f)) // Hemd
+            drawLine(Color(0xFF292524), c + Offset(-r * 0.6f, r * 0.25f), c + Offset(r * 0.6f, r * 0.25f), strokeWidth = r * 0.1f) // Gürtel
+            drawRect(gold, c + Offset(-r * 0.08f, r * 0.19f), Size(r * 0.16f, r * 0.12f)) // Schnalle
+            drawCircle(Color(0xFFFDE68A), r * 0.32f, c + Offset(dir * r * 0.04f, -r * 0.55f)) // Gesicht
+            drawCircle(Color(0xFF111827), r * 0.07f, c + Offset(dir * r * 0.15f, -r * 0.58f)) // Augenklappe
+            drawLine(Color(0xFF111827), c + Offset(-r * 0.25f, -r * 0.75f), c + Offset(dir * r * 0.15f, -r * 0.58f), strokeWidth = r * 0.03f)
+            // Dreispitz mit Goldrand
+            val hat = Path().apply {
+                moveTo(c.x - r * 0.62f, c.y - r * 0.72f)
+                lineTo(c.x + r * 0.62f, c.y - r * 0.72f)
+                lineTo(c.x + r * 0.32f, c.y - r * 1.12f)
+                lineTo(c.x, c.y - r * 0.98f)
+                lineTo(c.x - r * 0.32f, c.y - r * 1.12f)
+                close()
+            }
+            drawPath(hat, Color(0xFF1F2937))
+            drawPath(hat, gold, style = Stroke(width = r * 0.05f))
+            // Kleiner Anker an der Kette in der Hand
+            val hand = c + Offset(dir * r * 0.72f, r * 0.15f)
+            drawLine(Color(0xFF9CA3AF), c + Offset(dir * r * 0.45f, -r * 0.1f), hand, strokeWidth = r * 0.05f)
+            drawLine(Color(0xFFD1D5DB), hand, hand + Offset(0f, r * 0.38f), strokeWidth = r * 0.08f)
+            drawArc(Color(0xFFD1D5DB), 20f, 140f, false, hand + Offset(-r * 0.22f, r * 0.14f), Size(r * 0.44f, r * 0.3f), style = Stroke(width = r * 0.07f))
+        }
     }
 }
 
@@ -1107,6 +1245,63 @@ private fun DrawScope.drawFx(cam: SurvivorsCamera, fx: SurvivorsFx, textMeasurer
             }
             drawPath(arc, Color(0xFFC4B5FD).copy(alpha = a), style = Stroke(width = cam.len(0.1f)))
             drawPath(arc, Color.White.copy(alpha = a), style = Stroke(width = cam.len(0.035f)))
+        }
+        is SurvivorsFx.Anchor -> {
+            // Erste Hälfte: Kette schnellt hinaus · zweite Hälfte: wird mit der Beute eingeholt
+            val target = cam.at(fx.x2, fx.y2)
+            val reach = if (t < 0.4f) t / 0.4f else 1f - (t - 0.4f) / 0.6f * 0.85f
+            val head = c + (target - c) * reach
+            val chain = if (fx.evolved) Color(0xFF38BDF8) else Color(0xFF9CA3AF)
+            val len = (head - c).getDistance()
+            val links = (len / cam.len(0.18f)).toInt().coerceAtLeast(1)
+            for (i in 0 until links) {
+                val p = c + (head - c) * ((i + 0.5f) / links)
+                drawCircle(chain.copy(alpha = a), cam.len(0.055f), p, style = Stroke(width = cam.len(0.03f)))
+            }
+            // Ankerkopf: Schaft, Querstange, zwei Flunken
+            val dirLen = len.coerceAtLeast(0.001f)
+            val dir = Offset((head.x - c.x) / dirLen, (head.y - c.y) / dirLen)
+            val side = Offset(-dir.y, dir.x)
+            val s = cam.len(0.22f)
+            val metal = if (fx.evolved) Color(0xFFE0F2FE) else Color(0xFFD1D5DB)
+            drawLine(metal.copy(alpha = a), head - dir * s, head + dir * s * 0.6f, strokeWidth = cam.len(0.06f))
+            drawLine(metal.copy(alpha = a), head - dir * (s * 0.5f) - side * (s * 0.5f), head - dir * (s * 0.5f) + side * (s * 0.5f), strokeWidth = cam.len(0.05f))
+            drawLine(metal.copy(alpha = a), head + dir * s * 0.6f, head + dir * s * 0.1f - side * s * 0.6f, strokeWidth = cam.len(0.05f))
+            drawLine(metal.copy(alpha = a), head + dir * s * 0.6f, head + dir * s * 0.1f + side * s * 0.6f, strokeWidth = cam.len(0.05f))
+        }
+        is SurvivorsFx.Thunder -> {
+            // Weiß-gelbe Druckwelle, die nach außen läuft, dazu zackige Blitze bis zum Rand
+            val r = cam.len(fx.radius) * (0.35f + 0.65f * t)
+            drawCircle(Color(0xFFFDE047).copy(alpha = 0.22f * a), r, c)
+            drawCircle(Color.White.copy(alpha = 0.9f * a), r, c, style = Stroke(width = cam.len(0.1f) * a + 1f))
+            drawCircle(Color(0xFFFDE047).copy(alpha = 0.7f * a), r * 0.92f, c, style = Stroke(width = cam.len(0.05f)))
+            for (i in 0 until 8) {
+                val ang = i * PI.toFloat() / 4f + fx.x
+                val dir = Offset(cos(ang), sin(ang))
+                val side = Offset(-dir.y, dir.x)
+                val bolt = Path().apply {
+                    moveTo(c.x, c.y)
+                    val p1 = c + dir * (r * 0.35f) + side * (r * 0.08f)
+                    val p2 = c + dir * (r * 0.65f) - side * (r * 0.08f)
+                    val p3 = c + dir * r
+                    lineTo(p1.x, p1.y)
+                    lineTo(p2.x, p2.y)
+                    lineTo(p3.x, p3.y)
+                }
+                drawPath(bolt, Color(0xFFFEF9C3).copy(alpha = 0.8f * a), style = Stroke(width = cam.len(0.05f)))
+            }
+        }
+        is SurvivorsFx.Smite -> {
+            // Säule aus Licht, die schnell aufblitzt und schmaler werdend verblasst
+            val w = cam.len(0.55f) * (1f - t * 0.6f)
+            val top = Offset(c.x, c.y - cam.len(7f))
+            drawRect(
+                Brush.verticalGradient(listOf(Color(0x00FDE68A), Color(0xFFFDE68A).copy(alpha = 0.85f * a)), top.y, c.y),
+                Offset(c.x - w / 2f, top.y), Size(w, c.y - top.y),
+            )
+            drawRect(Color.White.copy(alpha = 0.9f * a), Offset(c.x - w * 0.15f, top.y), Size(w * 0.3f, c.y - top.y))
+            drawOval(Color(0xFFFDE68A).copy(alpha = 0.6f * a), c - Offset(w * 1.4f, w * 0.35f), Size(w * 2.8f, w * 0.7f))
+            drawCircle(Color.White.copy(alpha = 0.7f * a), w * 0.45f * (1f + t), c)
         }
         is SurvivorsFx.Shard -> {
             // Splitter fliegt in der ersten Hälfte zum Ziel, eine eisblaue Spur bleibt kurz zurück.

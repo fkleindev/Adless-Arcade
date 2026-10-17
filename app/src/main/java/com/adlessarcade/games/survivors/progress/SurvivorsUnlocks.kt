@@ -69,6 +69,10 @@ object SurvivorsUnlocks {
     /** Klassen-IDs entsprechen [HeroClass.shopId]. Waffen und Stages folgen später. */
     val all: List<SurvivorsUnlock> = listOf(
         SurvivorsUnlock(HeroClass.KNIGHT.shopId, UnlockKind.CLASS, HeroClass.KNIGHT.title, runePrice = 0),
+        SurvivorsUnlock(HeroClass.PALADIN.shopId, UnlockKind.CLASS, HeroClass.PALADIN.title, runePrice = 0),
+        SurvivorsUnlock(HeroClass.ASSASSIN.shopId, UnlockKind.CLASS, HeroClass.ASSASSIN.title, runePrice = 0),
+        SurvivorsUnlock(HeroClass.STORMCALLER.shopId, UnlockKind.CLASS, HeroClass.STORMCALLER.title, runePrice = 0),
+        SurvivorsUnlock(HeroClass.PIRATE.shopId, UnlockKind.CLASS, HeroClass.PIRATE.title, runePrice = 0),
         SurvivorsUnlock(HeroClass.MAGE.shopId, UnlockKind.CLASS, HeroClass.MAGE.title, runePrice = 80),
         SurvivorsUnlock(HeroClass.RANGER.shopId, UnlockKind.CLASS, HeroClass.RANGER.title, runePrice = 120),
         SurvivorsUnlock(HeroClass.CRYOMANCER.shopId, UnlockKind.CLASS, HeroClass.CRYOMANCER.title, runePrice = 120),
@@ -98,10 +102,10 @@ object SurvivorsUnlocks {
 
     /**
      * Neue Waffen: Runen + [PARTNER_KILLS] Kills mit der Grundwaffe desselben Entwicklungs-Talents.
-     * Der Gravitationsbrunnen (Magnet) hat keine Partnerwaffe und kostet nur Runen.
+     * Der Gravitationsbrunnen (Magnet) kostet weiterhin nur Runen – auch seit er im Kettenanker eine Partnerwaffe hat.
      */
     private fun weaponUnlocks(): List<SurvivorsUnlock> = WeaponKind.entries.filter { !it.isBase }.map { weapon ->
-        val partner = weapon.partner
+        val partner = weapon.partner.takeIf { weapon != WeaponKind.GRAVITY }
         SurvivorsUnlock(
             id = weapon.unlockId,
             kind = UnlockKind.WEAPON,

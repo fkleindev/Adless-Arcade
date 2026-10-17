@@ -11,7 +11,9 @@ Eine werbefreie Sammlung kleiner Spiele für Android – offline, ohne Tracking,
   - Modus *Boss Rush*: Rüstphase und Bosswelle im Wechsel, jeder Boss stärker als der letzte.
   - Modus *Tägliche Challenge*: festes Level pro Tag (gleicher Seed), eigener Tagesrekord.
 - **Rune Survivors**: Survivors-Like im Fantasy-Stil – mit dem Joystick durch die Welt laufen, Waffen kämpfen automatisch,
-  Kristalle sammeln, aufsteigen und aus bis zu 17 Waffen und 9 Talenten einen Build bauen (4 Talente pro Lauf). 5 Klassen (zuletzt die Kryomantin mit der Frostnova) und 9 weitere Waffen schaltet man mit Runen in der Runen-Schmiede frei.
+  Kristalle sammeln, aufsteigen und aus bis zu 18 Waffen und 9 Talenten einen Build bauen (4 Talente pro Lauf). 9 Klassen – zu jeder Grundwaffe eine: Krieger, Paladin (Heilige Aura, Gottesschild und Richturteil), Assassine
+  (Wurfdolche, Hinterhalt), Sturmrufer (Blitz, Donnerhall) und Piratin (Kettenanker, Schatzsucher) sind von Anfang an spielbar, Magierin,
+  Waldläuferin, Nekromant und Kryomantin sowie 9 weitere Waffen schaltet man mit Runen in der Runen-Schmiede frei.
   Jede Klasse hat eine eigene Passive; Truhen bieten 3 Belohnungen zur Wahl, darunter stapelbare Items
   (Krit/Superkrit, Gift, Lebensraub, Funken u. v. m.) mit abnehmendem Ertrag.
   - Stages: *Fantasy-Wiese* und *Vergessener Friedhof* (100 Runen, nach dem ersten Sieg über den Dämonenfürsten) mit

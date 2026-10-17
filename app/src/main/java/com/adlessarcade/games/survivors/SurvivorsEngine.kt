@@ -8,6 +8,7 @@ import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.random.Random
 
 class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
@@ -46,6 +47,31 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         const val POISON_MAX_HITS = 3f
         const val FROZEN_DAMAGE_BONUS = 1.3f
         const val FREEZE_TIME = 1.5f
+        /** Schatzsucher (Piratin): Truhen-Auswahl, Coin-Bonus, Extra-Münzen von Eliten. */
+        const val PIRATE_CHEST_CHOICES = 4
+        const val PIRATE_COIN_BONUS = 0.25f
+        const val PIRATE_ELITE_COINS = 3
+        /** Kettenanker: Reichweite beim Grund-Sammelradius, Kettenbreite, Zug (Anteil der Strecke), Haltepunkt. */
+        const val ANCHOR_RANGE = 4f
+        const val BASE_PICKUP_RADIUS = 1.5f
+        const val ANCHOR_WIDTH = 0.3f
+        const val ANCHOR_PULL = 0.75f
+        const val ANCHOR_STOP_DISTANCE = 1.2f
+        /** Leviathan: mitgerissene Gruppe, Aufprall-Radius, -Schaden (× Ankertreffer) und Betäubung. */
+        const val LEVIATHAN_GROUP_RADIUS = 1.4f
+        const val LEVIATHAN_IMPACT_RADIUS = 1.6f
+        const val LEVIATHAN_IMPACT_DAMAGE = 0.8f
+        const val LEVIATHAN_STUN = 0.5f
+        /** Donnerhall (Sturmrufer): jede n-te Blitzsalve, Radius, Schaden (× Blitztreffer), Rückstoß, Betäubung. */
+        const val THUNDER_SALVOS = 3
+        const val THUNDER_RADIUS = 2.5f
+        const val THUNDER_DAMAGE = 1.5f
+        const val THUNDER_KNOCKBACK = 1.2f
+        const val THUNDER_STUN = 0.6f
+        /** Richturteil (Paladin): Aura-Treffer bis zum heiligen Strahl, sein Schaden und die Richt-Schwelle. */
+        const val JUDGMENT_STACKS = 6
+        const val SMITE_FACTOR = 1.5f
+        const val SMITE_EXECUTE = 0.15f
         /** Permafrost (Kryomantin): Splitter eines zersprungenen gefrorenen Gegners. */
         const val SHATTER_SHARDS = 3
         const val SHATTER_RANGE = 2.5f
@@ -191,7 +217,9 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
 
     /** Würfelt drei Belohnungen; ab dem ersten Boss ist eine bereite Entwicklung immer dabei. */
     private fun rollChest() {
-        state.chestOffers = Upgrades.chestOffers(state, random, allowEvolution = state.time >= EVOLUTION_MIN_TIME)
+        // Schatzsucher: die Piratin wählt aus 4 statt 3 Belohnungen.
+        val choices = if (state.heroClass == HeroClass.PIRATE) PIRATE_CHEST_CHOICES else 3
+        state.chestOffers = Upgrades.chestOffers(state, random, allowEvolution = state.time >= EVOLUTION_MIN_TIME, count = choices)
         events += SurvivorsEvent.ChestOpened(state.chestOffers, state.pendingChests)
     }
 
@@ -224,7 +252,8 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         refreshObstacles()
         movePlayer(dt, st)
         state.invulnerable = (state.invulnerable - dt).coerceAtLeast(0f)
-        state.hp = (state.hp + st.regen * dt).coerceAtMost(st.maxHp)
+        heal(st.regen * dt, st)
+        if (state.shadowStep > 0f) state.shadowStep = (state.shadowStep - dt).coerceAtLeast(0f)
         val leechRate = LEECH_PER_SECOND + st.lifesteal * 100f * LIFESTEAL_CAP_PER_PERCENT
         state.leechPool = (state.leechPool + leechRate * dt).coerceAtMost(leechRate)
 
@@ -289,7 +318,10 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             return false
         }
         val damage = (raw - st.armor).coerceAtLeast(1f)
-        state.hp -= damage
+        // Gottesschild fängt den Treffer zuerst ab.
+        val absorbed = min(state.shield, damage)
+        state.shield -= absorbed
+        state.hp -= damage - absorbed
         state.lastHurtTime = state.time
         state.invulnerable = INVULNERABLE_TIME
         events += SurvivorsEvent.PlayerHit(damage)
@@ -512,14 +544,20 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         if (state.heroClass == HeroClass.MAGE && (e.poisonTimer > 0f || e.freezeTimer > 0f || e.stunTimer > 0f)) {
             amount *= 1f + HeroStats.MAGE_STATUS_BONUS
         }
+        // Richturteil: Untote nehmen beim Paladin mehr Schaden.
+        if (state.heroClass == HeroClass.PALADIN && e.kind.isUndead) amount *= 1f + HeroStats.PALADIN_UNDEAD_BONUS
         // Permafrost: verlangsamte oder gefrorene Gegner nehmen mehr Schaden.
         if (state.heroClass == HeroClass.CRYOMANCER && (e.slowTimer > 0f || e.freezeTimer > 0f)) {
             amount *= 1f + HeroStats.CRYO_COLD_BONUS
         }
         var crit = 0
-        if (proc && st.critChance > 0f && (st.critChance >= 1f || random.nextFloat() < st.critChance)) {
+        // Hinterhalt: der erste Treffer der Assassine auf jeden Gegner ist ein verstärkter Krit.
+        val ambush = proc && state.heroClass == HeroClass.ASSASSIN && !e.ambushed
+        if (ambush) e.ambushed = true
+        if (ambush || (proc && st.critChance > 0f && (st.critChance >= 1f || random.nextFloat() < st.critChance))) {
             crit = 1
             var multiplier = st.critMultiplier
+            if (ambush) multiplier += HeroStats.ASSASSIN_AMBUSH_CRIT_DAMAGE
             if (state.heroClass == HeroClass.RANGER && isMoving) multiplier += HeroStats.RANGER_MOVING_CRIT_DAMAGE
             if (st.superCritChance > 0f && random.nextFloat() < st.superCritChance) {
                 crit = 2
@@ -531,6 +569,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         e.hp -= amount
         e.hitFlash = 1f
         e.lastHit = source
+        e.lastCrit = crit > 0
         damageNumber(e, amount, crit)
         if (!proc) return
 
@@ -605,7 +644,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             state.killScore += e.kind.score * if (e.elite) 5 else 1
             events += SurvivorsEvent.EnemyKilled(e.x, e.y, e.kind, e.elite)
             if (state.heroClass.healPerKill > 0f) {
-                state.hp = (state.hp + state.heroClass.healPerKill).coerceAtMost(st.maxHp)
+                heal(state.heroClass.healPerKill, st)
             }
             onKillEffects(e, st)
             val xp = e.kind.xp * if (e.elite) 5 else 1
@@ -628,7 +667,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 e.elite -> {
                     spawnPickup(PickupKind.CHEST, e.x, e.y)
                     spawnPickup(PickupKind.RUNE, e.x + 0.6f, e.y, amount = ELITE_RUNES)
-                    earnCoins(e.x, e.y, ELITE_COINS)
+                    earnCoins(e.x, e.y, ELITE_COINS + if (state.heroClass == HeroClass.PIRATE) PIRATE_ELITE_COINS else 0)
                     state.elitesKilled++
                 }
                 else -> {
@@ -649,6 +688,8 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
     private fun onKillEffects(e: Enemy, st: HeroStats) {
         val kind = e.lastHit ?: source
         if (state.heroClass == HeroClass.CRYOMANCER && e.freezeTimer > 0f) shatter(e, kind, st)
+        // Schattenschritt: ein Krit-Kill gibt der Assassine kurz mehr Tempo.
+        if (state.heroClass == HeroClass.ASSASSIN && e.lastCrit) state.shadowStep = HeroStats.ASSASSIN_SHADOW_STEP_TIME
         if (state.heroClass == HeroClass.NECROMANCER) {
             state.souls = (state.souls + 1).coerceAtMost(HeroStats.NECRO_MAX_SOULS)
             if (e.poisonTimer > 0f && e.poisonDps > 0f) {
@@ -706,8 +747,9 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
     }
 
     private fun earnCoins(x: Float, y: Float, base: Int) {
-        // Goldene Gans: Bruchteile sammeln sich an.
-        state.coinRemainder += base * (1f + cur.lootBonus)
+        // Goldene Gans und Schatzsucher (Piratin): Bruchteile sammeln sich an.
+        val pirate = if (state.heroClass == HeroClass.PIRATE) PIRATE_COIN_BONUS else 0f
+        state.coinRemainder += base * (1f + cur.lootBonus + pirate)
         val amount = state.coinRemainder.toInt()
         state.coinRemainder -= amount
         if (amount <= 0) return
@@ -878,6 +920,11 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                     events += SurvivorsEvent.Lightning(x, y, radius)
                     if (evolved) chainLightning(t, damage * 0.5f)
                 }
+                // Donnerhall: jede 3. Salve des Sturmrufers löst einen Donnerschlag um ihn aus.
+                if (state.heroClass == HeroClass.STORMCALLER && ++state.thunderCount >= THUNDER_SALVOS) {
+                    state.thunderCount = 0
+                    thunderclap(damage * THUNDER_DAMAGE, st)
+                }
                 return true
             }
             WeaponKind.DAGGERS -> {
@@ -1007,7 +1054,61 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 }
                 return true
             }
+            WeaponKind.ANCHOR -> {
+                val range = anchorRange(st)
+                // Fernste Gegner im Sammelradius-abhängigen Bereich – der Anker holt sie heran.
+                val targets = ArrayList<Enemy>()
+                forEnemiesNear(state.px, state.py, range) { targets += it }
+                if (targets.isEmpty()) return false
+                targets.sortByDescending { (it.x - state.px) * (it.x - state.px) + (it.y - state.py) * (it.y - state.py) }
+                targets.take(count(weapon, level, st)).forEach { anchor(it, damage, st, evolved) }
+                return true
+            }
             WeaponKind.BONE_ORBIT, WeaponKind.AURA -> return true
+        }
+    }
+
+    /** Reichweite des Kettenankers: wächst mit dem Sammelradius (Magnet, Klassenbonus). */
+    fun anchorRange(st: HeroStats = stats): Float = ANCHOR_RANGE * st.pickupRadius / BASE_PICKUP_RADIUS
+
+    /**
+     * Kettenanker: trifft alles auf der Kettenlinie und reißt das Ziel zum Helden. Leviathan zieht die Gruppe
+     * um das Ziel mit, die beim Helden zusammenprallt (Flächenschaden + Betäubung).
+     */
+    private fun anchor(target: Enemy, damage: Float, st: HeroStats, evolved: Boolean) {
+        val fromX = state.px
+        val fromY = state.py
+        val tx = target.x
+        val ty = target.y
+        val width = ANCHOR_WIDTH * st.areaMultiplier
+        val lenSq = ((tx - fromX) * (tx - fromX) + (ty - fromY) * (ty - fromY)).coerceAtLeast(0.0001f)
+        // Treffer auf der Kette: Abstand zur Strecke Held → Ziel
+        forEnemiesNear((fromX + tx) / 2f, (fromY + ty) / 2f, sqrt(lenSq) / 2f + width) { e ->
+            val k = (((e.x - fromX) * (tx - fromX) + (e.y - fromY) * (ty - fromY)) / lenSq).coerceIn(0f, 1f)
+            val px = fromX + (tx - fromX) * k
+            val py = fromY + (ty - fromY) * k
+            if ((e.x - px) * (e.x - px) + (e.y - py) * (e.y - py) <= (width + e.radius) * (width + e.radius)) damage(e, damage)
+        }
+        val pulled = ArrayList<Enemy>()
+        pulled += target
+        if (evolved) forEnemiesNear(tx, ty, LEVIATHAN_GROUP_RADIUS * st.areaMultiplier) { if (it !== target) pulled += it }
+        for (e in pulled) {
+            if (e.hp <= 0f) continue
+            val d = hypot(e.x - fromX, e.y - fromY)
+            val pull = ((d - ANCHOR_STOP_DISTANCE) * ANCHOR_PULL).coerceAtLeast(0f)
+            knockback(e, fromX, fromY, -pull)
+        }
+        events += SurvivorsEvent.Anchor(fromX, fromY, tx, ty, evolved)
+        if (evolved) {
+            // Aufprall der mitgerissenen Gruppe vor dem Helden
+            val ix = target.x
+            val iy = target.y
+            val radius = LEVIATHAN_IMPACT_RADIUS * st.areaMultiplier
+            forEnemiesNear(ix, iy, radius) { e ->
+                damage(e, damage * LEVIATHAN_IMPACT_DAMAGE)
+                if (!e.isBoss) e.stunTimer = maxOf(e.stunTimer, LEVIATHAN_STUN)
+            }
+            events += SurvivorsEvent.Explosion(ix, iy, radius)
         }
     }
 
@@ -1055,6 +1156,20 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             }
             events += SurvivorsEvent.Smash(state.px, state.py, facing, ring, ring = true)
         }
+    }
+
+    /** Donnerhall: Schockwelle um den Sturmrufer – Schaden, Rückstoß und kurze Betäubung. */
+    private fun thunderclap(amount: Float, st: HeroStats) {
+        val radius = THUNDER_RADIUS * st.areaMultiplier
+        val previous = effect
+        effect = EffectDamage.THUNDER
+        forEnemiesNear(state.px, state.py, radius) { e ->
+            damage(e, amount, proc = false)
+            knockback(e, state.px, state.py, THUNDER_KNOCKBACK)
+            if (!e.isBoss) e.stunTimer = maxOf(e.stunTimer, THUNDER_STUN)
+        }
+        effect = previous
+        events += SurvivorsEvent.Thunder(state.px, state.py, radius)
     }
 
     /** Dornenpanzer: Puls um den Helden, stärker mit mehr maximalem Leben; Blutdornen heilen. */
@@ -1246,10 +1361,19 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
 
     /** Heilung durch Entwicklungen, begrenzt durch den Lebensraub-Vorrat. */
     private fun leech(amount: Float, st: HeroStats) {
-        val heal = min(amount, state.leechPool)
-        if (heal <= 0f) return
-        state.leechPool -= heal
-        state.hp = (state.hp + heal).coerceAtMost(st.maxHp)
+        val healed = min(amount, state.leechPool)
+        if (healed <= 0f) return
+        state.leechPool -= healed
+        heal(healed, st)
+    }
+
+    /** Heilt den Helden; beim Paladin wird Überheilung zum Gottesschild (höchstens [HeroStats.maxShield]). */
+    private fun heal(amount: Float, st: HeroStats) {
+        if (amount <= 0f || state.dead) return
+        val missing = (st.maxHp - state.hp).coerceAtLeast(0f)
+        state.hp = (state.hp + amount).coerceAtMost(st.maxHp)
+        val overflow = amount - missing
+        if (overflow > 0f && st.maxShield > 0f) state.shield = (state.shield + overflow).coerceAtMost(st.maxShield)
     }
 
     /** Positionen der Orbit-Schädel (auch für die Darstellung). */
@@ -1329,11 +1453,30 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         val damage = WeaponKind.AURA.damage(level) * st.damageMultiplier * (1f + 0.12f * st.extraProjectiles) *
             if (evolved) 1.1f else 1f
         var hits = 0
+        val judged = ArrayList<Enemy>()
         forEnemiesNear(state.px, state.py, auraRadius()) {
             damage(it, damage)
             hits++
+            // Richturteil: jeder Aura-Treffer baut beim Paladin ein Urteil auf.
+            if (state.heroClass == HeroClass.PALADIN && it.hp > 0f && ++it.judgment >= JUDGMENT_STACKS) judged += it
         }
+        judged.forEach { smite(it, damage * SMITE_FACTOR * level) }
         if (evolved && hits > 0) leech(0.25f * hits, st)
+    }
+
+    /** Heiliger Strahl bei vollem Urteil; richtet geschwächte Nicht-Bosse sofort. */
+    private fun smite(e: Enemy, amount: Float) {
+        e.judgment = 0
+        events += SurvivorsEvent.Smite(e.x, e.y)
+        val previous = effect
+        effect = EffectDamage.SMITE
+        damage(e, amount, proc = false)
+        if (e.hp > 0f && !e.isBoss && e.hp < e.maxHp * SMITE_EXECUTE) {
+            creditEffect(EffectDamage.SMITE, e.hp)
+            damageNumber(e, e.hp, kind = DamageKind.EXECUTE)
+            e.hp = 0f
+        }
+        effect = previous
     }
 
     private fun visibleEnemies(): List<Enemy> = state.enemies.filter {
@@ -1548,7 +1691,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             when (p.kind) {
                 PickupKind.POTION -> {
                     val before = state.hp
-                    state.hp = (state.hp + 30f).coerceAtMost(st.maxHp)
+                    heal(30f, st)
                     if (state.hp > before) events += SurvivorsEvent.Healed(state.hp - before)
                 }
                 PickupKind.COIN -> earnCoins(p.x, p.y, 1)

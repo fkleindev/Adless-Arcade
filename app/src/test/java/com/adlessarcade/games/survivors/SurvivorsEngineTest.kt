@@ -40,19 +40,62 @@ class SurvivorsEngineTest {
     }
 
     @Test
-    fun everyEvolutionTalent_coversTwoWeapons_exceptMagnet() {
+    fun everyEvolutionTalent_coversOneBaseAndOneForgeWeapon() {
         PassiveKind.entries.forEach { passive ->
             val weapons = WeaponKind.entries.filter { it.evolutionPassive == passive }
-            val expected = when (passive) {
-                PassiveKind.MAGNET -> 1
-                else -> 2
-            }
-            assertEquals("$passive", expected, weapons.size)
-            if (passive != PassiveKind.MAGNET) assertEquals(1, weapons.count { it.isBase })
+            assertEquals("$passive", 2, weapons.size)
+            assertEquals("$passive", 1, weapons.count { it.isBase })
         }
         // Partnerwaffe = Grundwaffe mit gleichem Talent
         assertEquals(WeaponKind.SWORD, WeaponKind.HAMMER.partner)
-        assertEquals(null, WeaponKind.GRAVITY.partner)
+        assertEquals(WeaponKind.ANCHOR, WeaponKind.GRAVITY.partner)
+        assertTrue(WeaponKind.ANCHOR in WeaponKind.BASE)
+    }
+
+    @Test
+    fun anchor_pullsFarthestEnemy_andRangeGrowsWithMagnet() {
+        val e = engine(HeroClass.KNIGHT)
+        e.clearSpawns()
+        e.state.weapons.clear()
+        e.state.weapons[WeaponKind.ANCHOR] = 1
+        e.state.invulnerable = 1_000f
+        val near = e.spawnEnemy(EnemyKind.ORC, 1.5f, 0f, hpMultiplier = 100f)
+        val far = e.spawnEnemy(EnemyKind.ORC, 3.5f, 0.1f, hpMultiplier = 100f)
+        e.update(1f / 60f)
+        // Kette trifft beide (der nahe liegt auf der Linie), der ferne wird herangezogen
+        assertTrue(far.hp < far.maxHp)
+        assertTrue(near.hp < near.maxHp)
+        assertTrue(far.x < 3f)
+        assertTrue(e.drainEvents().any { it is SurvivorsEvent.Anchor })
+
+        // Magnet vergrößert die Reichweite
+        val baseRange = e.anchorRange()
+        e.state.passives[PassiveKind.MAGNET] = 3
+        assertEquals(baseRange * (1f + 0.3f * 3), e.anchorRange(), 0.001f)
+
+        // Außerhalb der Reichweite: kein Wurf
+        val f = engine(HeroClass.KNIGHT)
+        f.clearSpawns()
+        f.state.weapons.clear()
+        f.state.weapons[WeaponKind.ANCHOR] = 1
+        val distant = f.spawnEnemy(EnemyKind.ORC, f.anchorRange() + 2f, 0f, hpMultiplier = 100f)
+        f.update(1f / 60f)
+        assertEquals(distant.maxHp, distant.hp, 0.001f)
+    }
+
+    @Test
+    fun leviathan_dragsGroupAndStunsOnImpact() {
+        val e = engine(HeroClass.KNIGHT)
+        e.clearSpawns()
+        e.state.weapons.clear()
+        e.state.weapons[WeaponKind.ANCHOR] = MAX_LEVEL
+        e.state.evolved += WeaponKind.ANCHOR
+        e.state.invulnerable = 1_000f
+        val target = e.spawnEnemy(EnemyKind.ORC, 3.8f, 0f, hpMultiplier = 100f)
+        val buddy = e.spawnEnemy(EnemyKind.ORC, 3.6f, 0.9f, hpMultiplier = 100f)
+        e.update(1f / 60f)
+        assertTrue(buddy.x < 3.6f)
+        assertTrue(target.stunTimer > 0f || buddy.stunTimer > 0f)
     }
 
     @Test
@@ -855,6 +898,206 @@ class SurvivorsEngineTest {
         val unlock = com.adlessarcade.games.survivors.progress.SurvivorsUnlocks.forClass(HeroClass.CRYOMANCER)
         assertEquals(120, unlock.runePrice)
         assertNotNull(Upgrades.itemSynergy(HeroClass.CRYOMANCER, ItemKind.FROST))
+    }
+
+    @Test
+    fun paladin_startsWithAura_andIsFree() {
+        val e = engine(HeroClass.PALADIN)
+        assertEquals(mapOf(WeaponKind.AURA to 1), e.state.weapons.toMap())
+        assertEquals(130f, e.state.hp, 0.001f)
+        assertEquals(1, HeroStats(e.state).armor)
+        val progress = com.adlessarcade.games.survivors.progress.SurvivorsProgress()
+        assertTrue(com.adlessarcade.games.survivors.progress.UnlockLogic.isUnlocked(progress, HeroClass.PALADIN))
+    }
+
+    @Test
+    fun paladin_overhealBecomesCappedShield_thatAbsorbsHits() {
+        val e = engine(HeroClass.PALADIN)
+        e.clearSpawns()
+        e.state.weapons.clear()
+        e.state.passives[PassiveKind.REGEN] = 5 // 3 Leben/s beim Paladin
+        e.run(5f)
+        val st = HeroStats(e.state)
+        assertEquals(st.maxHp, e.state.hp, 0.001f)
+        assertTrue(e.state.shield > 10f)
+        e.run(60f)
+        assertEquals(st.maxHp * HeroStats.PALADIN_SHIELD_SHARE, e.state.shield, 0.01f) // gedeckelt
+        // Treffer zieht zuerst den Schild ab
+        val before = e.state.shield
+        e.hurtPlayer(10f, st)
+        assertEquals(st.maxHp, e.state.hp, 0.001f)
+        assertEquals(before - (10f - st.armor), e.state.shield, 0.01f)
+
+        // Regeneration doppelt so stark wie beim Krieger, und kein Schild beim Krieger
+        val k = engine(HeroClass.KNIGHT).apply { state.passives[PassiveKind.REGEN] = 5 }
+        assertEquals(HeroStats(k.state).regen * 2f, st.regen, 0.0001f)
+        k.clearSpawns()
+        k.state.weapons.clear()
+        k.run(5f)
+        assertEquals(0f, k.state.shield, 0f)
+    }
+
+    @Test
+    fun paladin_judgmentSmitesAfterSixAuraHits() {
+        val e = engine(HeroClass.PALADIN)
+        e.clearSpawns()
+        e.state.invulnerable = 1_000f
+        val orc = e.spawnEnemy(EnemyKind.ORC, 1f, 0f, hpMultiplier = 1_000f)
+        var smites = 0
+        var t = 0f
+        while (t < 4f) {
+            e.update(1f / 60f)
+            orc.x = e.state.px + 1f // in der Aura halten
+            orc.y = e.state.py
+            smites += e.drainEvents().count { it is SurvivorsEvent.Smite }
+            t += 1f / 60f
+        }
+        assertTrue(smites >= 1)
+        assertTrue((e.state.effectDamage[EffectDamage.SMITE] ?: 0f) > 0f)
+        assertTrue(orc.judgment < SurvivorsEngine.JUDGMENT_STACKS)
+
+        // Krieger mit Aura baut kein Urteil auf
+        val k = engine(HeroClass.KNIGHT)
+        k.clearSpawns()
+        k.state.weapons[WeaponKind.AURA] = 1
+        k.state.invulnerable = 1_000f
+        val other = k.spawnEnemy(EnemyKind.ORC, 1f, 0f, hpMultiplier = 1_000f)
+        k.run(2f)
+        assertEquals(0, other.judgment)
+    }
+
+    @Test
+    fun paladin_hitsUndeadHarder() {
+        fun auraDamage(kind: EnemyKind): Float {
+            val e = engine(HeroClass.PALADIN)
+            e.clearSpawns()
+            e.state.invulnerable = 1_000f
+            e.spawnEnemy(kind, 1f, 0f, hpMultiplier = 1_000f)
+            e.update(1f / 60f)
+            return e.state.weaponDamage[WeaponKind.AURA] ?: 0f
+        }
+        val living = auraDamage(EnemyKind.ORC)
+        assertTrue(living > 0f)
+        assertEquals(living * (1f + HeroStats.PALADIN_UNDEAD_BONUS), auraDamage(EnemyKind.SKELETON), 0.01f)
+    }
+
+    @Test
+    fun assassin_firstHitIsAmbushCrit_andCritKillsGiveShadowStep() {
+        val start = engine(HeroClass.ASSASSIN)
+        assertEquals(mapOf(WeaponKind.DAGGERS to 1), start.state.weapons.toMap())
+        assertEquals(85f, start.state.hp, 0.001f)
+
+        // Gleicher Dolchtreffer auf einen frischen und einen bereits getroffenen Gegner
+        fun daggerDamage(ambushUsed: Boolean): Float {
+            val e = engine(HeroClass.ASSASSIN)
+            e.clearSpawns()
+            e.state.invulnerable = 1_000f
+            e.spawnEnemy(EnemyKind.ORC, 2f, 0f, hpMultiplier = 1_000f).ambushed = ambushUsed
+            e.inputX = 1f
+            var t = 0f
+            while (t < 1.5f && (e.state.weaponDamage[WeaponKind.DAGGERS] ?: 0f) == 0f) {
+                e.update(1f / 60f)
+                t += 1f / 60f
+            }
+            return e.state.weaponDamage[WeaponKind.DAGGERS] ?: 0f
+        }
+        val normal = daggerDamage(ambushUsed = true)
+        assertTrue(normal > 0f)
+        val factor = HeroStats.BASE_CRIT + HeroStats.ASSASSIN_AMBUSH_CRIT_DAMAGE
+        assertEquals(normal * factor, daggerDamage(ambushUsed = false), 0.01f)
+
+        // Krit-Kill → Schattenschritt mit mehr Tempo
+        val e = engine(HeroClass.ASSASSIN)
+        e.clearSpawns()
+        e.state.weapons.clear()
+        val baseSpeed = HeroStats(e.state).speed
+        e.spawnEnemy(EnemyKind.SLIME, 6f, 0f).apply { lastCrit = true; hp = 0f }
+        e.update(1f / 60f)
+        assertTrue(e.state.shadowStep > 0f)
+        assertEquals(baseSpeed * (1f + HeroStats.ASSASSIN_SHADOW_STEP_SPEED), HeroStats(e.state).speed, 0.001f)
+        e.run(1.2f)
+        assertEquals(0f, e.state.shadowStep, 0f)
+    }
+
+    @Test
+    fun stormcaller_everyThirdLightningSalvoThunders() {
+        val e = engine(HeroClass.STORMCALLER)
+        assertEquals(mapOf(WeaponKind.LIGHTNING to 1), e.state.weapons.toMap())
+        assertEquals(95f, e.state.hp, 0.001f)
+        e.clearSpawns()
+        e.state.invulnerable = 1_000f
+        // Zäher Gegner direkt neben dem Helden: wird von Blitz und Donnerschlag getroffen
+        val orc = e.spawnEnemy(EnemyKind.ORC, 1.5f, 0f, hpMultiplier = 1_000f)
+        var salvos = 0
+        var thunders = 0
+        var t = 0f
+        while (t < 8f && thunders == 0) {
+            e.update(1f / 60f)
+            orc.x = e.state.px + 1.5f
+            orc.y = e.state.py
+            e.drainEvents().forEach { ev ->
+                if (ev is SurvivorsEvent.Lightning) salvos++
+                if (ev is SurvivorsEvent.Thunder) thunders++
+            }
+            t += 1f / 60f
+        }
+        assertEquals(1, thunders)
+        assertEquals(SurvivorsEngine.THUNDER_SALVOS, salvos)
+        assertEquals(0, e.state.thunderCount)
+        assertTrue((e.state.effectDamage[EffectDamage.THUNDER] ?: 0f) > 0f)
+        assertTrue(orc.stunTimer > 0f)
+
+        // Andere Klassen mit Blitz donnern nicht
+        val k = engine(HeroClass.KNIGHT)
+        k.clearSpawns()
+        k.state.weapons[WeaponKind.LIGHTNING] = 1
+        k.state.invulnerable = 1_000f
+        k.spawnEnemy(EnemyKind.ORC, 1.5f, 0f, hpMultiplier = 1_000f)
+        var knightThunder = false
+        repeat(60 * 8) {
+            k.update(1f / 60f)
+            if (k.drainEvents().any { it is SurvivorsEvent.Thunder }) knightThunder = true
+        }
+        assertFalse(knightThunder)
+    }
+
+    @Test
+    fun pirate_getsFourChestChoices_andMoreCoins() {
+        val p = engine(HeroClass.PIRATE)
+        assertEquals(mapOf(WeaponKind.ANCHOR to 1), p.state.weapons.toMap())
+        assertEquals(105f, p.state.hp, 0.001f)
+        p.clearSpawns()
+        p.openChestHere()
+        assertEquals(SurvivorsEngine.PIRATE_CHEST_CHOICES, p.state.chestOffers.size)
+        assertEquals(p.state.chestOffers.size, p.state.chestOffers.toSet().size)
+
+        val k = engine(HeroClass.KNIGHT)
+        k.clearSpawns()
+        k.openChestHere()
+        assertEquals(3, k.state.chestOffers.size)
+
+        // Elite-Kill: Basis-Münzen + 3 Extra, dazu +25 %
+        fun eliteCoins(heroClass: HeroClass): Int {
+            val e = engine(heroClass)
+            e.clearSpawns()
+            e.state.weapons.clear()
+            e.spawnEnemy(EnemyKind.SLIME, 6f, 0f, elite = true).hp = 0f
+            e.update(1f / 60f)
+            return e.state.coinsEarned
+        }
+        val knightCoins = eliteCoins(HeroClass.KNIGHT)
+        val pirateCoins = eliteCoins(HeroClass.PIRATE)
+        assertEquals(((knightCoins + SurvivorsEngine.PIRATE_ELITE_COINS) * (1f + SurvivorsEngine.PIRATE_COIN_BONUS)).toInt(), pirateCoins)
+    }
+
+    @Test
+    fun save_roundTrip_keepsShieldAndJudgment() {
+        val e = engine(HeroClass.PALADIN)
+        e.state.shield = 17f
+        e.spawnEnemy(EnemyKind.ORC, 5f, 0f).judgment = 4
+        val restored = SurvivorsSaves.decode(SurvivorsSaves.encode(e.state, 0))!!.state
+        assertEquals(17f, restored.shield, 0.001f)
+        assertEquals(4, restored.enemies.single().judgment)
     }
 
     @Test
