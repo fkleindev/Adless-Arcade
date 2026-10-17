@@ -53,6 +53,9 @@ import com.adlessarcade.core.shop.ProfileState
 import com.adlessarcade.core.shop.ShopCatalog
 import com.adlessarcade.core.shop.ShopCategory
 import com.adlessarcade.core.shop.ShopItem
+import com.adlessarcade.games.galaxytowers.CARD_RATIO
+import com.adlessarcade.games.galaxytowers.drawCardBack
+import com.adlessarcade.games.galaxytowers.drawSpaceBackdrop
 import com.adlessarcade.games.gaterush.bulletColor
 import com.adlessarcade.games.gaterush.drawHeroFigure
 import com.adlessarcade.ui.components.ArcadeScaffold
@@ -310,6 +313,18 @@ private fun ItemPreview(item: ShopItem) {
                     drawCircle(palette.accent2, size.minDimension * 0.16f, Offset(size.width * 0.7f, size.height * 0.35f))
                 }
             }
+        }
+        ShopCategory.CARD_BACK -> {
+            val back = CosmeticRegistry.cardBack(item.id)
+            Canvas(Modifier.fillMaxSize().padding(14.dp)) {
+                val h = size.height
+                val w = h / CARD_RATIO
+                drawCardBack(Offset((size.width - w) / 2f, 0f), Size(w, h), back)
+            }
+        }
+        ShopCategory.SPACE_BACKDROP -> {
+            val backdrop = CosmeticRegistry.backdrop(item.id)
+            Canvas(Modifier.fillMaxSize()) { drawSpaceBackdrop(backdrop, time = 0f) }
         }
         ShopCategory.AVATAR -> AvatarCircle(item.symbol ?: "🎮", size = 72.dp)
         ShopCategory.TITLE -> TitleBadge(item.name)

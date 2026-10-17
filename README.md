@@ -18,11 +18,19 @@ Eine werbefreie Sammlung kleiner Spiele für Android – offline, ohne Tracking,
     Hindernissen, Fernkämpfern und Bossen, deren Attacken angekündigt werden und denen man ausweichen muss.
   - Modus *15 Minuten*: überleben und den Endboss der Stage besiegen.
   - Modus *Endlos*: immer stärkere Horden ohne Ende, ab Minute 20 werden sie rasend.
+- **Galaxy Towers 2**: TriPeaks-Solitaire im Weltraum, Nachfolger von Galaxy Towers. Freie Karten aus drei Türmen ablegen,
+  die einen Wert höher oder tiefer sind (K–A rundum). Ab einer 3er-Kette öffnet sich eine zweite Ablage mit der nächsten
+  Stapelkarte, Nachziehen schließt sie wieder. Lange Ketten, Turmspitzen, abgeräumte Runden und Restzeit bringen Punkte.
+  Power-ups: Joker, Zeitsprung, Scanner und Warp (auch für Coins); Kartenrückseiten und Hintergründe gibt es im Shop.
+  - Modus *Classic*: 10 Runden mit Sanduhr (90 s, jede Runde 5 s weniger); weiter geht es auch ohne Abräumen.
+  - Modus *Timeless*: 10 Runden ohne Zeitlimit.
+  - Modus *Single Round*: eine Runde mit 80 Sekunden.
+  - Modus *Tägliche Challenge*: Classic mit gleichen Karten für alle pro Tag, ohne gekaufte Power-ups, eigener Tagesrekord.
 
 **Rund um die Spiele**
-- **Coins & Shop**: In allen Spielen Coins verdienen und gegen Skins, App-Themes, Avatare und Titel tauschen.
+- **Coins & Shop**: In allen Spielen Coins verdienen und gegen Skins, Kartenrückseiten, Hintergründe, App-Themes, Avatare und Titel tauschen.
 - **Bestenlisten**: Lokale Top 10 pro Modus (mit App-Version je Eintrag), bei Rune Survivors zusätzlich pro Stage und Klasse.
-- **Erfolge**: 13 Erfolge über alle Spiele, jeder schaltet einen exklusiven Titel frei, den es nicht im Shop gibt.
+- **Erfolge**: 16 Erfolge über alle Spiele, jeder schaltet einen exklusiven Titel frei, den es nicht im Shop gibt.
 - **Fortsetzen**: Jedes Spiel lässt sich pausieren und später weiterspielen, auch nach einem App-Neustart.
 
 ## Bauen & Starten

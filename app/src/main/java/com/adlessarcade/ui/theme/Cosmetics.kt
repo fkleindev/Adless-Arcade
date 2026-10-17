@@ -26,6 +26,18 @@ data class HeroSkin(
     val rainbow: Boolean = false,
 )
 
+enum class CardBackStyle { GALAXY, SKULL, BRICKS, CAT }
+
+/** Kartenrückseite in Galaxy Towers: Grundfarbe plus zwei Motivfarben (Planet/Ring, Fugen/Block, Fell/Augen …). */
+@Immutable
+data class CardBack(val base: Color, val accent: Color, val detail: Color, val style: CardBackStyle)
+
+enum class BackdropStyle { STARS, NEBULA, ASTEROIDS, CORE }
+
+/** Weltraum-Hintergrund in Galaxy Towers. */
+@Immutable
+data class SpaceBackdrop(val top: Color, val bottom: Color, val accent: Color, val style: BackdropStyle)
+
 @Immutable
 data class ArcadePalette(val accent: Color, val accent2: Color, val backgroundTop: Color) {
     val accentBrush: Brush get() = Brush.linearGradient(listOf(accent, accent2))
@@ -38,6 +50,8 @@ data class ArcadePalette(val accent: Color, val accent2: Color, val backgroundTo
 data class Cosmetics(
     val blockSkin: BlockSkin,
     val heroSkin: HeroSkin,
+    val cardBack: CardBack,
+    val backdrop: SpaceBackdrop,
     val palette: ArcadePalette,
     val avatar: String,
     val title: String,
@@ -77,6 +91,25 @@ object CosmeticRegistry {
         "hero_rainbow" to HeroSkin(Color.White, Color.White, NeonViolet, Color.White, rainbow = true),
     )
 
+    private val cardBacks = mapOf(
+        // Wie im ersten Teil: farbige Karte mit lila Ringplanet und grauen Asteroiden, dazu Motiv-Rückseiten.
+        "cardback_galaxy" to CardBack(Color(0xFF6D35A0), Color(0xFF9D3FBF), Color(0xFFF5A04A), CardBackStyle.GALAXY),
+        "cardback_orange" to CardBack(Color(0xFFF7931E), Color(0xFF9D3FBF), Color(0xFFF5C26B), CardBackStyle.GALAXY),
+        "cardback_red" to CardBack(Color(0xFFE8321E), Color(0xFF9D3FBF), Color(0xFFF5A04A), CardBackStyle.GALAXY),
+        "cardback_blue" to CardBack(Color(0xFF0C47B0), Color(0xFF9D3FBF), Color(0xFFF5A04A), CardBackStyle.GALAXY),
+        "cardback_black" to CardBack(Color(0xFF2A2A2E), Color(0xFF9D3FBF), Color(0xFFF5A04A), CardBackStyle.GALAXY),
+        "cardback_skull" to CardBack(Color(0xFF2A2A2E), Color(0xFFF5F5F4), Color(0xFF111111), CardBackStyle.SKULL),
+        "cardback_bricks" to CardBack(Color(0xFF9A4A1C), Color(0xFF5C2A0E), Color(0xFFF7A23B), CardBackStyle.BRICKS),
+        "cardback_cat" to CardBack(Color(0xFF8A9BE0), Color(0xFF8C8279), Color(0xFF4A4038), CardBackStyle.CAT),
+    )
+
+    private val backdrops = mapOf(
+        "backdrop_stars" to SpaceBackdrop(Color(0xFF000000), Color(0xFF000000), Color(0xFFE5E7EB), BackdropStyle.STARS),
+        "backdrop_nebula" to SpaceBackdrop(Color(0xFF2A0F3D), Color(0xFF070414), Color(0xFFF472B6), BackdropStyle.NEBULA),
+        "backdrop_asteroids" to SpaceBackdrop(Color(0xFF15171F), Color(0xFF07080C), Color(0xFFA8A29E), BackdropStyle.ASTEROIDS),
+        "backdrop_core" to SpaceBackdrop(Color(0xFF1E1036), Color(0xFF05020D), Color(0xFFFDE68A), BackdropStyle.CORE),
+    )
+
     private val palettes = mapOf(
         "theme_neon" to ArcadePalette(NeonViolet, NeonCyan, ArcadeBackgroundTop),
         "theme_ocean" to ArcadePalette(Color(0xFF2563EB), Color(0xFF2DD4BF), Color(0xFF0E1A2E)),
@@ -88,10 +121,14 @@ object CosmeticRegistry {
     fun blockSkin(id: String): BlockSkin = blockSkins[id] ?: blockSkins.getValue("block_classic")
     fun heroSkin(id: String): HeroSkin = heroSkins[id] ?: heroSkins.getValue("hero_default")
     fun palette(id: String): ArcadePalette = palettes[id] ?: palettes.getValue("theme_neon")
+    fun cardBack(id: String): CardBack = cardBacks[id] ?: cardBacks.getValue("cardback_galaxy")
+    fun backdrop(id: String): SpaceBackdrop = backdrops[id] ?: backdrops.getValue("backdrop_stars")
 
     fun from(profile: ProfileState): Cosmetics = Cosmetics(
         blockSkin = blockSkin(profile.equipped(ShopCategory.BLOCK_SKIN).id),
         heroSkin = heroSkin(profile.equipped(ShopCategory.HERO_SKIN).id),
+        cardBack = cardBack(profile.equipped(ShopCategory.CARD_BACK).id),
+        backdrop = backdrop(profile.equipped(ShopCategory.SPACE_BACKDROP).id),
         palette = palette(profile.equipped(ShopCategory.APP_THEME).id),
         avatar = profile.equipped(ShopCategory.AVATAR).symbol ?: "🎮",
         title = profile.equipped(ShopCategory.TITLE).name,
@@ -104,6 +141,8 @@ object CosmeticRegistry {
         when (it.category) {
             ShopCategory.BLOCK_SKIN -> it.id !in blockSkins
             ShopCategory.HERO_SKIN -> it.id !in heroSkins
+            ShopCategory.CARD_BACK -> it.id !in cardBacks
+            ShopCategory.SPACE_BACKDROP -> it.id !in backdrops
             ShopCategory.APP_THEME -> it.id !in palettes
             ShopCategory.AVATAR -> it.symbol == null
             ShopCategory.TITLE -> false

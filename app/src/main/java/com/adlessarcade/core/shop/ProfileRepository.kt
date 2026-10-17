@@ -55,6 +55,24 @@ class ProfileRepository(private val context: Context) {
         }
     }
 
+    /** Zieht [amount] Coins ab (z. B. für Power-ups im Spiel). Liefert false bei zu wenig Coins oder Speicherfehler. */
+    suspend fun spendCoins(amount: Int): Boolean {
+        if (amount <= 0) return false
+        writes.flush()
+        var success = false
+        try {
+            context.profileStore.edit { prefs ->
+                val coins = prefs[coinsKey] ?: 0
+                if (coins < amount) return@edit
+                prefs[coinsKey] = coins - amount
+                success = true
+            }
+        } catch (e: IOException) {
+            success = false
+        }
+        return success
+    }
+
     /** Kauft [item] und rüstet es direkt aus. Liefert false bei zu wenig Coins oder Speicherfehler. */
     suspend fun purchase(item: ShopItem): Boolean {
         writes.flush() // ausstehende Coin-Gutschriften zuerst verbuchen

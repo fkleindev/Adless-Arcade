@@ -15,6 +15,8 @@ import androidx.navigation.compose.rememberNavController
 import com.adlessarcade.core.GameRegistry
 import com.adlessarcade.games.blockbreak.BlockBreak
 import com.adlessarcade.games.blockbreak.BlockBreakScreen
+import com.adlessarcade.games.galaxytowers.GalaxyTowers
+import com.adlessarcade.games.galaxytowers.GalaxyTowersScreen
 import com.adlessarcade.games.gaterush.GateRush
 import com.adlessarcade.games.gaterush.GateRushScreen
 import com.adlessarcade.games.survivors.Survivors
@@ -103,5 +105,6 @@ private fun GameHost(gameId: String, modeId: String, onExit: () -> Unit, onOpenF
         BlockBreak.GAME_ID -> BlockBreakScreen(modeId = modeId, onExit = onExit)
         GateRush.GAME_ID -> GateRushScreen(modeId = modeId, onExit = onExit)
         Survivors.GAME_ID -> SurvivorsScreen(onExit = onExit, onOpenForge = onOpenForge)
+        GalaxyTowers.GAME_ID -> GalaxyTowersScreen(modeId = modeId, onExit = onExit)
     }
 }

@@ -20,6 +20,7 @@ object Achievements {
     private const val BLOCK_BREAK = "blockbreak"
     private const val GATE_RUSH = "gaterush"
     private const val SURVIVORS = "survivors"
+    private const val GALAXY_TOWERS = "galaxytowers"
 
     // Block Break
     const val BB_FULL_CLEAR = "bb_full_clear"
@@ -39,6 +40,11 @@ object Achievements {
     const val SV_VICTORY = "sv_victory"
     const val SV_ENDLESS_20MIN = "sv_endless_20min"
 
+    // Galaxy Towers 2
+    const val GT_ROUND_CLEAR = "gt_round_clear"
+    const val GT_STREAK = "gt_streak"
+    const val GT_ROUND_5 = "gt_round_5"
+
     // Spielübergreifend
     const val ALL_ROUNDER = "all_rounder"
 
@@ -49,6 +55,8 @@ object Achievements {
     const val GR_BOSS_RUSH_WAVE = 5
     const val SV_KILLS_TARGET = 3000
     const val SV_ENDLESS_SECONDS = 1200f
+    const val GT_STREAK_TARGET = 15
+    const val GT_ROUND_TARGET = 5
 
     val all: List<Achievement> = listOf(
         Achievement(BB_FULL_CLEAR, BLOCK_BREAK, "Tabula Rasa", "Räume das komplette Brett leer.", "✨", "Tabula Rasa"),
@@ -65,6 +73,10 @@ object Achievements {
         Achievement(SV_KILLS, SURVIVORS, "Hordenbrecher", "Besiege 3.000 Gegner in einem Lauf.", "💀", "Hordenbrecher"),
         Achievement(SV_VICTORY, SURVIVORS, "Dämonenbezwinger", "Besiege den Dämonenfürsten im 15-Minuten-Modus.", "😈", "Dämonenbezwinger"),
         Achievement(SV_ENDLESS_20MIN, SURVIVORS, "Unsterblich", "Überlebe im Endlos-Modus 20 Minuten.", "♾️", "Unsterblich"),
+
+        Achievement(GT_ROUND_CLEAR, GALAXY_TOWERS, "Sternenstaub", "Räume alle drei Türme einer Runde ab.", "🌠", "Sternenstaub"),
+        Achievement(GT_STREAK, GALAXY_TOWERS, "Kometenschweif", "Lege eine Kette aus $GT_STREAK_TARGET Karten.", "☄️", "Kometenschweif"),
+        Achievement(GT_ROUND_5, GALAXY_TOWERS, "Galaxie-Meister", "Räume $GT_ROUND_TARGET Runden in einem Spiel ab.", "🌌", "Galaxie-Meister"),
 
         Achievement(ALL_ROUNDER, null, "Allrounder", "Schaffe in jedem Spiel mindestens einen Erfolg.", "🏆", "Allrounder"),
     )

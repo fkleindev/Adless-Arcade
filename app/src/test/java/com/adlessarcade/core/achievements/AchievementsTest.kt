@@ -47,7 +47,8 @@ class AchievementsTest {
     @Test
     fun allRounder_needsOneAchievementPerGame() {
         assertTrue(Achievements.derived(setOf(Achievements.BB_FULL_CLEAR, Achievements.GR_BOSS)).isEmpty())
-        val all = setOf(Achievements.BB_FULL_CLEAR, Achievements.GR_BOSS, Achievements.SV_EVOLUTION)
+        assertTrue(Achievements.derived(setOf(Achievements.BB_FULL_CLEAR, Achievements.GR_BOSS, Achievements.SV_EVOLUTION)).isEmpty())
+        val all = setOf(Achievements.BB_FULL_CLEAR, Achievements.GR_BOSS, Achievements.SV_EVOLUTION, Achievements.GT_ROUND_CLEAR)
         assertEquals(listOf(Achievements.ALL_ROUNDER), Achievements.derived(all).map { it.id })
         assertTrue(Achievements.derived(all + Achievements.ALL_ROUNDER).isEmpty())
     }

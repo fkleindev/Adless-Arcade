@@ -5,6 +5,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.adlessarcade.games.blockbreak.BlockBreak
 import com.adlessarcade.games.blockbreak.BlockBreakPreview
+import com.adlessarcade.games.galaxytowers.GalaxyTowers
+import com.adlessarcade.games.galaxytowers.GalaxyTowersMode
+import com.adlessarcade.games.galaxytowers.GalaxyTowersPreview
 import com.adlessarcade.games.gaterush.GateRush
 import com.adlessarcade.games.gaterush.GateRushMode
 import com.adlessarcade.games.gaterush.GateRushPreview
@@ -131,6 +134,40 @@ object GameRegistry {
                 LeaderboardVariant(if (it == SurvivorsStage.MEADOW) "" else it.id, it.title)
             },
             extraAction = GameAction("ᚱ  Runen-Schmiede", "survivors_forge"),
+        ),
+        GameInfo(
+            id = GalaxyTowers.GAME_ID,
+            title = "Galaxy Towers 2",
+            tagline = "Räume die Sternentürme ab",
+            description = "Solitaire mit drei Kartentürmen: Lege freie Karten ab, die einen Wert höher oder tiefer sind " +
+                "als die Ablage (K–A geht rundum). Ab einer 3er-Kette öffnet sich eine zweite Ablage – bis du nachziehst. " +
+                "Joker, Zeitsprung, Scanner und Warp helfen in der Not.",
+            accent = Color(0xFF7C3AED),
+            accentSecondary = Color(0xFFF59E0B),
+            modes = listOf(
+                ModeInfo(
+                    id = GalaxyTowersMode.CLASSIC.id,
+                    title = "Classic",
+                    description = "10 Runden gegen die Sanduhr – jede Runde ist kürzer. Restzeit bringt Bonuspunkte.",
+                ),
+                ModeInfo(
+                    id = GalaxyTowersMode.TIMELESS.id,
+                    title = "Timeless",
+                    description = "10 Runden ohne Zeitlimit. In Ruhe die längsten Ketten planen.",
+                ),
+                ModeInfo(
+                    id = GalaxyTowersMode.SINGLE.id,
+                    title = "Single Round",
+                    description = "Eine einzelne Runde mit 80 Sekunden. Schnell zwischendurch.",
+                ),
+                ModeInfo(
+                    id = GalaxyTowersMode.DAILY.id,
+                    title = "Tägliche Challenge",
+                    description = "Classic mit den gleichen Karten für alle – ohne gekaufte Power-ups. Eigener Tagesrekord.",
+                    scoreKey = { DailyChallenge.scoreKey(GalaxyTowersMode.DAILY.id) },
+                ),
+            ),
+            preview = { modifier -> GalaxyTowersPreview(modifier) },
         ),
     )
 

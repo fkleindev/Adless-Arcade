@@ -5,6 +5,8 @@ import com.adlessarcade.core.achievements.Achievements
 enum class ShopCategory(val title: String) {
     BLOCK_SKIN("Block Break"),
     HERO_SKIN("Gate Rush"),
+    CARD_BACK("Galaxy Towers – Rückseiten"),
+    SPACE_BACKDROP("Galaxy Towers – Hintergründe"),
     APP_THEME("Themes"),
     AVATAR("Avatare"),
     TITLE("Titel"),
@@ -43,6 +45,19 @@ object ShopCatalog {
         ShopItem("hero_plasma", ShopCategory.HERO_SKIN, "Plasma", 300),
         ShopItem("hero_gold", ShopCategory.HERO_SKIN, "Gold", 500),
         ShopItem("hero_rainbow", ShopCategory.HERO_SKIN, "Regenbogen", 700),
+        // Galaxy Towers
+        ShopItem("cardback_galaxy", ShopCategory.CARD_BACK, "Galaxy", 0),
+        ShopItem("cardback_orange", ShopCategory.CARD_BACK, "Galaxy Orange", 100),
+        ShopItem("cardback_red", ShopCategory.CARD_BACK, "Galaxy Red", 100),
+        ShopItem("cardback_blue", ShopCategory.CARD_BACK, "Galaxy Blue", 100),
+        ShopItem("cardback_black", ShopCategory.CARD_BACK, "Galaxy Black", 150),
+        ShopItem("cardback_skull", ShopCategory.CARD_BACK, "Skull", 250),
+        ShopItem("cardback_bricks", ShopCategory.CARD_BACK, "Bricks", 300),
+        ShopItem("cardback_cat", ShopCategory.CARD_BACK, "Cat", 400),
+        ShopItem("backdrop_stars", ShopCategory.SPACE_BACKDROP, "Sternenfeld", 0),
+        ShopItem("backdrop_nebula", ShopCategory.SPACE_BACKDROP, "Nebula", 200),
+        ShopItem("backdrop_asteroids", ShopCategory.SPACE_BACKDROP, "Asteroidengürtel", 300),
+        ShopItem("backdrop_core", ShopCategory.SPACE_BACKDROP, "Galaxienkern", 500),
         // App-Themes
         ShopItem("theme_neon", ShopCategory.APP_THEME, "Neon", 0),
         ShopItem("theme_ocean", ShopCategory.APP_THEME, "Ozean", 300),
