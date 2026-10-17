@@ -61,6 +61,13 @@ enum class HeroClass(
         passiveTitle = "Seelenernte", passiveIcon = "💀",
         passiveDescription = "Jeder Kill bringt eine Seele (max. 150, je +0,4 % Schaden). " +
             "Vergiftete Gegner verbreiten ihr Gift beim Tod.",
+    ),
+    CRYOMANCER(
+        "class_cryo", "Kryomantin", "Friert ganze Horden ein und lässt sie zerspringen. Startet mit der Frostnova.",
+        maxHp = 100f, speed = 3f, armor = 0, startWeapon = WeaponKind.FROST_NOVA,
+        passiveTitle = "Permafrost", passiveIcon = "❄",
+        passiveDescription = "Verlangsamte und gefrorene Gegner nehmen +15 % Schaden. Gefrorene Gegner zerspringen " +
+            "beim Tod in 3 Eissplitter, die Gegner in der Nähe treffen und einfrieren. Frostsplitter wirken doppelt.",
     );
 
     companion object {
@@ -306,6 +313,7 @@ enum class EffectDamage(val title: String, val icon: String) {
     SPARK("Funken", "⚡"),
     EMBER("Glut-Explosion", "☄"),
     EXECUTE("Hinrichtung", "💀"),
+    SHATTER("Eissplitter", "❄"),
 }
 
 /** Runenstein: lädt sich auf, solange der Held daneben steht, und gibt dann Runen. */
@@ -441,6 +449,8 @@ sealed interface SurvivorsEvent {
     data class Nova(val x: Float, val y: Float, val radius: Float, val freeze: Boolean = false) : SurvivorsEvent
     /** Gewittersturm: Blitz springt von (x1, y1) nach (x2, y2). */
     data class Chain(val x1: Float, val y1: Float, val x2: Float, val y2: Float) : SurvivorsEvent
+    /** Permafrost: ein Eissplitter fliegt von einem zersprungenen Gegner zum nächsten. */
+    data class IceShard(val x1: Float, val y1: Float, val x2: Float, val y2: Float) : SurvivorsEvent
     /** Kriegshammer-Hieb (Kegel) bzw. Erdbrecher-Schockwelle ([ring]). */
     data class Smash(val x: Float, val y: Float, val angle: Float, val range: Float, val ring: Boolean) : SurvivorsEvent
     data class Thorns(val x: Float, val y: Float, val radius: Float, val evolved: Boolean) : SurvivorsEvent

@@ -296,7 +296,9 @@ class HeroStats(private val state: SurvivorsState) {
     val lifesteal: Float = item(ItemKind.LIFESTEAL)
     private val elementFactor = if (c == HeroClass.MAGE) 1.5f else 1f
     val sparkChance: Float = (item(ItemKind.SPARK) * elementFactor).coerceAtMost(1f)
-    val freezeChance: Float = (item(ItemKind.FROST) * elementFactor).coerceAtMost(1f)
+    /** Permafrost: Frostsplitter wirken bei der Kryomantin doppelt. */
+    private val frostFactor = if (c == HeroClass.CRYOMANCER) CRYO_FROST_FACTOR else elementFactor
+    val freezeChance: Float = (item(ItemKind.FROST) * frostFactor).coerceAtMost(1f)
     val emberChance: Float = item(ItemKind.EMBER).coerceAtMost(1f)
     /** Jeder weitere Glutkern vergrößert die Explosion etwas (höchstens [EMBER_MAX_RADIUS_BONUS]). */
     val emberRadiusMultiplier: Float =
@@ -317,6 +319,8 @@ class HeroStats(private val state: SurvivorsState) {
         const val MAGE_STATUS_BONUS = 0.2f
         const val NECRO_MAX_SOULS = 150
         const val NECRO_DAMAGE_PER_SOUL = 0.004f
+        const val CRYO_COLD_BONUS = 0.15f
+        const val CRYO_FROST_FACTOR = 2f
         const val EMBER_RADIUS_PER_STACK = 0.08f
         const val EMBER_MAX_RADIUS_BONUS = 0.5f
     }
@@ -375,6 +379,7 @@ object Upgrades {
             HeroClass.MAGE -> item in setOf(ItemKind.POISON, ItemKind.SPARK, ItemKind.FROST)
             HeroClass.RANGER -> item in setOf(ItemKind.CRIT_CHANCE, ItemKind.CRIT_DAMAGE)
             HeroClass.NECROMANCER -> item in setOf(ItemKind.POISON, ItemKind.EMBER, ItemKind.EXECUTE)
+            HeroClass.CRYOMANCER -> item in setOf(ItemKind.FROST, ItemKind.EXECUTE, ItemKind.SPARK)
         }
         return if (fits) "Synergie: ${heroClass.passiveIcon} ${heroClass.passiveTitle}" else null
     }

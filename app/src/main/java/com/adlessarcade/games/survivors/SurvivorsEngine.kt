@@ -46,6 +46,12 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         const val POISON_MAX_HITS = 3f
         const val FROZEN_DAMAGE_BONUS = 1.3f
         const val FREEZE_TIME = 1.5f
+        /** Permafrost (Kryomantin): Splitter eines zersprungenen gefrorenen Gegners. */
+        const val SHATTER_SHARDS = 3
+        const val SHATTER_RANGE = 2.5f
+        const val SHATTER_DAMAGE = 8f
+        const val SHATTER_HP_SHARE = 0.25f
+        const val SHATTER_FREEZE = 0.8f
         /** Entwicklungen gibt es erst ab dem ersten Boss. */
         const val EVOLUTION_MIN_TIME = 300f
         const val METEOR_DELAY = 0.45f
@@ -506,6 +512,10 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         if (state.heroClass == HeroClass.MAGE && (e.poisonTimer > 0f || e.freezeTimer > 0f || e.stunTimer > 0f)) {
             amount *= 1f + HeroStats.MAGE_STATUS_BONUS
         }
+        // Permafrost: verlangsamte oder gefrorene Gegner nehmen mehr Schaden.
+        if (state.heroClass == HeroClass.CRYOMANCER && (e.slowTimer > 0f || e.freezeTimer > 0f)) {
+            amount *= 1f + HeroStats.CRYO_COLD_BONUS
+        }
         var crit = 0
         if (proc && st.critChance > 0f && (st.critChance >= 1f || random.nextFloat() < st.critChance)) {
             crit = 1
@@ -635,9 +645,10 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         if (demonDefeated) startVictorySweep()
     }
 
-    /** Seelenernte (Seelen, Gift-Seuche) und Glutkern-Explosionen. */
+    /** Seelenernte (Seelen, Gift-Seuche), Permafrost-Splitter und Glutkern-Explosionen. */
     private fun onKillEffects(e: Enemy, st: HeroStats) {
         val kind = e.lastHit ?: source
+        if (state.heroClass == HeroClass.CRYOMANCER && e.freezeTimer > 0f) shatter(e, kind, st)
         if (state.heroClass == HeroClass.NECROMANCER) {
             state.souls = (state.souls + 1).coerceAtMost(HeroStats.NECRO_MAX_SOULS)
             if (e.poisonTimer > 0f && e.poisonDps > 0f) {
@@ -659,6 +670,30 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             forEnemiesNear(e.x, e.y, radius) { damage(it, amount, proc = false) }
             effect = null
         }
+    }
+
+    /**
+     * Permafrost: Ein gefrorener Gegner zerspringt in Eissplitter, die die nächsten Gegner treffen und einfrieren.
+     * Daraus können Kettenreaktionen entstehen – begrenzt durch die Gegnerzahl, da jeder Gegner nur einmal stirbt.
+     */
+    private fun shatter(e: Enemy, kind: WeaponKind, st: HeroStats) {
+        val near = ArrayList<Enemy>(8)
+        forEnemiesNear(e.x, e.y, SHATTER_RANGE) { if (it !== e && it.hp > 0f) near += it }
+        if (near.isEmpty()) return
+        near.sortBy { (it.x - e.x) * (it.x - e.x) + (it.y - e.y) * (it.y - e.y) }
+        // Anteil der Gegner-HP, gedeckelt wie die Glut-Explosion, damit Elite/Bosse keine Riesensplitter erzeugen.
+        val amount = maxOf(SHATTER_DAMAGE, min(e.maxHp * SHATTER_HP_SHARE, EMBER_CAP * hpMultiplier())) * st.damageMultiplier
+        val previousSource = source
+        val previousEffect = effect
+        source = kind
+        effect = EffectDamage.SHATTER
+        for (t in near.take(SHATTER_SHARDS)) {
+            events += SurvivorsEvent.IceShard(e.x, e.y, t.x, t.y)
+            damage(t, amount, proc = false)
+            if (!t.isBoss) t.freezeTimer = maxOf(t.freezeTimer, SHATTER_FREEZE)
+        }
+        effect = previousEffect
+        source = previousSource
     }
 
     private fun dropGem(x: Float, y: Float, value: Int) {

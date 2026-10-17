@@ -71,6 +71,7 @@ object SurvivorsUnlocks {
         SurvivorsUnlock(HeroClass.KNIGHT.shopId, UnlockKind.CLASS, HeroClass.KNIGHT.title, runePrice = 0),
         SurvivorsUnlock(HeroClass.MAGE.shopId, UnlockKind.CLASS, HeroClass.MAGE.title, runePrice = 80),
         SurvivorsUnlock(HeroClass.RANGER.shopId, UnlockKind.CLASS, HeroClass.RANGER.title, runePrice = 120),
+        SurvivorsUnlock(HeroClass.CRYOMANCER.shopId, UnlockKind.CLASS, HeroClass.CRYOMANCER.title, runePrice = 120),
         SurvivorsUnlock(HeroClass.NECROMANCER.shopId, UnlockKind.CLASS, HeroClass.NECROMANCER.title, runePrice = 150),
     ) + weaponUnlocks() + listOf(
         SurvivorsUnlock(

@@ -59,6 +59,8 @@ sealed class SurvivorsFx(val x: Float, val y: Float, val lifetime: Float) {
     class Bolt(x: Float, y: Float, val radius: Float) : SurvivorsFx(x, y, 0.3f)
     class Nova(x: Float, y: Float, val radius: Float, val freeze: Boolean) : SurvivorsFx(x, y, 0.45f)
     class Arc(x: Float, y: Float, val x2: Float, val y2: Float) : SurvivorsFx(x, y, 0.25f)
+    /** Eissplitter der Kryomantin: fliegt vom zersprungenen Gegner zum Ziel. */
+    class Shard(x: Float, y: Float, val x2: Float, val y2: Float) : SurvivorsFx(x, y, 0.28f)
     class Smash(x: Float, y: Float, val angle: Float, val range: Float, val ring: Boolean) : SurvivorsFx(x, y, if (ring) 0.4f else 0.25f)
     class ThornPulse(x: Float, y: Float, val radius: Float, val evolved: Boolean) : SurvivorsFx(x, y, 0.35f)
     class Blast(x: Float, y: Float, val radius: Float, val color: Color) : SurvivorsFx(x, y, 0.35f)
@@ -1008,6 +1010,32 @@ fun DrawScope.drawHeroClass(heroClass: HeroClass, center: Offset, size: Float, t
             drawCircle(Color(0xFF7C3AED), r * 0.08f, c + Offset(-r * 0.11f, -r * 0.52f))
             drawCircle(Color(0xFF7C3AED), r * 0.08f, c + Offset(r * 0.11f, -r * 0.52f))
         }
+        HeroClass.CRYOMANCER -> {
+            if (!bodyOnly) drawCircle(Color(0xFFE0F2FE).copy(alpha = 0.12f + 0.06f * sin(time * 2.5f)), r * 1.1f, c) // Frosthauch
+            val robe = Path().apply {
+                moveTo(c.x, c.y - r * 0.45f)
+                lineTo(c.x + r * 0.72f, c.y + r * 0.62f)
+                lineTo(c.x - r * 0.72f, c.y + r * 0.62f)
+                close()
+            }
+            drawPath(robe, Color(0xFF0EA5E9))
+            drawLine(Color(0xFFE0F2FE), c + Offset(0f, -r * 0.3f), c + Offset(0f, r * 0.6f), strokeWidth = r * 0.08f) // Saum
+            drawCircle(Color(0xFF7DD3FC), r * 0.46f, c + Offset(0f, -r * 0.56f)) // Kapuze
+            drawCircle(Color(0xFFFDE68A), r * 0.3f, c + Offset(dir * r * 0.04f, -r * 0.5f))
+            // Kristallstab mit pulsierender Eisraute
+            val staffTop = c + Offset(dir * r * 0.78f, -r * 0.95f)
+            drawLine(Color(0xFFBAE6FD), c + Offset(dir * r * 0.78f, r * 0.6f), staffTop, strokeWidth = r * 0.09f)
+            val k = r * (0.24f + 0.03f * sin(time * 6f))
+            val crystal = Path().apply {
+                moveTo(staffTop.x, staffTop.y - k * 1.3f)
+                lineTo(staffTop.x + k * 0.7f, staffTop.y)
+                lineTo(staffTop.x, staffTop.y + k)
+                lineTo(staffTop.x - k * 0.7f, staffTop.y)
+                close()
+            }
+            drawPath(crystal, Color(0xFFE0F2FE))
+            if (!bodyOnly) drawCircle(Color(0xFF7DD3FC).copy(alpha = 0.35f + 0.2f * sin(time * 6f)), k * 1.4f, staffTop)
+        }
     }
 }
 
@@ -1079,6 +1107,26 @@ private fun DrawScope.drawFx(cam: SurvivorsCamera, fx: SurvivorsFx, textMeasurer
             }
             drawPath(arc, Color(0xFFC4B5FD).copy(alpha = a), style = Stroke(width = cam.len(0.1f)))
             drawPath(arc, Color.White.copy(alpha = a), style = Stroke(width = cam.len(0.035f)))
+        }
+        is SurvivorsFx.Shard -> {
+            // Splitter fliegt in der ersten Hälfte zum Ziel, eine eisblaue Spur bleibt kurz zurück.
+            val to = cam.at(fx.x2, fx.y2)
+            val k = (t * 2f).coerceAtMost(1f)
+            val tip = c + (to - c) * k
+            val tail = c + (to - c) * (k - 0.45f).coerceAtLeast(0f)
+            drawLine(Color(0xFF7DD3FC).copy(alpha = 0.7f * a), tail, tip, strokeWidth = cam.len(0.09f))
+            drawLine(Color.White.copy(alpha = a), tail, tip, strokeWidth = cam.len(0.03f))
+            val dir = (to - c).let { d -> val l = d.getDistance().coerceAtLeast(0.001f); Offset(d.x / l, d.y / l) }
+            val side = Offset(-dir.y, dir.x)
+            val s = cam.len(0.14f)
+            val crystal = Path().apply {
+                moveTo(tip.x + dir.x * s, tip.y + dir.y * s)
+                lineTo(tip.x + side.x * s * 0.45f, tip.y + side.y * s * 0.45f)
+                lineTo(tip.x - dir.x * s * 0.8f, tip.y - dir.y * s * 0.8f)
+                lineTo(tip.x - side.x * s * 0.45f, tip.y - side.y * s * 0.45f)
+                close()
+            }
+            drawPath(crystal, Color(0xFFE0F2FE).copy(alpha = a))
         }
         is SurvivorsFx.Bolt -> {
             val top = Offset(c.x, c.y - size.height)

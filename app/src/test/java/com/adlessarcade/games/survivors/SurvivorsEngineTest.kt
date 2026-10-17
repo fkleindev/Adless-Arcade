@@ -800,6 +800,64 @@ class SurvivorsEngineTest {
     }
 
     @Test
+    fun cryomancer_startsWithFrostNova_andHitsSlowedEnemiesHarder() {
+        val base = engine(HeroClass.CRYOMANCER)
+        assertEquals(mapOf(WeaponKind.FROST_NOVA to 1), base.state.weapons.toMap())
+        assertEquals(100f, base.state.hp, 0.001f)
+
+        // Gleiche Nova gegen einen unverlangsamten und einen verlangsamten Gegner
+        fun novaDamage(slowed: Boolean): Float {
+            val e = engine(HeroClass.CRYOMANCER)
+            e.clearSpawns()
+            e.state.invulnerable = 100f
+            e.spawnEnemy(EnemyKind.ORC, 1.2f, 0f, hpMultiplier = 100f).apply { if (slowed) slowTimer = 5f }
+            e.update(1f / 60f)
+            return e.state.weaponDamage[WeaponKind.FROST_NOVA] ?: 0f
+        }
+        val normal = novaDamage(slowed = false)
+        assertTrue(normal > 0f)
+        assertEquals(normal * (1f + HeroStats.CRYO_COLD_BONUS), novaDamage(slowed = true), 0.01f)
+    }
+
+    @Test
+    fun cryomancer_frozenEnemiesShatterOnDeath() {
+        fun shatterRun(frozen: Boolean, heroClass: HeroClass = HeroClass.CRYOMANCER): Enemy {
+            val e = engine(heroClass)
+            e.clearSpawns()
+            e.state.weapons.clear()
+            e.state.invulnerable = 100f
+            e.spawnEnemy(EnemyKind.SLIME, 6f, 0f).apply {
+                if (frozen) freezeTimer = 1f
+                hp = 0f
+            }
+            val neighbour = e.spawnEnemy(EnemyKind.ORC, 7f, 0f, hpMultiplier = 100f)
+            e.update(1f / 60f)
+            if (frozen && heroClass == HeroClass.CRYOMANCER) {
+                assertTrue((e.state.effectDamage[EffectDamage.SHATTER] ?: 0f) > 0f)
+            }
+            return neighbour
+        }
+        val hit = shatterRun(frozen = true)
+        assertTrue(hit.hp < hit.maxHp)
+        assertTrue(hit.freezeTimer > 0f)
+        // Nicht gefroren oder andere Klasse: keine Splitter
+        val untouched = shatterRun(frozen = false)
+        assertEquals(untouched.maxHp, untouched.hp, 0.001f)
+        val knight = shatterRun(frozen = true, heroClass = HeroClass.KNIGHT)
+        assertEquals(knight.maxHp, knight.hp, 0.001f)
+    }
+
+    @Test
+    fun cryomancer_doublesFrostShards_andCostsRunes() {
+        val cryo = engine(HeroClass.CRYOMANCER).apply { state.items[ItemKind.FROST] = 2 }
+        val knight = engine(HeroClass.KNIGHT).apply { state.items[ItemKind.FROST] = 2 }
+        assertEquals(HeroStats(knight.state).freezeChance * 2f, HeroStats(cryo.state).freezeChance, 0.0001f)
+        val unlock = com.adlessarcade.games.survivors.progress.SurvivorsUnlocks.forClass(HeroClass.CRYOMANCER)
+        assertEquals(120, unlock.runePrice)
+        assertNotNull(Upgrades.itemSynergy(HeroClass.CRYOMANCER, ItemKind.FROST))
+    }
+
+    @Test
     fun save_roundTrip_keepsItemsAndPoison() {
         val e = engine(HeroClass.NECROMANCER)
         e.state.items[ItemKind.CRIT_CHANCE] = 3

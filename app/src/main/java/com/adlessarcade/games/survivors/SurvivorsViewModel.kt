@@ -436,6 +436,7 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
                     effects += SurvivorsFx.Swing(event.x, event.y, event.angle, event.range, event.fullCircle, event.evolved)
                 is SurvivorsEvent.Lightning -> if (effects.size < MAX_FX) effects += SurvivorsFx.Bolt(event.x, event.y, event.radius)
                 is SurvivorsEvent.Chain -> if (effects.size < MAX_FX) effects += SurvivorsFx.Arc(event.x1, event.y1, event.x2, event.y2)
+                is SurvivorsEvent.IceShard -> if (effects.size < MAX_FX) effects += SurvivorsFx.Shard(event.x1, event.y1, event.x2, event.y2)
                 is SurvivorsEvent.Nova -> effects += SurvivorsFx.Nova(event.x, event.y, event.radius, event.freeze)
                 is SurvivorsEvent.Smash -> effects += SurvivorsFx.Smash(event.x, event.y, event.angle, event.range, event.ring)
                 is SurvivorsEvent.Thorns -> if (effects.size < MAX_FX) effects += SurvivorsFx.ThornPulse(event.x, event.y, event.radius, event.evolved)
