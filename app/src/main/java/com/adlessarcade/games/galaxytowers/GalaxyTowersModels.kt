@@ -99,4 +99,6 @@ data class PlayResult(
     val reward: PowerUp?,
     /** Die zweite Ablage hat sich mit diesem Zug geöffnet. */
     val secondPileOpened: Boolean,
+    /** Gold (Coins), das die Karte dank der Kette abgeworfen hat; ist in [coins] enthalten. */
+    val gold: Int = 0,
 )

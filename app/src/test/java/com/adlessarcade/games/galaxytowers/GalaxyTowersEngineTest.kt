@@ -189,6 +189,27 @@ class GalaxyTowersEngineTest {
     }
 
     @Test
+    fun gold_onlyFromChains_moreLikelyWhenLonger() {
+        assertEquals(0f, E.goldChance(2), 0f)
+        assertTrue(E.goldChance(5) > E.goldChance(3))
+        assertEquals(0.6f, E.goldChance(20), 0.001f)
+        // Ohne Kette nie Gold, mit langer Kette über viele Seeds hinweg regelmäßig
+        val noChain = (1L..200L).sumOf { seed ->
+            E.play(state(towerWith(18 to Card(6, 0), 27 to Card(1, 0)), top = Card(7, 2)).copy(seed = seed), 18)!!.gold
+        }
+        assertEquals(0, noChain)
+        val drops = (1L..200L).map { seed ->
+            E.play(state(towerWith(18 to Card(6, 0), 27 to Card(1, 0)), top = Card(7, 2)).copy(seed = seed, streak = 11), 18)!!
+        }
+        val withGold = drops.count { it.gold > 0 }
+        assertTrue("Gold-Drops: $withGold", withGold in 80..160)
+        drops.filter { it.gold > 0 }.forEach { assertTrue(it.gold in 1..5); assertTrue(it.coins >= it.gold) }
+        // Gleicher Spielstand → gleicher Drop (Tägliche Challenge fair)
+        val g = state(towerWith(18 to Card(6, 0), 27 to Card(1, 0)), top = Card(7, 2)).copy(seed = 77L, streak = 9)
+        assertEquals(E.play(g, 18)!!.gold, E.play(g, 18)!!.gold)
+    }
+
+    @Test
     fun modes_haveRoundsAndShrinkingTime() {
         val classic = E.newGame(1L, GalaxyTowersMode.CLASSIC)
         assertEquals(90f, classic.timeLeft, 0.001f)

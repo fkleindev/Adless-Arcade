@@ -21,6 +21,7 @@ object GalaxyTowersEngine {
     const val TIME_BONUS_PER_SECOND = 20
     const val SECOND_PILE_STREAK = 3
     const val REWARD_STREAK = 10
+    const val GOLD_MIN_STREAK = 3
     const val WARP_CARDS = 3
     private const val HISTORY_LIMIT = 20
 
@@ -153,7 +154,8 @@ object GalaxyTowersEngine {
 
         val clearBonus = if (cleared) scaled(CLEAR_BONUS + STOCK_CARD_BONUS * stock.size, state.round) else 0
         val timeBonus = if (cleared && state.mode.timed) scaled(TIME_BONUS_PER_SECOND * state.timeLeft.toInt(), state.round) else 0
-        val coins = if (cleared) roundCoins(state.round) else 0
+        val gold = goldDrop(state, streak)
+        val coins = (if (cleared) roundCoins(state.round) else 0) + gold
         val reward = if (streak % REWARD_STREAK == 0) {
             PowerUp.entries[roundRandom(state.seed, state.round, state.score + streak).nextInt(PowerUp.entries.size)]
         } else {
@@ -175,7 +177,18 @@ object GalaxyTowersEngine {
             roundOver = if (cleared) RoundEnd.CLEARED else null,
             roundsCleared = state.roundsCleared + if (cleared) 1 else 0,
         )
-        return PlayResult(next, pile, points, peakCleared, cleared, clearBonus, timeBonus, coins, reward, opens)
+        return PlayResult(next, pile, points, peakCleared, cleared, clearBonus, timeBonus, coins, reward, opens, gold)
+    }
+
+    /** Chance auf Gold für eine Karte mit Kettenlänge [streak]: ab 3 steigend, höchstens 60 %. */
+    fun goldChance(streak: Int): Float = if (streak < GOLD_MIN_STREAK) 0f else minOf(0.6f, 0.08f * (streak - 2))
+
+    /** Gold (Coins), das die Karte mit Kettenlänge [streak] abwirft; deterministisch aus dem Spielstand. */
+    private fun goldDrop(state: GameState, streak: Int): Int {
+        if (streak < GOLD_MIN_STREAK) return 0
+        val rng = roundRandom(state.seed, state.round, 5000 + state.score + streak)
+        if (rng.nextFloat() >= goldChance(streak)) return 0
+        return rng.nextInt(1, if (streak >= 8) 6 else 4)
     }
 
     /** Nächste Karte auf die Hauptablage; beendet die Kette und schließt die zweite Ablage. */

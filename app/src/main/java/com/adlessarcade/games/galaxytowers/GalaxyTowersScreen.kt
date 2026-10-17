@@ -1,5 +1,6 @@
 package com.adlessarcade.games.galaxytowers
 
+import android.content.pm.ActivityInfo
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -18,14 +19,18 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -52,8 +57,10 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -75,6 +82,8 @@ import com.adlessarcade.ui.components.ArcadeScaffold
 import com.adlessarcade.ui.components.CoinGold
 import com.adlessarcade.ui.components.CoinIcon
 import com.adlessarcade.ui.components.GameOverOverlay
+import com.adlessarcade.ui.components.LockOrientation
+import com.adlessarcade.ui.components.drawCoin
 import com.adlessarcade.ui.components.PrimaryButton
 import com.adlessarcade.ui.components.SecondaryButton
 import com.adlessarcade.ui.theme.CardBack
@@ -89,21 +98,29 @@ import com.adlessarcade.ui.theme.NeonYellow
 import com.adlessarcade.ui.theme.SpaceBackdrop
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.ceil
+import kotlin.math.sin
 
-/** Geometrie des Spieltischs in Pixeln: Turmkarten oben, Nachziehstapel und Ablage darunter. */
-private class TableLayout(width: Float, gap: Float) {
-    val cardW = width / 10.4f
+/**
+ * Geometrie des Spieltischs im Querformat wie im ersten Teil: Türme oben, darunter Nachziehstapel, Ablage,
+ * Sanduhr und zweite Ablage. Die Kartengröße richtet sich nach Breite und Höhe des Bereichs.
+ */
+private class TableLayout(width: Float, height: Float, gap: Float) {
+    val cardW = minOf(width / 10.4f, (height - gap * 2.1f) / 5.62f)
     val cardSize = Size(cardW, cardW * CARD_RATIO)
     private val margin = (width - cardW * 10f) / 2f
     private val rowStep = cardSize.height * 0.5f
-    private val towerTop = gap * 0.5f
     val pileSize = Size(cardW * 1.45f, cardW * 1.45f * CARD_RATIO)
-    private val pileY = towerTop + rowStep * 3f + cardSize.height + gap * 2.2f
-    val stockTopLeft = Offset(margin + cardW * 0.6f, pileY)
-    val wasteTopLeft = Offset(width / 2f - pileSize.width / 2f, pileY)
-    /** Zweite Ablage rechts neben der Hauptablage wie im ersten Teil. */
-    val waste2TopLeft = wasteTopLeft + Offset(pileSize.width * 1.5f, 0f)
-    val height = pileY + pileSize.height + gap * 1.5f
+    private val used = rowStep * 3f + cardSize.height + gap * 1.2f + pileSize.height
+    private val towerTop = ((height - used) / 2f).coerceAtLeast(gap * 0.4f)
+    val pileY = towerTop + rowStep * 3f + cardSize.height + gap * 1.2f
+    private val center = width / 2f
+    val stockTopLeft = Offset(margin + cardW * 0.2f, pileY)
+    val wasteTopLeft = Offset(center - pileSize.width * 1.35f, pileY)
+    /** Zweite Ablage rechts neben der Sanduhr wie im ersten Teil. */
+    val waste2TopLeft = Offset(center + pileSize.width * 0.35f, pileY)
+    /** Mitte der Sanduhr zwischen den beiden Ablagen. */
+    val hourglassCenter = Offset(center, pileY + pileSize.height / 2f)
 
     fun pileTopLeft(pile: Int) = if (pile == 0) wasteTopLeft else waste2TopLeft
 
@@ -154,36 +171,25 @@ fun GalaxyTowersScreen(
     }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { viewModel.pause() }
 
+    // Wie im ersten Teil im Querformat; beim Verlassen dreht die App zurück ins Hochformat.
+    LockOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE)
+
     val modeTitle = GameRegistry.find(GalaxyTowers.GAME_ID)?.modes?.firstOrNull { it.id == modeId }?.title
 
-    ArcadeScaffold(
-        title = "Galaxy Towers 2",
-        subtitle = modeTitle,
-        onBack = onExit,
-        actions = {
-            ArcadeIconButton(onClick = { if (viewModel.paused) viewModel.resume() else viewModel.pause() }) {
-                PauseGlyph()
-            }
-        },
-    ) {
+    // Ohne Titelleiste: im Querformat zählt jede Zeile Höhe, Zurück und Pause sitzen in der Seitenleiste.
+    ArcadeScaffold {
         if (!viewModel.loaded) return@ArcadeScaffold
         Box(Modifier.fillMaxSize()) {
             Backdrop(cosmetics.backdrop, Modifier.fillMaxSize())
-            Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-                InfoPanel(game = game, best = viewModel.best, wallet = viewModel.walletCoins)
-                if (game.mode.timed) {
-                    Spacer(Modifier.height(6.dp))
-                    TimeBar(game)
-                }
-                Spacer(Modifier.height(10.dp))
-                BoxWithConstraints(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp)) {
+                BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
                     val density = LocalDensity.current
                     val widthPx = with(density) { maxWidth.toPx() }
-                    val layout = remember(widthPx) { TableLayout(widthPx, with(density) { 16.dp.toPx() }) }
+                    val heightPx = with(density) { maxHeight.toPx() }
+                    val layout = remember(widthPx, heightPx) { TableLayout(widthPx, heightPx, with(density) { 14.dp.toPx() }) }
                     Canvas(
                         Modifier
-                            .fillMaxWidth()
-                            .height(with(density) { layout.height.toDp() })
+                            .fillMaxSize()
                             .pointerInput(layout) {
                                 detectTapGestures { pos ->
                                     val g = viewModel.game
@@ -212,25 +218,52 @@ fun GalaxyTowersScreen(
                     ) {
                         drawTable(game, layout, textMeasurer, cosmetics.cardBack, flightFrom, flight)
                     }
-                    PlayPopup(viewModel.lastPlay, Modifier.align(Alignment.Center))
+                    GoldBurst(viewModel.lastPlay, layout)
+                    // Einblendung über der Ablage-Reihe, damit sie die Türme möglichst wenig verdeckt
+                    PlayPopup(
+                        viewModel.lastPlay,
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = with(density) { (layout.pileY.toDp() - 96.dp).coerceAtLeast(0.dp) }),
+                    )
                 }
-                Spacer(Modifier.weight(1f))
-                if (GalaxyTowersEngine.isStuck(game)) {
-                    StuckPanel(onEndRound = viewModel::endRound)
-                    Spacer(Modifier.height(10.dp))
-                }
-                PowerUpBar(
-                    game = game,
-                    canBuy = viewModel.canBuy,
-                    onUse = { p ->
-                        if (game.charges(p) > 0) {
-                            if (viewModel.usePowerUp(p)) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        } else if (viewModel.canBuy) {
-                            buyDialog = p
+                Spacer(Modifier.width(8.dp))
+                Column(
+                    Modifier
+                        .width(212.dp)
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ArcadeIconButton(onClick = onExit) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
                         }
-                    },
-                )
-                Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Galaxy Towers 2", style = MaterialTheme.typography.titleSmall, color = ArcadeText, maxLines = 1)
+                            if (modeTitle != null) {
+                                Text(modeTitle.uppercase(), style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted, maxLines = 1)
+                            }
+                        }
+                        ArcadeIconButton(onClick = { if (viewModel.paused) viewModel.resume() else viewModel.pause() }) {
+                            PauseGlyph()
+                        }
+                    }
+                    InfoPanel(game = game, best = viewModel.best, wallet = viewModel.walletCoins)
+                    if (GalaxyTowersEngine.isStuck(game)) StuckPanel(onEndRound = viewModel::endRound)
+                    PowerUpGrid(
+                        game = game,
+                        canBuy = viewModel.canBuy,
+                        onUse = { p ->
+                            if (game.charges(p) > 0) {
+                                if (viewModel.usePowerUp(p)) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            } else if (viewModel.canBuy) {
+                                buyDialog = p
+                            }
+                        },
+                    )
+                }
             }
 
             val roundOver = game.roundOver
@@ -338,7 +371,7 @@ private fun DrawScope.drawTable(
         }
     }
 
-    // Nachziehstapel mit Kartenzahl
+    // Nachziehstapel, die Kartenzahl steht wie im ersten Teil auf dem Stapel
     val stockTl = layout.stockTopLeft
     if (game.stock.isNotEmpty()) {
         if (game.stock.size > 1) drawCardBack(stockTl + Offset(layout.cardW * 0.08f, -layout.cardW * 0.08f), layout.pileSize, back, alpha = 0.6f)
@@ -348,9 +381,11 @@ private fun DrawScope.drawTable(
     }
     val countLayout = textMeasurer.measure(
         "${game.stock.size}",
-        TextStyle(color = Color.White, fontSize = (layout.cardW * 0.42f).toSp(), fontWeight = FontWeight.Black, shadow = Shadow(Color.Black, Offset(0f, 2f), 6f)),
+        TextStyle(color = Color.White, fontSize = (layout.cardW * 0.5f).toSp(), fontWeight = FontWeight.Black, shadow = Shadow(Color.Black, Offset(0f, 2f), 8f)),
     )
-    drawText(countLayout, topLeft = stockTl + Offset((layout.pileSize.width - countLayout.size.width) / 2f, layout.pileSize.height + layout.cardW * 0.1f))
+    drawText(countLayout, topLeft = stockTl + Offset((layout.pileSize.width - countLayout.size.width) / 2f, (layout.pileSize.height - countLayout.size.height) / 2f))
+
+    if (game.mode.timed) drawHourglass(game, layout, textMeasurer)
 
     // Beide Ablagen im Rahmen; die gesperrte zweite Ablage zeigt, wie man sie freischaltet.
     drawPile(game.waste, 0, layout, textMeasurer, flightFrom, flight)
@@ -366,6 +401,47 @@ private fun DrawScope.drawTable(
         )
         drawText(hint, topLeft = tl + Offset((layout.pileSize.width - hint.size.width) / 2f, (layout.pileSize.height - hint.size.height) / 2f))
     }
+}
+
+/** Sanduhr mit Restsekunden zwischen den Ablagen; der Sand rinnt mit der Zeit, die letzten 10 s pulsiert sie rot. */
+private fun DrawScope.drawHourglass(game: GameState, layout: TableLayout, textMeasurer: TextMeasurer) {
+    val c = layout.hourglassCenter
+    val w = layout.cardW * 0.5f
+    val h = layout.cardW * 0.75f
+    val urgent = game.timeLeft <= 10f && game.inPlay
+    val color = if (urgent) NeonPink.copy(alpha = 0.6f + 0.4f * sin(game.timeLeft * 12f)) else NeonYellow
+    val glass = c + Offset(0f, h * 0.15f)
+    val frac = (game.timeLeft / game.mode.roundTime(game.round).coerceAtLeast(1f)).coerceIn(0f, 1f)
+    val outline = Path().apply {
+        moveTo(glass.x - w / 2f, glass.y - h / 2f)
+        lineTo(glass.x + w / 2f, glass.y - h / 2f)
+        lineTo(glass.x, glass.y)
+        lineTo(glass.x + w / 2f, glass.y + h / 2f)
+        lineTo(glass.x - w / 2f, glass.y + h / 2f)
+        lineTo(glass.x, glass.y)
+        close()
+    }
+    // Sand oben (Rest) und unten (verronnen) als Dreiecke
+    val top = h / 2f * frac
+    drawPath(Path().apply {
+        moveTo(glass.x - w / 2f * frac, glass.y - top)
+        lineTo(glass.x + w / 2f * frac, glass.y - top)
+        lineTo(glass.x, glass.y)
+        close()
+    }, color.copy(alpha = 0.8f))
+    val bottom = h / 2f * (1f - frac)
+    drawPath(Path().apply {
+        moveTo(glass.x, glass.y + h / 2f - bottom)
+        lineTo(glass.x + w / 2f * (1f - frac), glass.y + h / 2f)
+        lineTo(glass.x - w / 2f * (1f - frac), glass.y + h / 2f)
+        close()
+    }, color.copy(alpha = 0.8f))
+    drawPath(outline, color, style = Stroke(width = layout.cardW * 0.05f))
+    val text = textMeasurer.measure(
+        "${ceil(game.timeLeft).toInt()}",
+        TextStyle(color = color, fontSize = (layout.cardW * 0.4f).toSp(), fontWeight = FontWeight.Black, shadow = Shadow(Color.Black, Offset(0f, 2f), 6f)),
+    )
+    drawText(text, topLeft = Offset(c.x - text.size.width / 2f, glass.y - h / 2f - text.size.height - layout.cardW * 0.05f))
 }
 
 /** Eine Ablage; fliegt ihre oberste Karte gerade heran, liegt darunter die vorige. */
@@ -409,127 +485,84 @@ private fun Backdrop(backdrop: SpaceBackdrop, modifier: Modifier = Modifier) {
 @Composable
 private fun InfoPanel(game: GameState, best: Int, wallet: Int) {
     val animatedScore by animateIntAsState(game.score, tween(350), label = "score")
-    val shape = RoundedCornerShape(16.dp)
-    Row(
+    val shape = RoundedCornerShape(14.dp)
+    Column(
         Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp)
             .clip(shape)
             .background(Color(0xFF3F3F46).copy(alpha = 0.85f))
             .border(2.dp, Color(0xFF52525B), shape)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text("Runde ${game.round} / ${game.mode.rounds}", style = MaterialTheme.typography.titleMedium, color = ArcadeText)
-            val mult = GalaxyTowersEngine.multiplier(game.round)
-            Text(
-                if (mult > 1f) "Punkte ×${"%.2f".format(mult).trimEnd('0').trimEnd('.')}" else "Kette: ${game.streak}",
-                style = MaterialTheme.typography.labelMedium,
-                color = ArcadeTextMuted,
-            )
+        Text("Runde ${game.round} / ${game.mode.rounds}", style = MaterialTheme.typography.titleSmall, color = ArcadeText)
+        Text("$animatedScore", style = MaterialTheme.typography.headlineSmall, color = ArcadeText)
+        val mult = GalaxyTowersEngine.multiplier(game.round)
+        Text(
+            if (game.streak > 1) "Kette x${game.streak}" else if (mult > 1f) "Punkte ×${"%.2f".format(mult).trimEnd('0').trimEnd('.')}" else " ",
+            style = MaterialTheme.typography.labelLarge,
+            color = if (game.streak > 1) NeonPink else ArcadeTextMuted,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("$best", style = MaterialTheme.typography.labelLarge, color = ArcadeTextMuted)
+            Spacer(Modifier.width(14.dp))
+            Text("$wallet", style = MaterialTheme.typography.labelLarge, color = CoinGold)
+            Spacer(Modifier.width(4.dp))
+            CoinIcon(14.dp)
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("$animatedScore", style = MaterialTheme.typography.headlineMedium, color = ArcadeText)
-            Text(
-                if (game.streak > 1) "Kette x${game.streak}" else " ",
-                style = MaterialTheme.typography.labelLarge,
-                color = NeonPink,
-            )
-        }
-        Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("$wallet", style = MaterialTheme.typography.titleMedium, color = CoinGold)
-                Spacer(Modifier.width(4.dp))
-                CoinIcon(16.dp)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Star, contentDescription = null, tint = NeonYellow, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("$best", style = MaterialTheme.typography.labelLarge, color = ArcadeTextMuted)
+    }
+}
+
+/** Power-ups als 2×2-Raster für die Seitenleiste. */
+@Composable
+private fun PowerUpGrid(game: GameState, canBuy: Boolean, onUse: (PowerUp) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        PowerUp.entries.chunked(2).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { p -> PowerUpButton(game, p, canBuy, onUse, Modifier.weight(1f)) }
             }
         }
     }
 }
 
-/** Sanduhr mit Restzeit der Runde; die letzten 10 Sekunden pulsiert sie rot. */
 @Composable
-private fun TimeBar(game: GameState) {
-    val total = game.mode.roundTime(game.round).coerceAtLeast(1f)
-    val fraction = (game.timeLeft / total).coerceIn(0f, 1f)
-    val urgent = game.timeLeft <= 10f && game.inPlay
-    val pulse = if (urgent) 0.6f + 0.4f * kotlin.math.sin(game.timeLeft * 12f) else 1f
-    val color = if (urgent) NeonPink else NeonYellow
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text("⌛", style = MaterialTheme.typography.titleMedium, color = color)
-        Spacer(Modifier.width(6.dp))
+private fun PowerUpButton(game: GameState, p: PowerUp, canBuy: Boolean, onUse: (PowerUp) -> Unit, modifier: Modifier) {
+    val charges = game.charges(p)
+    val usable = GalaxyTowersEngine.canUse(game, p)
+    val buyable = charges == 0 && canBuy && game.inPlay
+    val enabled = usable || buyable
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        modifier
+            .height(56.dp)
+            .clip(shape)
+            .background(ArcadeSurface.copy(alpha = 0.9f))
+            .border(1.dp, if (usable) NeonCyan.copy(alpha = 0.7f) else ArcadeOutline, shape)
+            .clickable(enabled = enabled) { onUse(p) }
+            .alpha(if (enabled) 1f else 0.4f),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(p.symbol, style = MaterialTheme.typography.titleLarge, color = NeonYellow)
+            Text(p.title, style = MaterialTheme.typography.labelSmall, color = ArcadeText, maxLines = 1)
+        }
         Box(
             Modifier
-                .weight(1f)
-                .height(8.dp)
+                .align(Alignment.TopEnd)
+                .padding(4.dp)
                 .clip(RoundedCornerShape(50))
-                .background(Color(0xFF3F3F46)),
+                .background(if (charges > 0) NeonPink else Color.Transparent)
+                .padding(horizontal = 6.dp, vertical = 1.dp),
         ) {
-            Box(
-                Modifier
-                    .fillMaxWidth(fraction)
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(color.copy(alpha = pulse)),
-            )
-        }
-        Spacer(Modifier.width(8.dp))
-        Text(
-            "${kotlin.math.ceil(game.timeLeft).toInt()}",
-            style = MaterialTheme.typography.titleMedium,
-            color = color,
-            modifier = Modifier.width(32.dp),
-            textAlign = TextAlign.End,
-        )
-    }
-}
-
-@Composable
-private fun PowerUpBar(game: GameState, canBuy: Boolean, onUse: (PowerUp) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        PowerUp.entries.forEach { p ->
-            val charges = game.charges(p)
-            val usable = GalaxyTowersEngine.canUse(game, p)
-            val buyable = charges == 0 && canBuy && game.inPlay
-            val enabled = usable || buyable
-            val shape = RoundedCornerShape(14.dp)
-            Box(
-                Modifier
-                    .weight(1f)
-                    .height(64.dp)
-                    .clip(shape)
-                    .background(ArcadeSurface.copy(alpha = 0.9f))
-                    .border(1.dp, if (usable) NeonCyan.copy(alpha = 0.7f) else ArcadeOutline, shape)
-                    .clickable(enabled = enabled) { onUse(p) }
-                    .alpha(if (enabled) 1f else 0.4f),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(p.symbol, style = MaterialTheme.typography.titleLarge, color = NeonYellow)
-                    Text(p.title, style = MaterialTheme.typography.labelSmall, color = ArcadeText, maxLines = 1)
-                }
-                Box(
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(4.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(if (charges > 0) NeonPink else Color.Transparent)
-                        .padding(horizontal = 6.dp, vertical = 1.dp),
-                ) {
-                    if (charges > 0) {
-                        Text("$charges", style = MaterialTheme.typography.labelSmall, color = Color.White)
-                    } else if (canBuy) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CoinIcon(10.dp)
-                            Spacer(Modifier.width(2.dp))
-                            Text("${p.price}", style = MaterialTheme.typography.labelSmall, color = CoinGold)
-                        }
-                    }
+            if (charges > 0) {
+                Text("$charges", style = MaterialTheme.typography.labelSmall, color = Color.White)
+            } else if (canBuy) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CoinIcon(10.dp)
+                    Spacer(Modifier.width(2.dp))
+                    Text("${p.price}", style = MaterialTheme.typography.labelSmall, color = CoinGold)
                 }
             }
         }
@@ -538,37 +571,57 @@ private fun PowerUpBar(game: GameState, canBuy: Boolean, onUse: (PowerUp) -> Uni
 
 @Composable
 private fun StuckPanel(onEndRound: () -> Unit) {
-    val shape = RoundedCornerShape(16.dp)
-    Row(
+    val shape = RoundedCornerShape(14.dp)
+    Column(
         Modifier
             .fillMaxWidth()
             .clip(shape)
             .background(ArcadeSurface.copy(alpha = 0.95f))
             .border(1.dp, NeonPink.copy(alpha = 0.6f), shape)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text("Keine Züge mehr", style = MaterialTheme.typography.titleMedium, color = ArcadeText)
-            Text("Setze ein Power-up ein oder beende die Runde.", style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
-        }
+        Text("Keine Züge mehr", style = MaterialTheme.typography.titleSmall, color = ArcadeText)
+        Text("Power-up einsetzen oder", style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
         TextButton(onClick = onEndRound) { Text("Runde beenden", color = NeonPink) }
     }
 }
 
-/** Punkte, Kette und Bonus der zuletzt abgelegten Karte, steigen kurz auf und verblassen. */
+/** Gold-Münze, die bei einem Gold-Drop von der gelegten Karte aufsteigt. */
+@Composable
+private fun GoldBurst(event: PlayEvent?, layout: TableLayout) {
+    if (event == null || event.gold <= 0) return
+    val progress = remember(event.id) { Animatable(0f) }
+    LaunchedEffect(event.id) { progress.animateTo(1f, tween(1100, easing = LinearOutSlowInEasing)) }
+    if (progress.value >= 1f) return
+    Canvas(Modifier.fillMaxSize()) {
+        val p = progress.value
+        val start = layout.slotTopLeft(event.index) + Offset(layout.cardW / 2f, layout.cardSize.height / 2f)
+        val r = layout.cardW * 0.22f
+        val alpha = if (p < 0.7f) 1f else (1f - p) / 0.3f
+        val coins = minOf(event.gold, 3)
+        repeat(coins) { k ->
+            val spread = (k - (coins - 1) / 2f) * r * 1.6f
+            val pos = start + Offset(spread * p, -layout.cardW * 1.6f * p - k * r * 0.4f)
+            drawCircle(Color(0xFFFACC15).copy(alpha = 0.3f * alpha), r * 1.6f, pos)
+            drawCoin(pos, r)
+        }
+    }
+}
+
+/** Punkte, Kette und Bonus der zuletzt abgelegten Karte; bleiben gut lesbar stehen und verblassen dann. */
 @Composable
 private fun PlayPopup(event: PlayEvent?, modifier: Modifier = Modifier) {
     if (event == null) return
     val progress = remember(event.id) { Animatable(0f) }
-    LaunchedEffect(event.id) { progress.animateTo(1f, tween(950, easing = LinearOutSlowInEasing)) }
+    LaunchedEffect(event.id) { progress.animateTo(1f, tween(1800, easing = LinearOutSlowInEasing)) }
     if (progress.value >= 1f) return
     val textStyle = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.8f), Offset(0f, 3f), 10f), textAlign = TextAlign.Center)
     Column(
         modifier.graphicsLayer {
             val p = progress.value
-            translationY = -p * 50.dp.toPx()
-            alpha = if (p < 0.65f) 1f else (1f - p) / 0.35f
+            translationY = -p * 30.dp.toPx()
+            alpha = if (p < 0.8f) 1f else (1f - p) / 0.2f
             val pop = 0.75f + 0.25f * minOf(1f, p * 6f)
             scaleX = pop
             scaleY = pop
@@ -588,6 +641,13 @@ private fun PlayPopup(event: PlayEvent?, modifier: Modifier = Modifier) {
             Text("Kette x${event.streak}", style = MaterialTheme.typography.titleMedium.merge(textStyle), color = NeonPink)
         }
         Text("+${event.points}", style = MaterialTheme.typography.headlineMedium.merge(textStyle), color = ArcadeText)
+        if (event.gold > 0) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CoinIcon(20.dp)
+                Spacer(Modifier.width(6.dp))
+                Text("+${event.gold}", style = MaterialTheme.typography.titleLarge.merge(textStyle), color = CoinGold)
+            }
+        }
     }
 }
 
@@ -609,6 +669,7 @@ private fun RoundOverOverlay(game: GameState, reason: RoundEnd, clear: ClearBonu
                 .clip(shape)
                 .background(ArcadeSurface)
                 .border(2.dp, (if (cleared) NeonYellow else NeonPink).copy(alpha = 0.8f), shape)
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -665,6 +726,7 @@ private fun PauseOverlay(onResume: () -> Unit, onRestart: () -> Unit, onMenu: ()
                 .clip(shape)
                 .background(ArcadeSurface)
                 .border(1.dp, ArcadeOutline, shape)
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp),

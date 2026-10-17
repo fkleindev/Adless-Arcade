@@ -29,6 +29,7 @@ data class PlayEvent(
     val peakCleared: Boolean,
     val reward: PowerUp?,
     val secondPileOpened: Boolean,
+    val gold: Int,
 )
 
 /** Punkte der zuletzt abgeräumten Runde (für die Runden-Einblendung). */
@@ -114,8 +115,9 @@ class GalaxyTowersViewModel(app: Application, savedStateHandle: SavedStateHandle
             peakCleared = result.peakCleared,
             reward = result.reward,
             secondPileOpened = result.secondPileOpened,
+            gold = result.gold,
         )
-        if (result.roundCleared) lastClear = ClearBonus(result.clearBonus, result.timeBonus, result.coins)
+        if (result.roundCleared) lastClear = ClearBonus(result.clearBonus, result.timeBonus, result.coins - result.gold)
         profile.addCoins(result.coins)
         update(result.state)
         if (result.state.streak >= Achievements.GT_STREAK_TARGET) achievements.unlock(Achievements.GT_STREAK)
