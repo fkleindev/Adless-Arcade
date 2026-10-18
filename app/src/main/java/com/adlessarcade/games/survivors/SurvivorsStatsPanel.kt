@@ -195,6 +195,7 @@ fun StatsPanel(engine: SurvivorsEngine) {
             StatRow("Stufe", "${s.level}")
             StatRow("Kills", big(s.kills.toFloat()))
             if (s.bossesKilled > 0) StatRow("Bosse besiegt", "${s.bossesKilled}")
+            if (s.mapEventsCompleted > 0) StatRow("Events geschafft", "${s.mapEventsCompleted}")
             StatRow("Punkte", big(engine.score.toFloat()))
             StatRow("Coins", "${s.coinsEarned}", CoinGold)
             StatRow("Runen", "$RUNE_SYMBOL ${s.runesEarned}", RuneViolet)

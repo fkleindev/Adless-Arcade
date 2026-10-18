@@ -431,6 +431,16 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
                     effects += SurvivorsFx.Blast(event.x, event.y, 2.2f, RuneViolet)
                     rewardTick++
                 }
+                is SurvivorsEvent.MapEventSpawned -> showBanner("EIN EVENT ERSCHEINT!\nBetritt die markierte Zone")
+                is SurvivorsEvent.MapEventStarted ->
+                    showBanner("SÄUBERUNG!\nBesiege ${event.target} Gegner in der Zone (${event.timeLimit.toInt()} s)")
+                is SurvivorsEvent.MapEventCompleted -> {
+                    val stars = "★".repeat(event.stars) + "☆".repeat(3 - event.stars)
+                    showBanner("EVENT GESCHAFFT! $stars\n+${event.xp} Erfahrung")
+                    effects += SurvivorsFx.Blast(event.x, event.y, SurvivorsEngine.MAP_EVENT_RADIUS, EventAmber)
+                    rewardTick++
+                }
+                is SurvivorsEvent.MapEventFailed -> showBanner("EVENT GESCHEITERT")
                 is SurvivorsEvent.GoalCompleted -> {
                     showBanner("ZIEL ERREICHT: ${event.goal.title}\n$RUNE_SYMBOL +${event.runes}")
                     rewardTick++

@@ -112,6 +112,23 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         const val RUNE_STONE_LIFE = 40f
         const val RUNE_STONE_RADIUS = 1.3f
         const val RUNE_STONE_INTERVAL = 120f
+        /** Karten-Events: Abstand, Radius der Zone, Wartezeit bis zum Betreten, Zeitlimit. */
+        const val MAP_EVENT_INTERVAL = 150f
+        const val MAP_EVENT_RADIUS = 3f
+        const val MAP_EVENT_LIFE = 45f
+        const val MAP_EVENT_TIME_LIMIT = 30f
+        /** Anteil eines Levels als Belohnung für 1, 2 und 3 Sterne. */
+        val MAP_EVENT_REWARD = floatArrayOf(0.3f, 0.6f, 1f)
+
+        /** Benötigte Kills im Event – steigt mit der Spielzeit. */
+        fun mapEventTarget(time: Float): Int = (12 + time / 30f).toInt().coerceAtMost(40)
+
+        /** Sterne nach verbrauchter Zeit: bis zur Hälfte 3, bis 80 % 2, sonst 1. */
+        fun mapEventStars(used: Float, limit: Float): Int = when {
+            used <= limit * 0.5f -> 3
+            used <= limit * 0.8f -> 2
+            else -> 1
+        }
         private const val OBSTACLE_RANGE = 26f
 
         /** [availableWeapons]: Waffen, die angeboten werden dürfen (Grundwaffen + in der Runen-Schmiede freigeschaltete). */
@@ -273,6 +290,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         removeDeadEnemies(st)
         collect(dt, st)
         runeStone(dt)
+        mapEvent(dt)
         checkGoals()
 
         state.minuteTimer += dt
@@ -640,6 +658,9 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
             if (e.hp > 0f) continue
             iterator.remove()
             state.kills++
+            state.mapEvent?.let { ev ->
+                if (ev.started && hypot(e.x - ev.x, e.y - ev.y) <= MAP_EVENT_RADIUS) ev.kills++
+            }
             e.lastHit?.let { state.weaponKills.merge(it, 1, Int::plus) }
             state.killScore += e.kind.score * if (e.elite) 5 else 1
             events += SurvivorsEvent.EnemyKilled(e.x, e.y, e.kind, e.elite)
@@ -804,6 +825,78 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 events += SurvivorsEvent.RuneStoneSpawned
                 return
             }
+        }
+    }
+
+    // --- Karten-Events ---
+
+    /** Alle [MAP_EVENT_INTERVAL] Sekunden erscheint eine Event-Zone; betreten startet den Countdown. */
+    private fun mapEvent(dt: Float) {
+        val timedOver = state.mode == SurvivorsMode.TIMED && state.time >= SurvivorsSpawner.TIMED_DURATION
+        val ev = state.mapEvent
+        if (ev == null) {
+            if (timedOver) return
+            state.spawner.mapEventTimer -= dt
+            if (state.spawner.mapEventTimer > 0f) return
+            state.spawner.mapEventTimer = MAP_EVENT_INTERVAL
+            spawnMapEvent()
+            return
+        }
+        if (timedOver) {
+            state.mapEvent = null
+            return
+        }
+        if (!ev.started) {
+            ev.life -= dt
+            if (hypot(state.px - ev.x, state.py - ev.y) <= MAP_EVENT_RADIUS) {
+                ev.started = true
+                ev.timeLeft = ev.timeLimit
+                spawner.spawnEventWave(ev.x, ev.y, MAP_EVENT_RADIUS + 3f, (ev.target * 0.6f).toInt())
+                events += SurvivorsEvent.MapEventStarted(ev.target, ev.timeLimit)
+            } else if (ev.life <= 0f) {
+                state.mapEvent = null
+            }
+            return
+        }
+        if (ev.kills >= ev.target) {
+            state.mapEvent = null
+            state.mapEventsCompleted++
+            val stars = mapEventStars(ev.timeLimit - ev.timeLeft, ev.timeLimit)
+            val xp = (xpForLevel(state.level) * MAP_EVENT_REWARD[stars - 1]).toInt().coerceAtLeast(1)
+            dropRewardGems(ev.x, ev.y, xp)
+            events += SurvivorsEvent.MapEventCompleted(ev.x, ev.y, stars, xp)
+            return
+        }
+        ev.timeLeft -= dt
+        if (ev.timeLeft <= 0f) {
+            state.mapEvent = null
+            events += SurvivorsEvent.MapEventFailed
+        }
+    }
+
+    private fun spawnMapEvent() {
+        val nearObstacles = if (state.stage.hasObstacles) SurvivorsObstacles.near(state.px, state.py, 14f) else emptyList()
+        repeat(12) {
+            val angle = random.nextFloat() * 2f * PI.toFloat()
+            val d = 8f + random.nextFloat() * 2f
+            val x = state.px + cos(angle) * d
+            val y = state.py + sin(angle) * d
+            // Die Mitte muss frei sein; Grabsteine am Rand der Zone stören nicht.
+            if (!SurvivorsObstacles.blocked(x, y, 1f, nearObstacles)) {
+                state.mapEvent = MapEvent(x, y, mapEventTarget(state.time), MAP_EVENT_TIME_LIMIT, MAP_EVENT_LIFE)
+                events += SurvivorsEvent.MapEventSpawned
+                return
+            }
+        }
+    }
+
+    /** Belohnung als Kranz aus Kristallen um ([x], [y]). */
+    private fun dropRewardGems(x: Float, y: Float, xp: Int) {
+        val count = xp.coerceIn(1, 6)
+        repeat(count) { i ->
+            val angle = i * 2f * PI.toFloat() / count
+            val value = xp / count + if (i < xp % count) 1 else 0
+            dropGem(x + cos(angle) * 0.6f, y + sin(angle) * 0.6f, value)
         }
     }
 

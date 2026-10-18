@@ -29,6 +29,19 @@ class SurvivorsEngineTest {
         state.spawner.eliteTimer = 10_000f
         state.spawner.swarmTimer = 10_000f
         state.spawner.nextBossTime = 10_000f
+        state.spawner.mapEventTimer = 10_000f
+    }
+
+    /** Lässt ein Karten-Event erscheinen und stellt den Helden hinein (Countdown läuft). */
+    private fun SurvivorsEngine.startMapEvent(): MapEvent {
+        state.spawner.mapEventTimer = 0.01f
+        run(0.05f)
+        val ev = state.mapEvent!!
+        state.px = ev.x
+        state.py = ev.y
+        run(0.05f)
+        assertTrue(ev.started)
+        return ev
     }
 
     /** Abstand eines Testgegners, bei dem die Waffe sicher trifft. */
@@ -739,6 +752,68 @@ class SurvivorsEngineTest {
     }
 
     @Test
+    fun mapEvent_countsKillsInZone_andRewardsXpWithStars() {
+        val e = engine()
+        e.clearSpawns()
+        e.state.invulnerable = 1_000f
+        val ev = e.startMapEvent()
+        assertTrue(e.drainEvents().any { it is SurvivorsEvent.MapEventStarted })
+        assertTrue("Event-Welle erscheint", e.state.enemies.isNotEmpty())
+        e.state.enemies.clear()
+
+        // Ein Kill außerhalb der Zone zählt nicht.
+        e.spawnEnemy(EnemyKind.ORC, ev.x + SurvivorsEngine.MAP_EVENT_RADIUS + 2f, ev.y).hp = 0f
+        e.run(1f / 60f)
+        assertEquals(0, ev.kills)
+
+        val gemsBefore = e.state.gems.sumOf { it.value }
+        val reward = SurvivorsEngine.xpForLevel(e.state.level)
+        repeat(ev.target) { e.spawnEnemy(EnemyKind.SLIME, ev.x + 0.5f, ev.y + 0.5f).hp = 0f }
+        e.run(1f / 60f)
+        assertEquals(null, e.state.mapEvent)
+        assertEquals(1, e.state.mapEventsCompleted)
+        val done = e.drainEvents().filterIsInstance<SurvivorsEvent.MapEventCompleted>().single()
+        assertEquals(3, done.stars)
+        assertEquals(reward, done.xp)
+        // Kristalle der Belohnung plus die der besiegten Gegner (sofern noch nicht eingesammelt).
+        assertTrue(e.state.gems.sumOf { it.value } - gemsBefore + e.state.xp >= reward)
+    }
+
+    @Test
+    fun mapEvent_starsDependOnTime() {
+        assertEquals(3, SurvivorsEngine.mapEventStars(10f, 30f))
+        assertEquals(2, SurvivorsEngine.mapEventStars(20f, 30f))
+        assertEquals(1, SurvivorsEngine.mapEventStars(29f, 30f))
+    }
+
+    @Test
+    fun mapEvent_failsWhenTimeRunsOut() {
+        val e = engine()
+        e.clearSpawns()
+        e.state.invulnerable = 1_000f
+        e.startMapEvent()
+        e.state.enemies.clear()
+        e.run(SurvivorsEngine.MAP_EVENT_TIME_LIMIT + 0.5f)
+        assertEquals(null, e.state.mapEvent)
+        assertEquals(0, e.state.mapEventsCompleted)
+        assertTrue(e.drainEvents().any { it is SurvivorsEvent.MapEventFailed })
+    }
+
+    @Test
+    fun mapEvent_expiresWhenNotEntered() {
+        val e = engine()
+        e.clearSpawns()
+        e.state.invulnerable = 1_000f
+        e.state.spawner.mapEventTimer = 0.01f
+        e.run(1f)
+        val ev = e.state.mapEvent!!
+        assertFalse(ev.started)
+        assertTrue(e.drainEvents().any { it is SurvivorsEvent.MapEventSpawned })
+        e.run(SurvivorsEngine.MAP_EVENT_LIFE)
+        assertEquals(null, e.state.mapEvent)
+    }
+
+    @Test
     fun runGoal_isRewardedOnce() {
         val e = engine()
         e.clearSpawns()
@@ -1130,6 +1205,8 @@ class SurvivorsEngineTest {
         e.state.weaponDamage[WeaponKind.BONE_ORBIT] = 1234f
         e.state.effectDamage[EffectDamage.POISON] = 56f
         e.state.runeStone = RuneStone(3f, 4f, 20f).apply { charge = 0.5f }
+        e.state.mapEvent = MapEvent(-6f, 2f, 20, 30f, 10f).apply { started = true; timeLeft = 12f; kills = 7 }
+        e.state.statBoosts[StatBoost.CRIT] = 4
         e.spawnEnemy(EnemyKind.ORC, 5f, 0f).apply { poisonDps = 3f; poisonTimer = 2f; poisonSource = WeaponKind.BONE_ORBIT }
         val restored = SurvivorsSaves.decode(SurvivorsSaves.encode(e.state, 0))!!.state
         assertEquals(mapOf(ItemKind.CRIT_CHANCE to 3, ItemKind.POISON to 2), restored.items.toMap())
@@ -1137,6 +1214,13 @@ class SurvivorsEngineTest {
         assertEquals(1234f, restored.weaponDamage[WeaponKind.BONE_ORBIT]!!, 0.001f)
         assertEquals(56f, restored.effectDamage[EffectDamage.POISON]!!, 0.001f)
         assertEquals(0.5f, restored.runeStone!!.charge, 0.001f)
+        restored.mapEvent!!.let {
+            assertEquals(20, it.target)
+            assertTrue(it.started)
+            assertEquals(12f, it.timeLeft, 0.001f)
+            assertEquals(7, it.kills)
+        }
+        assertEquals(4, restored.statBoosts[StatBoost.CRIT])
         assertEquals(e.state.goals, restored.goals)
         assertEquals(0f, restored.weaponSince[HeroClass.NECROMANCER.startWeapon]!!, 0.001f)
         assertEquals(3f, restored.enemies.single().poisonDps, 0.001f)

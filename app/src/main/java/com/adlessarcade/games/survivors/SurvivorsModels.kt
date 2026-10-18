@@ -340,6 +340,8 @@ data class SpawnerState(
     var enraged: Boolean = false,
     /** Zeit bis zum nächsten Runenstein. */
     var runeStoneTimer: Float = 60f,
+    /** Zeit bis zum nächsten Karten-Event. */
+    var mapEventTimer: Float = 150f,
 )
 
 /** Art einer Schadenszahl: normaler Treffer, Gift oder Hinrichtung (Henkersmal). */
@@ -354,6 +356,18 @@ enum class EffectDamage(val title: String, val icon: String) {
     SHATTER("Eissplitter", "❄"),
     SMITE("Richturteil", "⚖"),
     THUNDER("Donnerhall", "⚡"),
+}
+
+/**
+ * Karten-Event „Säuberung“: Betritt der Held die markierte Zone, startet ein Countdown. Werden darin [target]
+ * Gegner innerhalb der Zone besiegt, gibt es Erfahrung – je schneller, desto mehr Sterne.
+ */
+@Serializable
+class MapEvent(val x: Float, val y: Float, val target: Int, val timeLimit: Float, var life: Float) {
+    /** Countdown läuft, seit der Held die Zone betreten hat. */
+    var started: Boolean = false
+    var timeLeft: Float = timeLimit
+    var kills: Int = 0
 }
 
 /** Runenstein: lädt sich auf, solange der Held daneben steht, und gibt dann Runen. */
@@ -416,6 +430,9 @@ class SurvivorsState(
     /** Aktiver Runenstein (höchstens einer). */
     var runeStone: RuneStone? = null
     var runeStonesActivated: Int = 0
+    /** Aktives Karten-Event (höchstens eines) und abgeschlossene Events. */
+    var mapEvent: MapEvent? = null
+    var mapEventsCompleted: Int = 0
     /** Lauf-Ziele (3 pro Lauf) und bereits erreichte. */
     var goals: List<RunGoal> = emptyList()
     val goalsDone: MutableSet<RunGoal> = LinkedHashSet()
@@ -490,6 +507,11 @@ sealed interface SurvivorsEvent {
     data object RuneStoneSpawned : SurvivorsEvent
     data class RuneStoneActivated(val x: Float, val y: Float) : SurvivorsEvent
     data class GoalCompleted(val goal: RunGoal, val runes: Int) : SurvivorsEvent
+    data object MapEventSpawned : SurvivorsEvent
+    data class MapEventStarted(val target: Int, val timeLimit: Float) : SurvivorsEvent
+    /** Event geschafft: [stars] 1–3, [xp] Erfahrung als Kristalle in der Zone. */
+    data class MapEventCompleted(val x: Float, val y: Float, val stars: Int, val xp: Int) : SurvivorsEvent
+    data object MapEventFailed : SurvivorsEvent
 
     // Rein visuelle Waffeneffekte
     data class Swing(val x: Float, val y: Float, val angle: Float, val range: Float, val fullCircle: Boolean, val evolved: Boolean = false) : SurvivorsEvent

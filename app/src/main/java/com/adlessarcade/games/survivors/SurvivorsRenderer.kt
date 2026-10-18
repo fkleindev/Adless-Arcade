@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -37,6 +38,8 @@ private const val DECOR_CELL = 2f
 
 /** Farbe der Runen (Währung der Runen-Schmiede). */
 val RuneViolet = Color(0xFFA78BFA)
+/** Farbe der Karten-Events. */
+val EventAmber = Color(0xFFFBBF24)
 const val RUNE_SYMBOL = "ᚱ"
 
 /** Kamera, die dem Helden folgt: rechnet Welt- in Bildschirmkoordinaten um. */
@@ -157,6 +160,7 @@ fun DrawScope.drawSurvivors(
         SurvivorsObstacles.near(s.px, s.py, cam.halfWorldH + margin).forEach { if (visible(it.x, it.y)) drawObstacle(cam, it, theme) }
     }
     s.runeStone?.let { if (visible(it.x, it.y)) drawRuneStone(cam, it, s.time) }
+    s.mapEvent?.let { drawMapEvent(cam, it, s.time) }
 
     // Gegner nach y sortiert (weiter unten = weiter vorne)
     val enemies = s.enemies.filter { visible(it.x, it.y) }.sortedBy { it.y }
@@ -192,6 +196,7 @@ fun DrawScope.drawSurvivors(
 
     // Schadenszahlen und Texte, darüber der Held – er bleibt immer sichtbar.
     effects.forEach { if (it.isLabel) drawFx(cam, it, textMeasurer) }
+    s.mapEvent?.let { drawMapEventLabel(cam, it, textMeasurer) }
     val blink = s.invulnerable > 0f && ((s.invulnerable * 20f).toInt() % 2 == 0)
     val hero = cam.at(s.px, s.py)
     val faceRight = s.faceX >= 0f
@@ -1422,9 +1427,10 @@ private fun DrawScope.drawFx(cam: SurvivorsCamera, fx: SurvivorsFx, textMeasurer
 private fun DrawScope.drawEdgeIndicators(cam: SurvivorsCamera, s: SurvivorsState) {
     s.enemies.filter { it.isBoss }.forEach { drawEdgeArrow(cam, s, it.x, it.y, DangerRed, EdgeIcon.BOSS) }
     s.runeStone?.let { drawEdgeArrow(cam, s, it.x, it.y, RuneViolet, EdgeIcon.RUNE) }
+    s.mapEvent?.let { drawEdgeArrow(cam, s, it.x, it.y, EventAmber, EdgeIcon.EVENT) }
 }
 
-private enum class EdgeIcon { BOSS, RUNE }
+private enum class EdgeIcon { BOSS, RUNE, EVENT }
 
 /** Pulsierende Plakette mit Symbol, an der außen eine Pfeilspitze in Richtung Ziel sitzt. */
 private fun DrawScope.drawEdgeArrow(cam: SurvivorsCamera, s: SurvivorsState, x: Float, y: Float, color: Color, icon: EdgeIcon) {
@@ -1470,7 +1476,73 @@ private fun DrawScope.drawEdgeArrow(cam: SurvivorsCamera, s: SurvivorsState, x: 
             drawLine(Color.White, edge + Offset(0f, -h), edge + Offset(0f, h * 0.25f), strokeWidth = line * 1.2f)
             drawCircle(Color.White, line * 0.7f, edge + Offset(0f, h * 0.7f))
         }
+        EdgeIcon.EVENT -> {
+            // Fadenkreuz wie die Event-Zone
+            val h = badge * 0.55f
+            drawCircle(Color.White, h * 0.65f, edge, style = Stroke(width = line * 0.8f))
+            drawLine(Color.White, edge + Offset(-h, 0f), edge + Offset(h, 0f), strokeWidth = line * 0.8f)
+            drawLine(Color.White, edge + Offset(0f, -h), edge + Offset(0f, h), strokeWidth = line * 0.8f)
+        }
     }
+}
+
+/** Event-Zone: gestrichelter Kreis; läuft das Event, zeigen Bögen Kills (außen) und Restzeit (innen). */
+private fun DrawScope.drawMapEvent(cam: SurvivorsCamera, ev: MapEvent, time: Float) {
+    val c = cam.at(ev.x, ev.y)
+    val u = cam.scale
+    val r = cam.len(SurvivorsEngine.MAP_EVENT_RADIUS)
+    val pulse = 0.5f + 0.5f * sin(time * 3f)
+    drawCircle(EventAmber.copy(alpha = if (ev.started) 0.1f else 0.05f + 0.05f * pulse), r, c)
+    // Gestrichelter Rand, der sich langsam dreht
+    val dashes = 24
+    val sweep = 360f / dashes
+    for (i in 0 until dashes) {
+        drawArc(EventAmber.copy(alpha = 0.7f), time * 12f + i * sweep, sweep * 0.55f, false, c - Offset(r, r), Size(r * 2f, r * 2f),
+            style = Stroke(width = u * 0.05f))
+    }
+    val outer = r + u * 0.12f
+    val inner = r - u * 0.12f
+    if (ev.started) {
+        val progress = (ev.kills.toFloat() / ev.target).coerceIn(0f, 1f)
+        drawArc(EventAmber, -90f, 360f * progress, false, c - Offset(outer, outer), Size(outer * 2f, outer * 2f),
+            style = Stroke(width = u * 0.1f))
+        drawArc(Color.White.copy(alpha = 0.45f), -90f, 360f * (ev.timeLeft / ev.timeLimit).coerceIn(0f, 1f), false,
+            c - Offset(inner, inner), Size(inner * 2f, inner * 2f), style = Stroke(width = u * 0.04f))
+    } else {
+        // Wartezeit bis zum Verschwinden
+        drawArc(Color.White.copy(alpha = 0.3f), -90f, 360f * (ev.life / SurvivorsEngine.MAP_EVENT_LIFE).coerceIn(0f, 1f), false,
+            c - Offset(inner, inner), Size(inner * 2f, inner * 2f), style = Stroke(width = u * 0.03f))
+        // Fadenkreuz in der Mitte
+        val h = u * 0.35f
+        drawCircle(EventAmber.copy(alpha = 0.6f + 0.4f * pulse), h * 0.6f, c, style = Stroke(width = u * 0.04f))
+        drawLine(EventAmber, c + Offset(-h, 0f), c + Offset(h, 0f), strokeWidth = u * 0.04f)
+        drawLine(EventAmber, c + Offset(0f, -h), c + Offset(0f, h), strokeWidth = u * 0.04f)
+    }
+}
+
+/** Beschriftung über der Event-Zone: Ziel bzw. Kills und Restzeit. */
+private fun DrawScope.drawMapEventLabel(cam: SurvivorsCamera, ev: MapEvent, textMeasurer: TextMeasurer) {
+    val c = cam.at(ev.x, ev.y)
+    val top = c.y - cam.len(SurvivorsEngine.MAP_EVENT_RADIUS) - cam.len(0.5f)
+    if (c.x < -cam.len(4f) || c.x > size.width + cam.len(4f) || top < -cam.len(1f) || top > size.height) return
+    val text = if (ev.started) {
+        val seconds = ev.timeLeft.coerceAtLeast(0f).toInt()
+        "⚔ ${ev.kills.coerceAtMost(ev.target)} / ${ev.target} · 0:%02d".format(seconds)
+    } else {
+        "⚔ SÄUBERUNG · ${ev.target} Gegner"
+    }
+    val layout = textMeasurer.measure(
+        text,
+        TextStyle(color = EventAmber, fontSize = (cam.scale * 0.34f).toSp(), fontWeight = FontWeight.Black,
+            shadow = Shadow(Color.Black, blurRadius = 4f)),
+    )
+    drawText(
+        layout,
+        topLeft = Offset(
+            (c.x - layout.size.width / 2f).coerceIn(0f, (size.width - layout.size.width).coerceAtLeast(0f)),
+            (top - layout.size.height).coerceAtLeast(0f),
+        ),
+    )
 }
 
 /** Runenstein: Obelisk mit Lade-Ring (füllt sich) und Restzeit-Bogen. */

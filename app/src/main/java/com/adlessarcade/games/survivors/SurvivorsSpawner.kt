@@ -140,6 +140,15 @@ internal class SurvivorsSpawner(private val e: SurvivorsEngine, private val rand
         )
     }
 
+    /** Karten-Event: [count] Gegner der aktuellen Zeit im Ring mit [radius] um ([x], [y]). */
+    fun spawnEventWave(x: Float, y: Float, radius: Float, count: Int) {
+        val t = e.state.time
+        repeat(count.coerceAtMost(MAX_ENEMIES - e.state.enemies.size)) { i ->
+            val angle = i * 2f * PI.toFloat() / count + random.nextFloat() * 0.3f
+            e.spawnEnemy(randomKind(t), x + cos(angle) * radius, y + sin(angle) * radius, hpMultiplier(t))
+        }
+    }
+
     /** Ein Ring aus Fledermäusen, der sich um den Helden schließt. */
     private fun spawnBatRing(t: Float) {
         val count = 16 + (t / 60f).toInt() * 2
