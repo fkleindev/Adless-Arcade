@@ -93,6 +93,10 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
         private set
     var speed by mutableIntStateOf(1)
         private set
+
+    /** Laufende Zeit für Animationen (Figuren, Arena), im Kampf mit dem Tempo-Faktor. */
+    var animTime = 0f
+        private set
     var banner by mutableStateOf<TacticsBanner?>(null)
         private set
     var inspected by mutableStateOf<Inspected?>(null)
@@ -338,6 +342,7 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
         }
         val fight = engine.combat
         val simDt = if (engine.phase == Phase.COMBAT) dt * speed else dt
+        animTime += simDt
         effects.forEach { it.age += simDt }
         effects.removeAll { it.age >= it.lifetime }
 

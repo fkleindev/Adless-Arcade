@@ -602,6 +602,14 @@ class RuneTacticsEngineTest {
     }
 
     @Test
+    fun everyUnitHasFigureStyle_andEveryArenaStyleIsUsed() {
+        assertEquals(emptyList<String>(), RuneTacticsFigures.missing())
+        val arenaStyles = com.adlessarcade.core.shop.ShopCatalog.inCategory(com.adlessarcade.core.shop.ShopCategory.ARENA)
+            .map { com.adlessarcade.ui.theme.CosmeticRegistry.arena(it.id).style }.toSet()
+        assertEquals(com.adlessarcade.ui.theme.ArenaStyle.entries.toSet(), arenaStyles)
+    }
+
+    @Test
     fun traitTier6_reachable() {
         val undead = RuneTacticsUnits.all.filter { Trait.UNDEAD in it.traits }
         assertEquals(3, Trait.UNDEAD.level(Traits.count(undead)[Trait.UNDEAD]!!))

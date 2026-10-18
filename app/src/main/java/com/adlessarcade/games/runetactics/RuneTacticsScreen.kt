@@ -185,7 +185,7 @@ fun RuneTacticsScreen(
                         viewModel.frame // Lesen registriert das Neuzeichnen pro Frame
                         drawTactics(
                             TacticsLayout(size.width, size.height),
-                            viewModel.engine, viewModel.effects, drag, textMeasurer, arena,
+                            viewModel.engine, viewModel.effects, drag, textMeasurer, arena, viewModel.animTime,
                         )
                     }
 
@@ -431,7 +431,7 @@ private fun ShopCard(
     if (def == null) {
         Box(
             modifier
-                .height(84.dp)
+                .height(90.dp)
                 .clip(shape)
                 .background(ArcadeSurface.copy(alpha = 0.5f))
                 .border(1.dp, ArcadeOutline.copy(alpha = 0.5f), shape)
@@ -441,7 +441,7 @@ private fun ShopCard(
     val cost = costColor(def.cost)
     Column(
         modifier
-            .height(84.dp)
+            .height(90.dp)
             .alpha(if (enabled && affordable) 1f else 0.45f)
             .clip(shape)
             .background(ArcadeSurfaceHigh)
@@ -450,8 +450,8 @@ private fun ShopCard(
             .padding(horizontal = 4.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Canvas(Modifier.size(30.dp)) {
-            drawUnit(Offset(size.width / 2f, size.height / 2f - 2f), size.width * 1.1f, def, 1, enemy = false)
+        Canvas(Modifier.size(36.dp)) {
+            drawFigure(def, Offset(size.width / 2f, size.height * 0.45f), size.width, time = 0f)
         }
         Text(
             def.name,

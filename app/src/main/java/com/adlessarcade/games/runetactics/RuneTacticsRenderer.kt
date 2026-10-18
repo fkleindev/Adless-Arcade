@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import com.adlessarcade.ui.theme.ArenaTheme
 import com.adlessarcade.ui.theme.CosmeticRegistry
 import com.adlessarcade.ui.theme.NeonCyan
+import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.min
@@ -134,10 +135,11 @@ class TacticsLayout(width: Float, height: Float) {
     val benchTop: Float
 
     init {
-        val rows = Board.ROWS + BENCH_GAP + 1.1f
-        cell = min(width / Board.COLS, height / rows)
+        // Platz für den Arena-Rahmen links, rechts und oben
+        val rows = FRAME + Board.ROWS + BENCH_GAP + 1.1f
+        cell = min(width / (Board.COLS + FRAME * 2f), height / rows)
         boardLeft = (width - cell * Board.COLS) / 2f
-        boardTop = ((height - cell * rows) / 2f).coerceAtLeast(0f)
+        boardTop = ((height - cell * rows) / 2f).coerceAtLeast(0f) + cell * FRAME
         benchCell = min(width / Board.BENCH_SIZE, cell * 1.1f)
         benchLeft = (width - benchCell * Board.BENCH_SIZE) / 2f
         benchTop = boardTop + cell * (Board.ROWS + BENCH_GAP)
@@ -168,7 +170,9 @@ class TacticsLayout(width: Float, height: Float) {
     }
 
     companion object {
-        const val BENCH_GAP = 0.35f
+        const val BENCH_GAP = 0.45f
+        /** Breite des Arena-Rahmens in Feldern. */
+        const val FRAME = 0.28f
     }
 }
 
@@ -182,16 +186,25 @@ internal fun DrawScope.drawTactics(
     drag: DragInfo?,
     textMeasurer: TextMeasurer,
     arena: ArenaTheme = CosmeticRegistry.arena(""),
+    time: Float = 0f,
 ) {
-    drawBoard(layout, drag, arena)
-    drawBench(layout, engine, drag)
+    drawArena(layout, arena, time, drag)
+    drawBench(layout, engine, drag, arena, time)
 
     val fight = engine.combat
     if (engine.phase == Phase.COMBAT && fight != null) {
-        // Tote zuerst nicht zeichnen; Gegner und eigene gemischt nach Reihe, damit Überlappungen stimmen.
+        // Nach Reihe sortiert, damit weiter unten stehende Figuren davor gezeichnet werden.
         fight.fighters.filter { it.alive }.sortedBy { it.visualRow }.forEach { f ->
+            val center = layout.center(f.visualCol, f.visualRow)
+            // Ausfallschritt zum Ziel beim Angriff
+            val target = f.target
+            val lunge = if (target != null && f.attackAnim > 0f) {
+                val to = layout.center(target.visualCol, target.visualRow) - center
+                val len = to.getDistance().coerceAtLeast(1f)
+                to * (sin(f.attackAnim / Fighter.ATTACK_ANIM * PI.toFloat()) * layout.cell * 0.22f / len)
+            } else Offset.Zero
             drawUnit(
-                center = layout.center(f.visualCol, f.visualRow),
+                center = center,
                 size = layout.cell,
                 def = f.def,
                 star = f.star,
@@ -201,20 +214,23 @@ internal fun DrawScope.drawTactics(
                 mana = if (f.maxMana > 0f) f.mana / f.maxMana else 0f,
                 stunned = f.stun > 0f,
                 items = f.items,
+                time = time,
+                lunge = lunge,
+                flash = (f.hitFlash / Fighter.HIT_FLASH).coerceIn(0f, 1f) * 0.7f,
             )
         }
     } else {
-        engine.enemyArmy.forEach {
+        engine.enemyArmy.sortedBy { it.row }.forEach {
             drawUnit(
                 layout.center(it.col.toFloat(), it.row.toFloat()), layout.cell, it.def, it.star, enemy = true,
-                items = it.items.map(RuneTacticsItems::byId),
+                items = it.items.map(RuneTacticsItems::byId), time = time,
             )
         }
-        engine.board.forEach { (cell, unit) ->
+        engine.board.entries.sortedBy { it.key.row }.forEach { (cell, unit) ->
             val dragged = drag?.from == Slot.Board(cell)
             drawUnit(
                 layout.center(cell.col.toFloat(), cell.row.toFloat()), layout.cell, unit.def, unit.star,
-                enemy = false, alpha = if (dragged) 0.3f else 1f, items = unit.items.map(RuneTacticsItems::byId),
+                enemy = false, alpha = if (dragged) 0.3f else 1f, items = unit.items.map(RuneTacticsItems::byId), time = time,
             )
         }
     }
@@ -224,70 +240,29 @@ internal fun DrawScope.drawTactics(
     if (drag != null) {
         drawUnit(
             drag.pos, layout.cell * 1.15f, drag.unit.def, drag.unit.star, enemy = false, alpha = 0.92f,
-            items = drag.unit.items.map(RuneTacticsItems::byId),
+            items = drag.unit.items.map(RuneTacticsItems::byId), time = time,
         )
     }
 }
 
-private fun DrawScope.drawBoard(layout: TacticsLayout, drag: DragInfo?, arena: ArenaTheme) {
-    val cell = layout.cell
-    val hover = drag?.let { layout.cellAt(it.pos) }
-    for (row in 0 until Board.ROWS) {
-        for (col in 0 until Board.COLS) {
-            val enemyHalf = row < Board.PLAYER_FIRST_ROW
-            val dark = (row + col) % 2 == 0
-            var color = when {
-                enemyHalf && dark -> arena.enemyDark
-                enemyHalf -> arena.enemyLight
-                dark -> arena.playerDark
-                else -> arena.playerLight
-            }
-            if (drag != null && !enemyHalf) color = lerp(color, ArcadeCyan, 0.06f)
-            if (drag != null && hover == Cell(col, row) && !enemyHalf) color = lerp(color, ArcadeCyan, 0.25f)
-            drawRoundRect(
-                color,
-                topLeft = Offset(layout.boardLeft + col * cell + 1f, layout.boardTop + row * cell + 1f),
-                size = Size(cell - 2f, cell - 2f),
-                cornerRadius = CornerRadius(cell * 0.12f),
-            )
-        }
-    }
-    val midY = layout.boardTop + Board.PLAYER_FIRST_ROW * cell
-    drawLine(
-        arena.divider.copy(alpha = 0.35f),
-        Offset(layout.boardLeft, midY), Offset(layout.boardLeft + Board.COLS * cell, midY),
-        strokeWidth = cell * 0.04f,
-    )
-}
-
-private fun DrawScope.drawBench(layout: TacticsLayout, engine: RuneTacticsEngine, drag: DragInfo?) {
+private fun DrawScope.drawBench(layout: TacticsLayout, engine: RuneTacticsEngine, drag: DragInfo?, arena: ArenaTheme, time: Float) {
     val hover = drag?.let { layout.benchAt(it.pos) }
     for (i in 0 until Board.BENCH_SIZE) {
         val size = layout.benchCell
-        val topLeft = Offset(layout.benchLeft + i * size + 3f, layout.benchTop + 3f)
-        drawRoundRect(
-            if (hover == i) Color(0xFF263247) else Color(0xFF181B28),
-            topLeft = topLeft,
-            size = Size(size - 6f, size - 6f),
-            cornerRadius = CornerRadius(size * 0.18f),
-        )
-        drawRoundRect(
-            Color(0xFF2A2E40),
-            topLeft = topLeft,
-            size = Size(size - 6f, size - 6f),
-            cornerRadius = CornerRadius(size * 0.18f),
-            style = Stroke(width = 2f),
-        )
+        drawArenaBenchSlot(arena, Offset(layout.benchLeft + i * size + 3f, layout.benchTop + 3f), Size(size - 6f, size - 6f), hover == i, i)
         val unit = engine.bench[i] ?: continue
         val dragged = drag?.from == Slot.Bench(i)
         drawUnit(
             layout.benchCenter(i), size * 0.92f, unit.def, unit.star,
-            enemy = false, alpha = if (dragged) 0.3f else 1f, items = unit.items.map(RuneTacticsItems::byId),
+            enemy = false, alpha = if (dragged) 0.3f else 1f, items = unit.items.map(RuneTacticsItems::byId), time = time,
         )
     }
 }
 
-/** Zeichnet eine Figur: Kreis in Herkunftsfarbe, Ring in Kostenfarbe, Symbol der Klasse, Sterne und Balken. */
+/**
+ * Zeichnet eine Einheit: Sockel in Kosten- und Seitenfarbe, die Figur, Sterne, Items und im Kampf die Balken.
+ * [size] ist die Feldgröße.
+ */
 internal fun DrawScope.drawUnit(
     center: Offset,
     size: Float,
@@ -300,47 +275,50 @@ internal fun DrawScope.drawUnit(
     stunned: Boolean = false,
     alpha: Float = 1f,
     items: List<ItemDef> = emptyList(),
+    time: Float = 0f,
+    lunge: Offset = Offset.Zero,
+    flash: Float = 0f,
 ) {
-    val r = size * if (def.isBoss) 0.5f else 0.34f
-    val origin = originColor(def.origin)
-    // Sockel in Seitenfarbe
-    drawOval(
-        (if (enemy) LossRed else ArcadeCyan).copy(alpha = 0.35f * alpha),
-        topLeft = Offset(center.x - r * 1.05f, center.y + r * 0.45f),
-        size = Size(r * 2.1f, r * 0.8f),
-    )
-    drawCircle(lerp(origin, Color.Black, 0.55f).copy(alpha = alpha), r, center)
-    drawCircle(costColor(def.cost).copy(alpha = alpha), r, center, style = Stroke(width = r * 0.17f))
-    drawRoleGlyph(def.role, center, r * 0.62f, origin.copy(alpha = alpha))
+    val r = size * if (def.isBoss) 0.5f else 0.36f
+    // Sockel: Schatten in Seitenfarbe, Ring in Kostenfarbe
+    val baseC = center + Offset(0f, size * 0.33f)
+    drawOval((if (enemy) LossRed else ArcadeCyan).copy(alpha = 0.3f * alpha), baseC - Offset(r * 1.1f, r * 0.32f), Size(r * 2.2f, r * 0.64f))
+    drawOval(Color.Black.copy(alpha = 0.35f * alpha), baseC - Offset(r * 0.85f, r * 0.22f), Size(r * 1.7f, r * 0.44f))
+    drawOval(costColor(def.cost).copy(alpha = 0.85f * alpha), baseC - Offset(r * 0.95f, r * 0.27f), Size(r * 1.9f, r * 0.54f), style = Stroke(width = r * 0.09f))
 
+    drawFigure(def, center, size, time, dir = if (enemy) -1f else 1f, lunge = lunge, flash = flash, alpha = alpha, stunned = stunned)
+
+    val headTop = center.y - size * (if (def.isBoss) 0.58f else 0.5f)
     if (stunned) {
         for (i in 0 until 3) {
-            val a = i * 2.1f
-            drawCircle(StarGold.copy(alpha = alpha), r * 0.1f, Offset(center.x + cos(a) * r * 0.8f, center.y - r * 1.05f + sin(a) * r * 0.2f))
+            val a = time * 5f + i * 2.1f
+            drawStar(Offset(center.x + cos(a) * r * 0.6f, headTop - r * 0.05f + sin(a) * r * 0.12f), r * 0.13f, StarGold.copy(alpha = alpha))
         }
     }
 
-    // Sterne unter der Figur
-    val starSize = r * 0.32f
-    val startX = center.x - (star - 1) * starSize * 1.1f
+    // Sterne auf dem Sockel
+    val starSize = r * 0.2f
+    val startX = center.x - (star - 1) * starSize * 1.15f
     for (i in 0 until star) {
-        drawStar(Offset(startX + i * starSize * 2.2f, center.y + r * 0.95f), starSize, StarGold.copy(alpha = alpha))
+        val p = Offset(startX + i * starSize * 2.3f, baseC.y + r * 0.3f)
+        drawStar(p, starSize * 1.25f, Color.Black.copy(alpha = 0.5f * alpha))
+        drawStar(p, starSize, StarGold.copy(alpha = alpha))
     }
 
     // Items als kleine Symbole rechts neben der Figur
-    val itemSize = size * 0.2f
+    val itemSize = size * 0.19f
     items.forEachIndexed { i, item ->
         drawItemIcon(
-            Offset(center.x + r + itemSize * 0.15f, center.y - r * 0.55f + i * itemSize * 1.05f),
+            Offset(center.x + r * 1.05f, center.y - r * 0.35f + i * itemSize * 1.05f),
             itemSize, item, alpha,
         )
     }
 
     if (hp != null) {
-        val w = r * 2.2f
-        val h = r * 0.24f
+        val w = r * 2f
+        val h = size * 0.07f
         val left = center.x - w / 2f
-        val top = center.y - r - h * 2.6f
+        val top = center.y - size * if (def.isBoss) 0.82f else 0.6f
         drawRect(Color.Black.copy(alpha = 0.7f * alpha), Offset(left - 1f, top - 1f), Size(w + 2f, h + 2f))
         drawRect((if (enemy) LossRed else WinGreen).copy(alpha = alpha), Offset(left, top), Size(w * hp.coerceIn(0f, 1f), h))
         if (shield > 0f) {
@@ -349,69 +327,6 @@ internal fun DrawScope.drawUnit(
         val manaTop = top + h + 2f
         drawRect(Color.Black.copy(alpha = 0.7f * alpha), Offset(left - 1f, manaTop - 1f), Size(w + 2f, h * 0.55f + 2f))
         drawRect(Color(0xFF60A5FA).copy(alpha = alpha), Offset(left, manaTop), Size(w * mana.coerceIn(0f, 1f), h * 0.55f))
-    }
-}
-
-private fun DrawScope.drawRoleGlyph(role: Trait, c: Offset, s: Float, color: Color) {
-    when (role) {
-        Trait.WARRIOR -> {
-            drawLine(color, Offset(c.x - s * 0.6f, c.y + s * 0.6f), Offset(c.x + s * 0.6f, c.y - s * 0.6f), s * 0.22f, StrokeCap.Round)
-            drawLine(color, Offset(c.x - s * 0.55f, c.y - s * 0.05f), Offset(c.x - s * 0.05f, c.y + s * 0.45f), s * 0.2f, StrokeCap.Round)
-        }
-        Trait.GUARDIAN -> {
-            val path = Path().apply {
-                moveTo(c.x, c.y - s * 0.75f)
-                lineTo(c.x + s * 0.65f, c.y - s * 0.45f)
-                lineTo(c.x + s * 0.55f, c.y + s * 0.2f)
-                quadraticTo(c.x + s * 0.4f, c.y + s * 0.6f, c.x, c.y + s * 0.8f)
-                quadraticTo(c.x - s * 0.4f, c.y + s * 0.6f, c.x - s * 0.55f, c.y + s * 0.2f)
-                lineTo(c.x - s * 0.65f, c.y - s * 0.45f)
-                close()
-            }
-            drawPath(path, color)
-        }
-        Trait.RANGER -> {
-            // Bogen mit Sehne und Pfeil
-            drawArc(color, 110f, 140f, false, Offset(c.x - s * 1.1f, c.y - s * 0.8f), Size(s * 1.6f, s * 1.6f), style = Stroke(s * 0.2f))
-            drawLine(color, Offset(c.x - s * 0.55f, c.y - s * 0.75f), Offset(c.x - s * 0.55f, c.y + s * 0.75f), s * 0.1f)
-            drawLine(color, Offset(c.x - s * 0.6f, c.y), Offset(c.x + s * 0.75f, c.y), s * 0.16f, StrokeCap.Round)
-        }
-        Trait.ASSASSIN -> {
-            // Zwei gekreuzte Dolche
-            drawLine(color, Offset(c.x - s * 0.6f, c.y - s * 0.6f), Offset(c.x + s * 0.6f, c.y + s * 0.6f), s * 0.2f, StrokeCap.Round)
-            drawLine(color, Offset(c.x + s * 0.6f, c.y - s * 0.6f), Offset(c.x - s * 0.6f, c.y + s * 0.6f), s * 0.2f, StrokeCap.Round)
-        }
-        Trait.BEAST -> {
-            // Drei Krallenspuren
-            for (i in -1..1) {
-                val x = c.x + i * s * 0.4f
-                drawLine(color, Offset(x - s * 0.2f, c.y - s * 0.65f), Offset(x + s * 0.2f, c.y + s * 0.65f), s * 0.18f, StrokeCap.Round)
-            }
-        }
-        Trait.BOSS -> {
-            // Krone
-            val path = Path().apply {
-                moveTo(c.x - s * 0.8f, c.y + s * 0.5f)
-                lineTo(c.x - s * 0.8f, c.y - s * 0.5f)
-                lineTo(c.x - s * 0.4f, c.y)
-                lineTo(c.x, c.y - s * 0.7f)
-                lineTo(c.x + s * 0.4f, c.y)
-                lineTo(c.x + s * 0.8f, c.y - s * 0.5f)
-                lineTo(c.x + s * 0.8f, c.y + s * 0.5f)
-                close()
-            }
-            drawPath(path, color)
-        }
-        else -> {
-            val path = Path().apply {
-                moveTo(c.x + s * 0.1f, c.y - s * 0.85f)
-                lineTo(c.x + s * 0.5f, c.y + s * 0.4f)
-                lineTo(c.x - s * 0.5f, c.y + s * 0.4f)
-                close()
-            }
-            drawPath(path, color)
-            drawLine(color, Offset(c.x - s * 0.75f, c.y + s * 0.5f), Offset(c.x + s * 0.75f, c.y + s * 0.5f), s * 0.2f, StrokeCap.Round)
-        }
     }
 }
 

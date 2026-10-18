@@ -45,7 +45,10 @@ data class ArcadePalette(val accent: Color, val accent2: Color, val backgroundTo
         get() = Brush.verticalGradient(listOf(backgroundTop, ArcadeBackground, ArcadeBackground))
 }
 
-/** Brett-Farben in Rune Tactics: gegnerische und eigene Hälfte jeweils hell/dunkel, dazu die Trennlinie. */
+/** Motiv einer Arena: bestimmt Kachel-Texturen, Rahmen, Requisiten und Umgebungs-Partikel. */
+enum class ArenaStyle { DUSK, FOREST, CRYPT, FROST, LAVA }
+
+/** Brett-Farben in Rune Tactics: gegnerische und eigene Hälfte jeweils hell/dunkel, Trennlinie, Rahmen und Motiv. */
 @Immutable
 data class ArenaTheme(
     val enemyDark: Color,
@@ -53,6 +56,9 @@ data class ArenaTheme(
     val playerDark: Color,
     val playerLight: Color,
     val divider: Color,
+    val frame: Color,
+    val backdrop: Color,
+    val style: ArenaStyle,
 )
 
 /** Aktuell ausgerüstete Kosmetik – per [LocalCosmetics] überall verfügbar. */
@@ -122,11 +128,11 @@ object CosmeticRegistry {
     )
 
     private val arenas = mapOf(
-        "arena_dusk" to ArenaTheme(Color(0xFF1C1520), Color(0xFF221A27), Color(0xFF111A24), Color(0xFF16212D), Color(0xFFFF5C6C)),
-        "arena_forest" to ArenaTheme(Color(0xFF1F1A12), Color(0xFF282114), Color(0xFF0F1F14), Color(0xFF15291B), Color(0xFF86EFAC)),
-        "arena_crypt" to ArenaTheme(Color(0xFF1A1A1F), Color(0xFF222228), Color(0xFF16141F), Color(0xFF1D1A29), Color(0xFFA78BFA)),
-        "arena_frost" to ArenaTheme(Color(0xFF162030), Color(0xFF1C293C), Color(0xFF14232B), Color(0xFF1A2E38), Color(0xFF7DD3FC)),
-        "arena_lava" to ArenaTheme(Color(0xFF2A0F0C), Color(0xFF341410), Color(0xFF1C1210), Color(0xFF261813), Color(0xFFFB923C)),
+        "arena_dusk" to ArenaTheme(Color(0xFF1C1520), Color(0xFF221A27), Color(0xFF111A24), Color(0xFF16212D), Color(0xFFFF5C6C), Color(0xFF3A3340), Color(0xFF0E0B14), ArenaStyle.DUSK),
+        "arena_forest" to ArenaTheme(Color(0xFF33291A), Color(0xFF3B301F), Color(0xFF1C3A22), Color(0xFF224529), Color(0xFF86EFAC), Color(0xFF5B3A1E), Color(0xFF07140B), ArenaStyle.FOREST),
+        "arena_crypt" to ArenaTheme(Color(0xFF1A1A1F), Color(0xFF222228), Color(0xFF16141F), Color(0xFF1D1A29), Color(0xFFA78BFA), Color(0xFF3F3F46), Color(0xFF0A0A0F), ArenaStyle.CRYPT),
+        "arena_frost" to ArenaTheme(Color(0xFF162030), Color(0xFF1C293C), Color(0xFF14232B), Color(0xFF1A2E38), Color(0xFF7DD3FC), Color(0xFF94A3B8), Color(0xFF0B1424), ArenaStyle.FROST),
+        "arena_lava" to ArenaTheme(Color(0xFF2A0F0C), Color(0xFF341410), Color(0xFF1C1210), Color(0xFF261813), Color(0xFFFB923C), Color(0xFF292524), Color(0xFF160605), ArenaStyle.LAVA),
     )
 
     private val palettes = mapOf(

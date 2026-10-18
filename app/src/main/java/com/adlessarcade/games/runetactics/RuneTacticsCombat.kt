@@ -68,6 +68,10 @@ class Fighter(
     /** Dämonen: Heilung in Prozent des verursachten Schadens. */
     var vamp = 0f
     var critChance = 0f
+
+    /** Rein visuell (ohne Einfluss auf die Logik): Restzeit der Angriffs- und Treffer-Animation. */
+    var attackAnim = 0f
+    var hitFlash = 0f
     var sundered = false
     var tickTimer = 0f
 
@@ -78,6 +82,11 @@ class Fighter(
 
     val visualCol: Float get() = fromCol + (col - fromCol) * moveT
     val visualRow: Float get() = fromRow + (row - fromRow) * moveT
+
+    companion object {
+        const val ATTACK_ANIM = 0.25f
+        const val HIT_FLASH = 0.15f
+    }
 
     init {
         if (ItemEffect.DAMAGE in effects) damageBonus += 0.3f
@@ -267,6 +276,8 @@ class RuneTacticsCombat(
 
     private fun update(f: Fighter) {
         f.attackCd = max(0f, f.attackCd - TICK)
+        f.attackAnim = max(0f, f.attackAnim - TICK)
+        f.hitFlash = max(0f, f.hitFlash - TICK)
         updateItemTimers(f)
         if (!f.alive) return
         if (f.stun > 0f) {
@@ -334,6 +345,7 @@ class RuneTacticsCombat(
 
     private fun attack(f: Fighter, target: Fighter) {
         f.attackCount++
+        f.attackAnim = Fighter.ATTACK_ANIM
         if (ItemEffect.RAGE in f.effects && f.rageStacks < 10) f.rageStacks++
         if (f.rangerStep > 0f && f.rangerStacks < 10) f.rangerStacks++
         val speed = f.attackSpeed * (1f + 0.06f * f.rageStacks + f.rangerStep * f.rangerStacks)
@@ -492,6 +504,7 @@ class RuneTacticsCombat(
         dst.shield -= absorbed
         amount -= absorbed
         dst.hp -= amount
+        if (total > 0f) dst.hitFlash = Fighter.HIT_FLASH
         src.damageDealt += total
         events += CombatEvent.Damage(dst.id, total.roundToInt(), magic, crit)
         if (dst.hp <= 0f) kill(dst)
