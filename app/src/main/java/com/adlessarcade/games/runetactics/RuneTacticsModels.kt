@@ -2,6 +2,9 @@ package com.adlessarcade.games.runetactics
 
 import kotlinx.serialization.Serializable
 
+/** Stufen aller Synergien: 2, 4 und 6 verschiedene Einheiten. */
+private val TIERS = listOf(2, 4, 6)
+
 enum class TraitKind {
     ORIGIN,
     CLASS,
@@ -15,21 +18,53 @@ enum class Trait(
     val kind: TraitKind,
     val tiers: List<Int>,
     val description: String,
+    /** Effektstärke je Stufe (Index 0 = Stufe 1). */
+    val values: List<Float> = emptyList(),
 ) {
-    UNDEAD("Untote", TraitKind.ORIGIN, listOf(2, 4), "Untote erheben sich einmal pro Kampf mit 30 % / 60 % Leben."),
-    ELF("Elfen", TraitKind.ORIGIN, listOf(2, 4), "Elfen weichen 20 % / 40 % der Angriffe aus."),
-    DWARF("Zwerge", TraitKind.ORIGIN, listOf(2, 4), "Zwerge erhalten +30 / +70 Rüstung und Magieresistenz."),
-    WARRIOR("Krieger", TraitKind.CLASS, listOf(2, 4), "Krieger verursachen +20 % / +45 % Schaden."),
-    GUARDIAN(
-        "Wächter", TraitKind.CLASS, listOf(2, 4),
-        "Zum Kampfbeginn erhalten Wächter und angrenzende Verbündete einen Schild von 150 / 350.",
+    UNDEAD(
+        "Untote", TraitKind.ORIGIN, TIERS, "Untote erheben sich einmal pro Kampf mit 30 % / 60 % / 90 % Leben.",
+        listOf(0.3f, 0.6f, 0.9f),
     ),
-    MAGE("Magier", TraitKind.CLASS, listOf(2, 4), "Fähigkeiten von Magiern verursachen +30 % / +70 % Schaden."),
+    ELF("Elfen", TraitKind.ORIGIN, TIERS, "Elfen weichen 20 % / 40 % / 60 % der Angriffe aus.", listOf(0.2f, 0.4f, 0.6f)),
+    DWARF(
+        "Zwerge", TraitKind.ORIGIN, TIERS, "Zwerge erhalten +30 / +70 / +120 Rüstung und Magieresistenz.",
+        listOf(30f, 70f, 120f),
+    ),
+    DEMON(
+        "Dämonen", TraitKind.ORIGIN, TIERS, "Dämonen heilen sich um 15 % / 30 % / 50 % ihres Schadens.",
+        listOf(0.15f, 0.3f, 0.5f),
+    ),
+    ELEMENTAL(
+        "Elementare", TraitKind.ORIGIN, TIERS, "Elementare starten mit +20 / +40 / +70 Mana.",
+        listOf(20f, 40f, 70f),
+    ),
+    WARRIOR("Krieger", TraitKind.CLASS, TIERS, "Krieger verursachen +20 % / +45 % / +80 % Schaden.", listOf(0.2f, 0.45f, 0.8f)),
+    GUARDIAN(
+        "Wächter", TraitKind.CLASS, TIERS,
+        "Zum Kampfbeginn erhalten Wächter und angrenzende Verbündete einen Schild von 150 / 350 / 600.",
+        listOf(150f, 350f, 600f),
+    ),
+    MAGE(
+        "Magier", TraitKind.CLASS, TIERS, "Fähigkeiten von Magiern verursachen +30 % / +70 % / +120 % Schaden.",
+        listOf(0.3f, 0.7f, 1.2f),
+    ),
+    RANGER(
+        "Waldläufer", TraitKind.CLASS, TIERS,
+        "Jeder Angriff erhöht das Angriffstempo um 5 % / 10 % / 16 % (bis zu 10-mal).", listOf(0.05f, 0.1f, 0.16f),
+    ),
+    ASSASSIN(
+        "Assassinen", TraitKind.CLASS, TIERS,
+        "Springen zu Kampfbeginn hinter die feindlichen Linien; 20 % / 35 % / 50 % Chance auf kritische Treffer (+60 %).",
+        listOf(0.2f, 0.35f, 0.5f),
+    ),
     BEAST("Kreatur", TraitKind.MONSTER, emptyList(), "Wilde Kreaturen lassen Item-Komponenten fallen."),
     BOSS("Boss", TraitKind.MONSTER, emptyList(), "Bosse kündigen ihre Flächenangriffe an. Ein Sieg bringt eine Belohnung zur Wahl.");
 
     /** Erreichte Stufe (0 = inaktiv) bei [count] verschiedenen Einheiten. */
     fun level(count: Int): Int = tiers.count { count >= it }
+
+    /** Effektstärke der Stufe [level]; 0 wenn inaktiv. */
+    fun value(level: Int): Float = if (level <= 0) 0f else values[level - 1]
 
     /** Benötigte Anzahl für die nächste Stufe, oder null wenn die höchste erreicht ist. */
     fun nextTier(count: Int): Int? = tiers.firstOrNull { count < it }

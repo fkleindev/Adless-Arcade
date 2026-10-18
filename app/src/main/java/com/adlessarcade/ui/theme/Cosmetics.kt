@@ -45,6 +45,16 @@ data class ArcadePalette(val accent: Color, val accent2: Color, val backgroundTo
         get() = Brush.verticalGradient(listOf(backgroundTop, ArcadeBackground, ArcadeBackground))
 }
 
+/** Brett-Farben in Rune Tactics: gegnerische und eigene Hälfte jeweils hell/dunkel, dazu die Trennlinie. */
+@Immutable
+data class ArenaTheme(
+    val enemyDark: Color,
+    val enemyLight: Color,
+    val playerDark: Color,
+    val playerLight: Color,
+    val divider: Color,
+)
+
 /** Aktuell ausgerüstete Kosmetik – per [LocalCosmetics] überall verfügbar. */
 @Immutable
 data class Cosmetics(
@@ -52,6 +62,7 @@ data class Cosmetics(
     val heroSkin: HeroSkin,
     val cardBack: CardBack,
     val backdrop: SpaceBackdrop,
+    val arena: ArenaTheme,
     val palette: ArcadePalette,
     val avatar: String,
     val title: String,
@@ -110,6 +121,14 @@ object CosmeticRegistry {
         "backdrop_core" to SpaceBackdrop(Color(0xFF1E1036), Color(0xFF05020D), Color(0xFFFDE68A), BackdropStyle.CORE),
     )
 
+    private val arenas = mapOf(
+        "arena_dusk" to ArenaTheme(Color(0xFF1C1520), Color(0xFF221A27), Color(0xFF111A24), Color(0xFF16212D), Color(0xFFFF5C6C)),
+        "arena_forest" to ArenaTheme(Color(0xFF1F1A12), Color(0xFF282114), Color(0xFF0F1F14), Color(0xFF15291B), Color(0xFF86EFAC)),
+        "arena_crypt" to ArenaTheme(Color(0xFF1A1A1F), Color(0xFF222228), Color(0xFF16141F), Color(0xFF1D1A29), Color(0xFFA78BFA)),
+        "arena_frost" to ArenaTheme(Color(0xFF162030), Color(0xFF1C293C), Color(0xFF14232B), Color(0xFF1A2E38), Color(0xFF7DD3FC)),
+        "arena_lava" to ArenaTheme(Color(0xFF2A0F0C), Color(0xFF341410), Color(0xFF1C1210), Color(0xFF261813), Color(0xFFFB923C)),
+    )
+
     private val palettes = mapOf(
         "theme_neon" to ArcadePalette(NeonViolet, NeonCyan, ArcadeBackgroundTop),
         "theme_ocean" to ArcadePalette(Color(0xFF2563EB), Color(0xFF2DD4BF), Color(0xFF0E1A2E)),
@@ -123,12 +142,14 @@ object CosmeticRegistry {
     fun palette(id: String): ArcadePalette = palettes[id] ?: palettes.getValue("theme_neon")
     fun cardBack(id: String): CardBack = cardBacks[id] ?: cardBacks.getValue("cardback_galaxy")
     fun backdrop(id: String): SpaceBackdrop = backdrops[id] ?: backdrops.getValue("backdrop_stars")
+    fun arena(id: String): ArenaTheme = arenas[id] ?: arenas.getValue("arena_dusk")
 
     fun from(profile: ProfileState): Cosmetics = Cosmetics(
         blockSkin = blockSkin(profile.equipped(ShopCategory.BLOCK_SKIN).id),
         heroSkin = heroSkin(profile.equipped(ShopCategory.HERO_SKIN).id),
         cardBack = cardBack(profile.equipped(ShopCategory.CARD_BACK).id),
         backdrop = backdrop(profile.equipped(ShopCategory.SPACE_BACKDROP).id),
+        arena = arena(profile.equipped(ShopCategory.ARENA).id),
         palette = palette(profile.equipped(ShopCategory.APP_THEME).id),
         avatar = profile.equipped(ShopCategory.AVATAR).symbol ?: "🎮",
         title = profile.equipped(ShopCategory.TITLE).name,
@@ -143,6 +164,7 @@ object CosmeticRegistry {
             ShopCategory.HERO_SKIN -> it.id !in heroSkins
             ShopCategory.CARD_BACK -> it.id !in cardBacks
             ShopCategory.SPACE_BACKDROP -> it.id !in backdrops
+            ShopCategory.ARENA -> it.id !in arenas
             ShopCategory.APP_THEME -> it.id !in palettes
             ShopCategory.AVATAR -> it.symbol == null
             ShopCategory.TITLE -> false

@@ -68,6 +68,7 @@ import com.adlessarcade.ui.theme.ArcadeSurfaceHigh
 import com.adlessarcade.ui.theme.ArcadeText
 import com.adlessarcade.ui.theme.ArcadeTextMuted
 import com.adlessarcade.ui.theme.NeonPink
+import com.adlessarcade.ui.theme.LocalCosmetics
 import kotlinx.coroutines.isActive
 import kotlin.math.roundToInt
 
@@ -78,6 +79,7 @@ fun RuneTacticsScreen(
 ) {
     val haptics = LocalHapticFeedback.current
     val textMeasurer = rememberTextMeasurer(cacheSize = 64)
+    val arena = LocalCosmetics.current.arena
     var drag by remember { mutableStateOf<DragInfo?>(null) }
     var traitInfo by remember { mutableStateOf<Trait?>(null) }
     var showRunes by remember { mutableStateOf(false) }
@@ -105,7 +107,7 @@ fun RuneTacticsScreen(
 
     ArcadeScaffold(
         title = "Rune Tactics",
-        subtitle = "Endlos",
+        subtitle = if (viewModel.isDaily) "Tägliche Challenge" else "Endlos",
         onBack = onExit,
         actions = {
             ArcadeIconButton(onClick = { if (viewModel.paused) viewModel.resume() else viewModel.pause() }) {
@@ -181,7 +183,7 @@ fun RuneTacticsScreen(
                         viewModel.frame // Lesen registriert das Neuzeichnen pro Frame
                         drawTactics(
                             TacticsLayout(size.width, size.height),
-                            viewModel.engine, viewModel.effects, drag, textMeasurer,
+                            viewModel.engine, viewModel.effects, drag, textMeasurer, arena,
                         )
                     }
 

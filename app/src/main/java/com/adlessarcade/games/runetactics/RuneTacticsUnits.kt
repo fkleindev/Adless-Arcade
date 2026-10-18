@@ -12,14 +12,18 @@ import com.adlessarcade.games.runetactics.AbilityKind.SHIELD_SELF
 import com.adlessarcade.games.runetactics.AbilityKind.SPLASH
 import com.adlessarcade.games.runetactics.AbilityKind.STRIKE
 import com.adlessarcade.games.runetactics.AbilityKind.WHIRL
+import com.adlessarcade.games.runetactics.Trait.ASSASSIN
+import com.adlessarcade.games.runetactics.Trait.DEMON
 import com.adlessarcade.games.runetactics.Trait.DWARF
+import com.adlessarcade.games.runetactics.Trait.ELEMENTAL
 import com.adlessarcade.games.runetactics.Trait.ELF
 import com.adlessarcade.games.runetactics.Trait.GUARDIAN
 import com.adlessarcade.games.runetactics.Trait.MAGE
+import com.adlessarcade.games.runetactics.Trait.RANGER
 import com.adlessarcade.games.runetactics.Trait.UNDEAD
 import com.adlessarcade.games.runetactics.Trait.WARRIOR
 
-/** Katalog aller Einheiten. Je Synergie 5 Einheiten über alle Kostenstufen verteilt. */
+/** Katalog aller Shop-Einheiten: 30 Stück, je Synergie 6 Einheiten über alle Kostenstufen verteilt. */
 object RuneTacticsUnits {
     val all: List<UnitDef> = listOf(
         // --- 1 Gold ---
@@ -112,6 +116,90 @@ object RuneTacticsUnits {
             ability = Ability(
                 "Mondsegen", MOON, 300f,
                 "Schild von 300 für alle Verbündeten, 300 Schaden an Gegnern im Umkreis von 2 Feldern.",
+            ),
+        ),
+        // --- Erweiterung: Dämonen, Elementare, Waldläufer, Assassinen ---
+        UnitDef(
+            "imp", "Teufelchen", 1, DEMON, ASSASSIN,
+            hp = 500f, ad = 55f, attackSpeed = 0.8f, range = 1, armor = 20f, mr = 20f, maxMana = 60, startMana = 0,
+            ability = Ability("Höllenstich", STRIKE, 2.0f, "Sticht mit 200 % Angriffsschaden zu."),
+        ),
+        UnitDef(
+            "sparkling", "Funkengeist", 1, ELEMENTAL, RANGER,
+            hp = 450f, ad = 45f, attackSpeed = 0.75f, range = 3, armor = 15f, mr = 25f, maxMana = 60, startMana = 10,
+            ability = Ability("Funke", BOLT, 200f, "Schleudert einen Funken: 200 magischer Schaden."),
+        ),
+        UnitDef(
+            "huntress", "Elfenschützin", 1, ELF, RANGER,
+            hp = 450f, ad = 50f, attackSpeed = 0.75f, range = 4, armor = 15f, mr = 15f, maxMana = 70, startMana = 0,
+            ability = Ability("Gezielter Schuss", STRIKE, 2.4f, "Ein Schuss mit 240 % Angriffsschaden."),
+        ),
+        UnitDef(
+            "emberling", "Glutwicht", 1, ELEMENTAL, WARRIOR,
+            hp = 600f, ad = 50f, attackSpeed = 0.7f, range = 1, armor = 30f, mr = 25f, maxMana = 70, startMana = 10,
+            ability = Ability("Glutstoß", WHIRL, 150f, "150 Schaden an allen angrenzenden Gegnern."),
+        ),
+        UnitDef(
+            "shadowblade", "Schattenklinge", 2, UNDEAD, ASSASSIN,
+            hp = 600f, ad = 65f, attackSpeed = 0.8f, range = 1, armor = 25f, mr = 25f, maxMana = 70, startMana = 0,
+            ability = Ability("Meucheln", STRIKE, 2.6f, "Trifft mit 260 % Angriffsschaden."),
+        ),
+        UnitDef(
+            "crossbow", "Armbrustschütze", 2, DWARF, RANGER,
+            hp = 600f, ad = 55f, attackSpeed = 0.7f, range = 3, armor = 25f, mr = 20f, maxMana = 80, startMana = 10,
+            ability = Ability("Bolzenhagel", SPLASH, 200f, "200 Schaden am Ziel und angrenzenden Gegnern."),
+        ),
+        UnitDef(
+            "succubus", "Sukkubus", 2, DEMON, MAGE,
+            hp = 550f, ad = 45f, attackSpeed = 0.7f, range = 3, armor = 20f, mr = 30f, maxMana = 80, startMana = 20,
+            ability = Ability("Seelenkuss", DRAIN, 260f, "260 magischer Schaden, heilt sich um die Hälfte."),
+        ),
+        UnitDef(
+            "rockwarden", "Felswächter", 2, ELEMENTAL, GUARDIAN,
+            hp = 850f, ad = 45f, attackSpeed = 0.55f, range = 1, armor = 50f, mr = 30f, maxMana = 90, startMana = 30,
+            ability = Ability("Felshaut", SHIELD_SELF, 450f, "Erhält einen Schild von 450."),
+        ),
+        UnitDef(
+            "demonhunter", "Dämonenjäger", 3, DEMON, RANGER,
+            hp = 750f, ad = 70f, attackSpeed = 0.8f, range = 3, armor = 25f, mr = 25f, maxMana = 80, startMana = 0,
+            ability = Ability("Prellschuss", CHAIN, 240f, "Ein Schuss mit 240 Schaden prallt auf bis zu 3 Gegner.", count = 3),
+        ),
+        UnitDef(
+            "stormspirit", "Sturmelementar", 3, ELEMENTAL, ASSASSIN,
+            hp = 750f, ad = 70f, attackSpeed = 0.8f, range = 1, armor = 30f, mr = 35f, maxMana = 80, startMana = 20,
+            ability = Ability(
+                "Blitzsprung", LEAP, 260f, "Springt zum entferntesten Gegner: 260 Schaden in der Nähe, betäubt 0,5 s.",
+                stun = 0.5f,
+            ),
+        ),
+        UnitDef(
+            "nightstalker", "Nachtpirscherin", 3, DEMON, ASSASSIN,
+            hp = 750f, ad = 80f, attackSpeed = 0.8f, range = 1, armor = 30f, mr = 25f, maxMana = 70, startMana = 0,
+            ability = Ability("Schattenhieb", STRIKE, 3.2f, "Trifft mit 320 % Angriffsschaden."),
+        ),
+        UnitDef(
+            "fireelemental", "Feuerelementar", 4, ELEMENTAL, RANGER,
+            hp = 850f, ad = 70f, attackSpeed = 0.8f, range = 3, armor = 30f, mr = 40f, maxMana = 90, startMana = 30,
+            ability = Ability("Feuerball", SPLASH, 380f, "380 Schaden am Ziel und angrenzenden Gegnern."),
+        ),
+        UnitDef(
+            "bladedemon", "Klingendämon", 4, DEMON, ASSASSIN,
+            hp = 950f, ad = 95f, attackSpeed = 0.85f, range = 1, armor = 40f, mr = 30f, maxMana = 80, startMana = 0,
+            ability = Ability("Klingensturm", WHIRL, 340f, "340 Schaden an allen angrenzenden Gegnern."),
+        ),
+        UnitDef(
+            "primal", "Urelementar", 5, ELEMENTAL, RANGER,
+            hp = 1150f, ad = 85f, attackSpeed = 0.85f, range = 3, armor = 40f, mr = 50f, maxMana = 100, startMana = 40,
+            ability = Ability(
+                "Elementarsturm", FROST, 420f, "420 Schaden am Ziel und angrenzenden Gegnern, betäubt 1 s.", stun = 1f,
+            ),
+        ),
+        UnitDef(
+            "archdemon", "Erzdämon", 5, DEMON, ASSASSIN,
+            hp = 1250f, ad = 110f, attackSpeed = 0.85f, range = 1, armor = 45f, mr = 40f, maxMana = 90, startMana = 20,
+            ability = Ability(
+                "Höllensturz", LEAP, 450f, "Springt zum entferntesten Gegner: 450 Schaden in der Nähe, betäubt 1 s.",
+                stun = 1f,
             ),
         ),
     )

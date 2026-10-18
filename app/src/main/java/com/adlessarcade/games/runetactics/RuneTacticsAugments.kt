@@ -28,7 +28,13 @@ enum class Augment(
     EMBLEM_DWARF("Banner der Zwerge", "Zählt als zusätzlicher Zwerg (ab 1 Zwerg auf dem Brett).", Trait.DWARF),
     EMBLEM_WARRIOR("Banner der Krieger", "Zählt als zusätzlicher Krieger (ab 1 Krieger auf dem Brett).", Trait.WARRIOR),
     EMBLEM_GUARDIAN("Banner der Wächter", "Zählt als zusätzlicher Wächter (ab 1 Wächter auf dem Brett).", Trait.GUARDIAN),
-    EMBLEM_MAGE("Banner der Magier", "Zählt als zusätzlicher Magier (ab 1 Magier auf dem Brett).", Trait.MAGE);
+    EMBLEM_MAGE("Banner der Magier", "Zählt als zusätzlicher Magier (ab 1 Magier auf dem Brett).", Trait.MAGE),
+    EMBLEM_DEMON("Banner der Dämonen", "Zählt als zusätzlicher Dämon (ab 1 Dämon auf dem Brett).", Trait.DEMON),
+    EMBLEM_ELEMENTAL(
+        "Banner der Elementare", "Zählt als zusätzlicher Elementar (ab 1 Elementar auf dem Brett).", Trait.ELEMENTAL,
+    ),
+    EMBLEM_RANGER("Banner der Waldläufer", "Zählt als zusätzlicher Waldläufer (ab 1 Waldläufer auf dem Brett).", Trait.RANGER),
+    EMBLEM_ASSASSIN("Banner der Assassinen", "Zählt als zusätzlicher Assassine (ab 1 Assassinen auf dem Brett).", Trait.ASSASSIN);
 
     companion object {
         const val CHOICES = 3

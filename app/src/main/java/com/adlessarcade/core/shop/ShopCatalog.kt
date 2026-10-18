@@ -7,6 +7,7 @@ enum class ShopCategory(val title: String) {
     HERO_SKIN("Gate Rush"),
     CARD_BACK("Galaxy Towers – Rückseiten"),
     SPACE_BACKDROP("Galaxy Towers – Hintergründe"),
+    ARENA("Rune Tactics – Arenen"),
     APP_THEME("Themes"),
     AVATAR("Avatare"),
     TITLE("Titel"),
@@ -58,6 +59,12 @@ object ShopCatalog {
         ShopItem("backdrop_nebula", ShopCategory.SPACE_BACKDROP, "Nebula", 200),
         ShopItem("backdrop_asteroids", ShopCategory.SPACE_BACKDROP, "Asteroidengürtel", 300),
         ShopItem("backdrop_core", ShopCategory.SPACE_BACKDROP, "Galaxienkern", 500),
+        // Rune Tactics
+        ShopItem("arena_dusk", ShopCategory.ARENA, "Dämmerung", 0),
+        ShopItem("arena_forest", ShopCategory.ARENA, "Elfenhain", 200),
+        ShopItem("arena_crypt", ShopCategory.ARENA, "Gruft", 250),
+        ShopItem("arena_frost", ShopCategory.ARENA, "Frostfeste", 300),
+        ShopItem("arena_lava", ShopCategory.ARENA, "Höllenschlund", 400),
         // App-Themes
         ShopItem("theme_neon", ShopCategory.APP_THEME, "Neon", 0),
         ShopItem("theme_ocean", ShopCategory.APP_THEME, "Ozean", 300),

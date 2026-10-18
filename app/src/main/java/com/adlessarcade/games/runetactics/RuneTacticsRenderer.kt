@@ -13,6 +13,8 @@ import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import com.adlessarcade.ui.theme.ArenaTheme
+import com.adlessarcade.ui.theme.CosmeticRegistry
 import com.adlessarcade.ui.theme.NeonCyan
 import kotlin.math.cos
 import kotlin.math.floor
@@ -29,8 +31,10 @@ internal fun originColor(trait: Trait): Color = when (trait) {
     Trait.UNDEAD -> Color(0xFFA78BFA)
     Trait.ELF -> Color(0xFF4ADE80)
     Trait.DWARF -> Color(0xFFF59E0B)
+    Trait.DEMON -> Color(0xFFF43F5E)
+    Trait.ELEMENTAL -> Color(0xFF38BDF8)
     Trait.BEAST -> Color(0xFFD6A35C)
-    Trait.BOSS -> Color(0xFFFF6B6B)
+    Trait.BOSS -> Color(0xFFFB923C)
     else -> Color.White
 }
 
@@ -177,8 +181,9 @@ internal fun DrawScope.drawTactics(
     effects: List<TacticsEffect>,
     drag: DragInfo?,
     textMeasurer: TextMeasurer,
+    arena: ArenaTheme = CosmeticRegistry.arena(""),
 ) {
-    drawBoard(layout, drag)
+    drawBoard(layout, drag, arena)
     drawBench(layout, engine, drag)
 
     val fight = engine.combat
@@ -224,7 +229,7 @@ internal fun DrawScope.drawTactics(
     }
 }
 
-private fun DrawScope.drawBoard(layout: TacticsLayout, drag: DragInfo?) {
+private fun DrawScope.drawBoard(layout: TacticsLayout, drag: DragInfo?, arena: ArenaTheme) {
     val cell = layout.cell
     val hover = drag?.let { layout.cellAt(it.pos) }
     for (row in 0 until Board.ROWS) {
@@ -232,10 +237,10 @@ private fun DrawScope.drawBoard(layout: TacticsLayout, drag: DragInfo?) {
             val enemyHalf = row < Board.PLAYER_FIRST_ROW
             val dark = (row + col) % 2 == 0
             var color = when {
-                enemyHalf && dark -> Color(0xFF1C1520)
-                enemyHalf -> Color(0xFF221A27)
-                dark -> Color(0xFF111A24)
-                else -> Color(0xFF16212D)
+                enemyHalf && dark -> arena.enemyDark
+                enemyHalf -> arena.enemyLight
+                dark -> arena.playerDark
+                else -> arena.playerLight
             }
             if (drag != null && !enemyHalf) color = lerp(color, ArcadeCyan, 0.06f)
             if (drag != null && hover == Cell(col, row) && !enemyHalf) color = lerp(color, ArcadeCyan, 0.25f)
@@ -249,7 +254,7 @@ private fun DrawScope.drawBoard(layout: TacticsLayout, drag: DragInfo?) {
     }
     val midY = layout.boardTop + Board.PLAYER_FIRST_ROW * cell
     drawLine(
-        LossRed.copy(alpha = 0.35f),
+        arena.divider.copy(alpha = 0.35f),
         Offset(layout.boardLeft, midY), Offset(layout.boardLeft + Board.COLS * cell, midY),
         strokeWidth = cell * 0.04f,
     )
@@ -364,6 +369,17 @@ private fun DrawScope.drawRoleGlyph(role: Trait, c: Offset, s: Float, color: Col
                 close()
             }
             drawPath(path, color)
+        }
+        Trait.RANGER -> {
+            // Bogen mit Sehne und Pfeil
+            drawArc(color, 110f, 140f, false, Offset(c.x - s * 1.1f, c.y - s * 0.8f), Size(s * 1.6f, s * 1.6f), style = Stroke(s * 0.2f))
+            drawLine(color, Offset(c.x - s * 0.55f, c.y - s * 0.75f), Offset(c.x - s * 0.55f, c.y + s * 0.75f), s * 0.1f)
+            drawLine(color, Offset(c.x - s * 0.6f, c.y), Offset(c.x + s * 0.75f, c.y), s * 0.16f, StrokeCap.Round)
+        }
+        Trait.ASSASSIN -> {
+            // Zwei gekreuzte Dolche
+            drawLine(color, Offset(c.x - s * 0.6f, c.y - s * 0.6f), Offset(c.x + s * 0.6f, c.y + s * 0.6f), s * 0.2f, StrokeCap.Round)
+            drawLine(color, Offset(c.x + s * 0.6f, c.y - s * 0.6f), Offset(c.x - s * 0.6f, c.y + s * 0.6f), s * 0.2f, StrokeCap.Round)
         }
         Trait.BEAST -> {
             // Drei Krallenspuren

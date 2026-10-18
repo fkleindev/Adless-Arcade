@@ -6,12 +6,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
+import com.adlessarcade.ui.theme.ArenaTheme
+import com.adlessarcade.ui.theme.LocalCosmetics
 import kotlin.math.min
 
 /** Mini-Illustration: Ausschnitt des Bretts mit zwei Armeen. */
 @Composable
-fun RuneTacticsPreview(modifier: Modifier = Modifier) {
+fun RuneTacticsPreview(modifier: Modifier = Modifier, arena: ArenaTheme = LocalCosmetics.current.arena) {
     Canvas(modifier) {
         val cols = 5
         val rows = 4
@@ -24,10 +25,10 @@ fun RuneTacticsPreview(modifier: Modifier = Modifier) {
                 val dark = (r + c) % 2 == 0
                 drawRoundRect(
                     when {
-                        enemy && dark -> Color(0xFF1C1520)
-                        enemy -> Color(0xFF221A27)
-                        dark -> Color(0xFF111A24)
-                        else -> Color(0xFF16212D)
+                        enemy && dark -> arena.enemyDark
+                        enemy -> arena.enemyLight
+                        dark -> arena.playerDark
+                        else -> arena.playerLight
                     },
                     topLeft = Offset(left + c * cell + 1f, top + r * cell + 1f),
                     size = Size(cell - 2f, cell - 2f),

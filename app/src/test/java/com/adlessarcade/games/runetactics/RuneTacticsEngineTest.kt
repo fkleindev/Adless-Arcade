@@ -585,6 +585,62 @@ class RuneTacticsEngineTest {
         assertEquals(moon.def.attackSpeed * 1.25f, moon.attackSpeed, 0.001f)
     }
 
+    // --- Katalog & neue Synergien ---
+
+    @Test
+    fun catalog_isBalancedAcrossTraitsAndCosts() {
+        assertEquals(30, RuneTacticsUnits.all.size)
+        assertEquals(listOf(9, 8, 6, 4, 3), (1..5).map { RuneTacticsUnits.ofCost(it).size })
+        Trait.entries.filter { it.kind != TraitKind.MONSTER }.forEach { trait ->
+            assertEquals(trait.title, 6, RuneTacticsUnits.all.count { trait in it.traits })
+            assertEquals(trait.tiers.size, trait.values.size)
+        }
+        assertEquals(RuneTacticsUnits.all.size, RuneTacticsUnits.all.map { it.id }.toSet().size)
+        // Für jede Synergie gibt es ein Banner
+        val bannered = Augment.entries.mapNotNull { it.emblem }.toSet()
+        assertEquals(Trait.entries.filter { it.kind != TraitKind.MONSTER }.toSet(), bannered)
+    }
+
+    @Test
+    fun traitTier6_reachable() {
+        val undead = RuneTacticsUnits.all.filter { Trait.UNDEAD in it.traits }
+        assertEquals(3, Trait.UNDEAD.level(Traits.count(undead)[Trait.UNDEAD]!!))
+        assertEquals(0.9f, Trait.UNDEAD.value(3))
+    }
+
+    @Test
+    fun newTraits_applyInCombat() {
+        val c = RuneTacticsCombat(
+            army("imp" to 1, "succubus" to 1, "sparkling" to 1, "rockwarden" to 1, "huntress" to 1, "crossbow" to 1),
+            enemies("dwarfguard" to 1, "wisp" to 1),
+            1f, seed = 4,
+        )
+        val byId = c.fighters.filter { it.side == 0 }.associateBy { it.def.id }
+        assertEquals(0.15f, byId.getValue("imp").vamp, 0.001f) // 2 Dämonen
+        assertEquals(10f + 20f, byId.getValue("sparkling").mana, 0.001f) // 2 Elementare
+        assertEquals(0.05f, byId.getValue("huntress").rangerStep, 0.001f) // 3 Waldläufer → Stufe 1
+        assertEquals(0f, byId.getValue("imp").critChance, 0.001f) // nur 1 Assassine → inaktiv
+    }
+
+    @Test
+    fun assassins_jumpBehindLinesAndCrit() {
+        val c = RuneTacticsCombat(
+            army("imp" to 2, "shadowblade" to 2, "dwarfguard" to 1),
+            enemies("dwarfguard" to 1, "wisp" to 1, "apprentice" to 1, "skeleton" to 1),
+            1f, seed = 8,
+        )
+        val assassins = c.fighters.filter { it.side == 0 && Trait.ASSASSIN in it.def.traits }
+        assertTrue(assassins.all { it.critChance == 0.2f })
+        // Gegner stehen in Reihe 3 (Reihe 2 für den fünften); Assassinen landen daneben, also weit vorne.
+        assertTrue(assassins.all { it.row <= 3 })
+        var crits = 0
+        while (!c.isOver) {
+            c.step()
+            crits += c.drainEvents().count { it is CombatEvent.Damage && it.crit }
+        }
+        assertTrue(crits > 0)
+    }
+
     // --- Spielstand ---
 
     @Test

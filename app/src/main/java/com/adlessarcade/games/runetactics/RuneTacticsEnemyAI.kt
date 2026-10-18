@@ -14,7 +14,7 @@ object RuneTacticsEnemyAI {
     private const val STEEP_START = 50
 
     /** Gold-Wert der gegnerischen Armee (Kosten × ★1-Kopien). */
-    fun budget(round: Int): Float = 2f + 2.2f * round + 0.1f * round * round
+    fun budget(round: Int): Float = 2f + 2f * round + 0.09f * round * round
 
     fun unitCount(round: Int): Int = if (round >= ASCENSION_START) 10 else min(2 + (round - 1) / 3, 9)
 

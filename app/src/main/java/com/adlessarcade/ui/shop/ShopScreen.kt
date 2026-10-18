@@ -66,6 +66,7 @@ import com.adlessarcade.ui.components.CoinIcon
 import com.adlessarcade.ui.components.TitleBadge
 import com.adlessarcade.ui.components.drawEmptyCell
 import com.adlessarcade.ui.components.drawSkinBlock
+import com.adlessarcade.games.runetactics.RuneTacticsPreview
 import com.adlessarcade.ui.theme.ArcadeOutline
 import com.adlessarcade.ui.theme.ArcadeSurface
 import com.adlessarcade.ui.theme.ArcadeSurfaceHigh
@@ -326,6 +327,7 @@ private fun ItemPreview(item: ShopItem) {
             val backdrop = CosmeticRegistry.backdrop(item.id)
             Canvas(Modifier.fillMaxSize()) { drawSpaceBackdrop(backdrop, time = 0f) }
         }
+        ShopCategory.ARENA -> RuneTacticsPreview(Modifier.fillMaxSize().padding(10.dp), CosmeticRegistry.arena(item.id))
         ShopCategory.AVATAR -> AvatarCircle(item.symbol ?: "🎮", size = 72.dp)
         ShopCategory.TITLE -> TitleBadge(item.name)
     }

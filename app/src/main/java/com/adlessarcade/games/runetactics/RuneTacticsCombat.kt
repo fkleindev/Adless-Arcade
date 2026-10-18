@@ -9,7 +9,7 @@ import kotlin.random.Random
 /** Ereignisse für Effekte im ViewModel (Projektile, Schadenszahlen …). */
 sealed class CombatEvent {
     data class Attack(val from: Int, val to: Int, val ranged: Boolean) : CombatEvent()
-    data class Damage(val target: Int, val amount: Int, val magic: Boolean) : CombatEvent()
+    data class Damage(val target: Int, val amount: Int, val magic: Boolean, val crit: Boolean = false) : CombatEvent()
     data class Dodge(val target: Int) : CombatEvent()
     data class Heal(val target: Int, val amount: Int) : CombatEvent()
     data class Cast(val caster: Int, val ability: Ability) : CombatEvent()
@@ -62,6 +62,12 @@ class Fighter(
     var attackCount = 0
     var rageStacks = 0
     var titanStacks = 0
+    /** Waldläufer: Tempo-Zuwachs pro Angriff (bis zu 10 Stapel). */
+    var rangerStep = 0f
+    var rangerStacks = 0
+    /** Dämonen: Heilung in Prozent des verursachten Schadens. */
+    var vamp = 0f
+    var critChance = 0f
     var sundered = false
     var tickTimer = 0f
 
@@ -135,6 +141,7 @@ class RuneTacticsCombat(
         applyTraits(0)
         applyTraits(1)
         applyModifiers()
+        assassinJumps()
         // Leicht versetzte erste Angriffe, damit nicht alle im Gleichtakt schlagen.
         fighters.forEach { it.attackCd = rng.nextFloat() * 0.3f }
         if (fighters.none { it.side == 0 }) outcome = Outcome.LOSS
@@ -184,25 +191,46 @@ class RuneTacticsCombat(
         val team = fighters.filter { it.side == side }
         val emblems = if (side == 0) modifiers.emblems else emptyMap()
         val levels = Traits.count(team.map { it.def }, emblems).mapValues { (trait, n) -> trait.level(n) }
-        fun lvl(t: Trait) = levels[t] ?: 0
+        fun value(t: Trait) = t.value(levels[t] ?: 0)
         for (f in team) {
             val traits = f.def.traits
-            if (Trait.UNDEAD in traits) f.revivePct = floatArrayOf(0f, 0.3f, 0.6f)[lvl(Trait.UNDEAD)]
-            if (Trait.ELF in traits) f.dodge += floatArrayOf(0f, 0.2f, 0.4f)[lvl(Trait.ELF)]
+            if (Trait.UNDEAD in traits) f.revivePct = value(Trait.UNDEAD)
+            if (Trait.ELF in traits) f.dodge += value(Trait.ELF)
             if (Trait.DWARF in traits) {
-                val bonus = floatArrayOf(0f, 30f, 70f)[lvl(Trait.DWARF)]
-                f.armor += bonus
-                f.mr += bonus
+                f.armor += value(Trait.DWARF)
+                f.mr += value(Trait.DWARF)
             }
-            if (Trait.WARRIOR in traits) f.damageBonus += floatArrayOf(0f, 0.2f, 0.45f)[lvl(Trait.WARRIOR)]
-            if (Trait.MAGE in traits) f.abilityBonus += floatArrayOf(0f, 0.3f, 0.7f)[lvl(Trait.MAGE)]
+            if (Trait.DEMON in traits) f.vamp += value(Trait.DEMON)
+            if (Trait.ELEMENTAL in traits && f.maxMana > 0f) f.mana = min(f.maxMana, f.mana + value(Trait.ELEMENTAL))
+            if (Trait.WARRIOR in traits) f.damageBonus += value(Trait.WARRIOR)
+            if (Trait.MAGE in traits) f.abilityBonus += value(Trait.MAGE)
+            if (Trait.RANGER in traits) f.rangerStep = value(Trait.RANGER)
+            if (Trait.ASSASSIN in traits) f.critChance += value(Trait.ASSASSIN)
         }
-        val guardShield = floatArrayOf(0f, 150f, 350f)[lvl(Trait.GUARDIAN)]
+        val guardShield = value(Trait.GUARDIAN)
         if (guardShield > 0f) {
             val guards = team.filter { Trait.GUARDIAN in it.def.traits }
             for (f in team) {
                 if (guards.any { dist(it, f) <= 1 }) f.shield += guardShield
             }
+        }
+    }
+
+    /** Aktive Assassinen springen zu Kampfbeginn neben den hintersten Gegner. */
+    private fun assassinJumps() {
+        for (f in fighters) {
+            if (f.critChance <= 0f || Trait.ASSASSIN !in f.def.traits) continue
+            val enemies = fighters.filter { it.side != f.side }
+            // Hinterste Reihe aus Sicht des Assassinen: Spieler springen nach oben, Gegner nach unten.
+            val back = enemies.maxWithOrNull(
+                compareBy<Fighter>({ if (f.side == 0) -it.row else it.row }, { -abs(it.col - f.col) }, { -it.id }),
+            ) ?: continue
+            val landing = freeNeighbour(back.col, back.row) ?: continue
+            f.col = landing.col
+            f.row = landing.row
+            f.fromCol = landing.col
+            f.fromRow = landing.row
+            f.target = back
         }
     }
 
@@ -307,7 +335,8 @@ class RuneTacticsCombat(
     private fun attack(f: Fighter, target: Fighter) {
         f.attackCount++
         if (ItemEffect.RAGE in f.effects && f.rageStacks < 10) f.rageStacks++
-        val speed = f.attackSpeed * (1f + 0.06f * f.rageStacks)
+        if (f.rangerStep > 0f && f.rangerStacks < 10) f.rangerStacks++
+        val speed = f.attackSpeed * (1f + 0.06f * f.rageStacks + f.rangerStep * f.rangerStacks)
         f.attackCd = 1f / speed
         events += CombatEvent.Attack(f.id, target.id, f.range > 1)
         gainMana(f, ATTACK_MANA)
@@ -450,7 +479,8 @@ class RuneTacticsCombat(
             dst.sundered = true
             dst.armor *= 0.6f
         }
-        val boosted = raw * (1f + src.damageBonus + src.titanStacks * 0.015f) * overtime()
+        val crit = attack && src.critChance > 0f && rng.nextFloat() < src.critChance
+        val boosted = raw * (1f + src.damageBonus + src.titanStacks * 0.015f) * overtime() * if (crit) CRIT_MULTIPLIER else 1f
         val resist = max(0f, if (magic) dst.mr else dst.armor)
         var amount = boosted * 100f / (100f + resist)
         if (ItemEffect.DMG_REDUCE in dst.effects) amount *= 0.85f
@@ -463,10 +493,11 @@ class RuneTacticsCombat(
         amount -= absorbed
         dst.hp -= amount
         src.damageDealt += total
-        events += CombatEvent.Damage(dst.id, total.roundToInt(), magic)
+        events += CombatEvent.Damage(dst.id, total.roundToInt(), magic, crit)
         if (dst.hp <= 0f) kill(dst)
         if (src.alive) {
             if (ItemEffect.OMNIVAMP in src.effects) heal(src, total * 0.2f)
+            if (src.vamp > 0f) heal(src, total * src.vamp)
             if (attack && ItemEffect.LIFESTEAL in src.effects) heal(src, total * 0.3f)
         }
         if (attack && ItemEffect.THORNS in dst.effects && src.alive) {
@@ -546,6 +577,7 @@ class RuneTacticsCombat(
         const val OVERTIME_START = 30f
         const val OVERTIME_RATE = 0.15f
         const val TIME_LIMIT = 45f
+        const val CRIT_MULTIPLIER = 1.6f
 
         /** Gerade Richtungen zuerst, damit Einheiten natürlich laufen. */
         private val DIRECTIONS = listOf(

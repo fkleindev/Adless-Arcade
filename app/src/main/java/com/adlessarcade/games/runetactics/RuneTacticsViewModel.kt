@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.adlessarcade.arcadeApp
+import com.adlessarcade.core.DailyChallenge
 import com.adlessarcade.core.achievements.AchievementTracker
 import com.adlessarcade.core.achievements.Achievements
 import com.adlessarcade.core.leaderboard.LeaderboardEntry
@@ -19,6 +20,8 @@ import com.adlessarcade.core.shop.CoinRewards
 import com.adlessarcade.ui.theme.ArcadeText
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 /** Rein visuelle Effekte in Brett-Koordinaten (Spalte/Reihe als Float). */
 sealed class TacticsEffect(val lifetime: Float) {
@@ -61,9 +64,14 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
     private val achievements = AchievementTracker(profile)
 
     val modeId: String = savedStateHandle.get<String>("modeId") ?: RuneTactics.MODE_ENDLESS
-    private val scoreKey = modeId
+    val isDaily: Boolean = modeId == RuneTactics.MODE_DAILY
 
-    var engine = RuneTacticsEngine(System.nanoTime())
+    /** Schlüssel für Highscore und Spielstand (bei der Täglichen Challenge pro Tag). */
+    private val scoreKey = if (isDaily) DailyChallenge.scoreKey(modeId) else modeId
+
+    private fun newSeed(): Long = if (isDaily) DailyChallenge.todaySeed() else System.nanoTime()
+
+    var engine = RuneTacticsEngine(newSeed())
         private set
     val effects = ArrayList<TacticsEffect>()
 
@@ -113,6 +121,8 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
             val stored = highscores.highscore(RuneTactics.GAME_ID, scoreKey).first()
             val json = saves.load(RuneTactics.GAME_ID, scoreKey)
             val saved = json?.let(RuneTacticsSaves::decode)
+                // Tägliche Challenge: nur Läufe mit dem heutigen Seed fortsetzen.
+                ?.takeIf { !isDaily || it.seed == DailyChallenge.todaySeed() }
             if (json != null && saved == null) saves.clear(RuneTactics.GAME_ID, scoreKey)
             if (saved != null) {
                 engine = RuneTacticsEngine(saved.seed).also { it.restore(saved.snapshot) }
@@ -302,7 +312,7 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
         flushCoins()
         saves.clear(RuneTactics.GAME_ID, scoreKey)
         bestAtStart = best
-        engine = RuneTacticsEngine(System.nanoTime())
+        engine = RuneTacticsEngine(newSeed())
         coinsBooked = 0
         recordBonus = 0
         leaderboardRank = null
@@ -424,7 +434,11 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
 
     private fun submitToLeaderboard() {
         val run = engine
-        val details = "Level ${run.level} · ${run.board.size} Einheiten"
+        val details = if (isDaily) {
+            "Challenge vom ${LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))} · Level ${run.level}"
+        } else {
+            "Level ${run.level} · ${run.board.size} Einheiten"
+        }
         viewModelScope.launch {
             val rank = leaderboards.submit(
                 LeaderboardKey(RuneTactics.GAME_ID, modeId),
@@ -459,8 +473,12 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
                     val target = fight.find(event.target) ?: continue
                     if (effects.size >= MAX_EFFECTS || event.amount <= 0) continue
                     effects += TacticsEffect.Number(
-                        target.visualCol, target.visualRow, "${event.amount}",
-                        if (event.magic) MagicViolet else Color.White,
+                        target.visualCol, target.visualRow, if (event.crit) "${event.amount}!" else "${event.amount}",
+                        when {
+                            event.crit -> StarGold
+                            event.magic -> MagicViolet
+                            else -> Color.White
+                        },
                     )
                 }
                 is CombatEvent.Dodge -> {
