@@ -266,11 +266,32 @@ class SurvivorsEngineTest {
         WeaponKind.entries.forEach { e.state.weapons[it] = MAX_LEVEL }
         PassiveKind.entries.take(MAX_PASSIVES).forEach { e.state.passives[it] = MAX_LEVEL }
         assertTrue(Upgrades.pool(e.state).isEmpty())
-        assertEquals(listOf(UpgradeOffer(heal = true)), Upgrades.offers(e.state, Random(1)))
+        val maxed = Upgrades.offers(e.state, Random(1))
+        assertEquals(3, maxed.size)
+        assertEquals(3, maxed.distinct().size)
+        assertTrue(maxed.all { it.stat != null || it.heal })
 
         val f = engine()
         WeaponKind.entries.take(MAX_WEAPONS).forEach { f.state.weapons[it] = 1 }
         assertTrue(Upgrades.pool(f.state).none { it.weapon != null && it.weapon !in f.state.weapons })
+    }
+
+    @Test
+    fun statBoosts_stackAndChangeStats() {
+        val e = engine()
+        val before = e.stats
+        val hpBefore = e.state.hp
+        repeat(2) {
+            Upgrades.apply(e.state, UpgradeOffer(stat = StatBoost.MAX_HP))
+            Upgrades.apply(e.state, UpgradeOffer(stat = StatBoost.CRIT))
+            Upgrades.apply(e.state, UpgradeOffer(stat = StatBoost.DAMAGE))
+        }
+        val after = e.stats
+        assertEquals(before.maxHp + 6f, after.maxHp, 0.001f)
+        assertEquals(hpBefore + 6f, e.state.hp, 0.001f)
+        assertEquals(before.critChance + 0.02f, after.critChance, 0.001f)
+        assertEquals(before.damageMultiplier + 0.04f, after.damageMultiplier, 0.001f)
+        assertEquals("BONUS · ×3", Upgrades.levelLabel(e.state, UpgradeOffer(stat = StatBoost.CRIT)))
     }
 
     @Test

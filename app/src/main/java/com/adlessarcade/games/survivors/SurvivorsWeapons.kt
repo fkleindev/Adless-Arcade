@@ -1,5 +1,6 @@
 package com.adlessarcade.games.survivors
 
+import kotlin.math.roundToInt
 import kotlin.random.Random
 
 const val MAX_LEVEL = 5
@@ -267,19 +268,65 @@ enum class PassiveKind(val title: String, val icon: String, val description: Str
     MULTI("Vielfalt", "✳", "+1 Projektil, Folgeschlag oder Echo"),
 }
 
+/**
+ * Kleine Werte-Boni für Level-ups, wenn alle Waffen und Talente ausgebaut sind. Stapeln ohne Obergrenze.
+ * [perStack] ist der Bonus pro Wahl ([MAX_HP] in Leben, [REGEN] in Leben/s, sonst als Anteil).
+ */
+enum class StatBoost(val title: String, val icon: String, val perStack: Float) {
+    MAX_HP("Zähigkeit", "❤", 3f),
+    CRIT("Präzision", "🎯", 0.01f),
+    DAMAGE("Kraft", "💪", 0.02f),
+    SPEED("Flinkheit", "👟", 0.02f),
+    COOLDOWN("Fokus", "⏳", 0.01f),
+    MAGNET("Anziehung", "🧲", 0.05f),
+    REGEN("Erholung", "✚", 0.05f);
+
+    fun total(stacks: Int): Float = perStack * stacks
+
+    /** Kurzer Bonus einer Wahl, z. B. „+3 maximales Leben“. */
+    val label: String
+        get() = when (this) {
+            MAX_HP -> "+3 maximales Leben"
+            CRIT -> "+1 % Krit-Chance"
+            DAMAGE -> "+2 % Schaden"
+            SPEED -> "+2 % Lauftempo"
+            COOLDOWN -> "−1 % Abklingzeit"
+            MAGNET -> "+5 % Sammelradius"
+            REGEN -> "+0,05 Leben pro Sekunde"
+        }
+
+    /** Gesamtbonus nach [stacks] Wahlen, z. B. „+9 maximales Leben“. */
+    fun totalLabel(stacks: Int): String {
+        val t = total(stacks)
+        return when (this) {
+            MAX_HP -> "+${t.toInt()} maximales Leben"
+            CRIT -> "+${pct(t)} Krit-Chance"
+            DAMAGE -> "+${pct(t)} Schaden"
+            SPEED -> "+${pct(t)} Lauftempo"
+            COOLDOWN -> "−${pct(t)} Abklingzeit"
+            MAGNET -> "+${pct(t)} Sammelradius"
+            REGEN -> "+${"%.2f".format(t).replace('.', ',')} Leben pro Sekunde"
+        }
+    }
+
+    private fun pct(v: Float) = "${(v * 100f).roundToInt()} %"
+}
+
 /** Abgeleitete Werte aus Klasse und Passiven. */
 class HeroStats(private val state: SurvivorsState) {
     private fun lv(p: PassiveKind) = state.passives[p] ?: 0
     private fun item(i: ItemKind) = i.total(state.items[i] ?: 0)
+    private fun boost(b: StatBoost) = b.total(state.statBoosts[b] ?: 0)
     private val c = state.heroClass
 
-    val maxHp: Float = c.maxHp * (1f + 0.2f * lv(PassiveKind.VITALITY) + item(ItemKind.AMULET))
-    val speed: Float = c.speed * (1f + 0.1f * lv(PassiveKind.HASTE)) *
+    val maxHp: Float = c.maxHp * (1f + 0.2f * lv(PassiveKind.VITALITY) + item(ItemKind.AMULET)) + boost(StatBoost.MAX_HP)
+    val speed: Float = c.speed * (1f + 0.1f * lv(PassiveKind.HASTE) + boost(StatBoost.SPEED)) *
         if (c == HeroClass.ASSASSIN && state.shadowStep > 0f) 1f + ASSASSIN_SHADOW_STEP_SPEED else 1f
     val cooldownMultiplier: Float = (1f - c.cooldownBonus) * (1f - 0.08f * lv(PassiveKind.WISDOM)) *
-        (1f - item(ItemKind.HOURGLASS).coerceAtMost(ItemKind.MAX_COOLDOWN_REDUCTION))
+        (1f - item(ItemKind.HOURGLASS).coerceAtMost(ItemKind.MAX_COOLDOWN_REDUCTION)) *
+        (1f - boost(StatBoost.COOLDOWN).coerceAtMost(MAX_BOOST_COOLDOWN_REDUCTION))
     val areaMultiplier: Float = 1f + 0.1f * lv(PassiveKind.REACH)
-    val pickupRadius: Float = 1.5f * (1f + 0.3f * lv(PassiveKind.MAGNET) + c.pickupBonus)
+    val pickupRadius: Float = 1.5f * (1f + 0.3f * lv(PassiveKind.MAGNET) + c.pickupBonus + boost(StatBoost.MAGNET))
     val armor: Int = c.armor + lv(PassiveKind.ARMOR)
     /** Fehlendes Leben (0..1) – für Berserkerblut und Eisernen Willen. */
     private val missingHp: Float = (1f - state.hp / maxHp).coerceIn(0f, 1f)
@@ -290,16 +337,19 @@ class HeroStats(private val state: SurvivorsState) {
         HeroClass.NECROMANCER -> NECRO_DAMAGE_PER_SOUL * state.souls
         else -> 0f
     }
-    val damageMultiplier: Float = 1f + 0.1f * lv(PassiveKind.MIGHT) + berserk * missingHp + classDamageBonus
+    val damageMultiplier: Float =
+        1f + 0.1f * lv(PassiveKind.MIGHT) + berserk * missingHp + classDamageBonus + boost(StatBoost.DAMAGE)
     /** Gottesschild: Regeneration wirkt beim Paladin doppelt. */
-    val regen: Float = 0.3f * lv(PassiveKind.REGEN) * if (c == HeroClass.PALADIN) 2f else 1f
+    val regen: Float =
+        (0.3f * lv(PassiveKind.REGEN) + boost(StatBoost.REGEN)) * if (c == HeroClass.PALADIN) 2f else 1f
     /** Obergrenze des Gottesschilds (nur Paladin). */
     val maxShield: Float = if (c == HeroClass.PALADIN) maxHp * PALADIN_SHIELD_SHARE else 0f
     val extraProjectiles: Int = lv(PassiveKind.MULTI)
 
     // --- Items & Klassen-Passiven ---
     /** Krit-Chance; über 1 = jeder Treffer kritisch, der Überschuss ist die Superkrit-Chance. */
-    val critChance: Float = item(ItemKind.CRIT_CHANCE) + if (c == HeroClass.RANGER) RANGER_CRIT else 0f
+    val critChance: Float =
+        item(ItemKind.CRIT_CHANCE) + boost(StatBoost.CRIT) + if (c == HeroClass.RANGER) RANGER_CRIT else 0f
     /** Krit-Multiplikator ohne den Bewegungsbonus der Waldläuferin. */
     val critMultiplier: Float = BASE_CRIT + item(ItemKind.CRIT_DAMAGE)
     val superCritChance: Float = (critChance - 1f).coerceIn(0f, 1f)
@@ -341,6 +391,7 @@ class HeroStats(private val state: SurvivorsState) {
         const val ASSASSIN_SHADOW_STEP_TIME = 1f
         const val EMBER_RADIUS_PER_STACK = 0.08f
         const val EMBER_MAX_RADIUS_BONUS = 0.5f
+        const val MAX_BOOST_COOLDOWN_REDUCTION = 0.3f
     }
 }
 
@@ -357,10 +408,13 @@ object Upgrades {
         }
     }
 
-    /** Drei verschiedene Karten (oder Heilung, wenn nichts mehr zu verbessern ist). */
+    /** Drei verschiedene Karten – wenn nichts mehr zu verbessern ist, kleine Werte-Boni und ein Heiltrank. */
     fun offers(state: SurvivorsState, random: Random, count: Int = 3): List<UpgradeOffer> {
         val pool = pool(state).shuffled(random)
-        if (pool.isEmpty()) return listOf(UpgradeOffer(heal = true))
+        if (pool.isEmpty()) {
+            val boosts = StatBoost.entries.shuffled(random).map { UpgradeOffer(stat = it) }
+            return (boosts + UpgradeOffer(heal = true)).shuffled(random).take(count)
+        }
         // Vorhandene Waffen leicht bevorzugen, damit Builds sich entwickeln.
         val owned = pool.filter { (it.weapon != null && it.weapon in state.weapons) || (it.passive != null && it.passive in state.passives) }
         val fresh = pool - owned.toSet()
@@ -433,6 +487,11 @@ object Upgrades {
                 // Mehr maximales Leben füllt auch das aktuelle Leben auf.
                 state.hp += (HeroStats(state).maxHp - before).coerceAtLeast(0f)
             }
+            offer.stat != null -> {
+                val before = HeroStats(state).maxHp
+                state.statBoosts.merge(offer.stat, 1, Int::plus)
+                state.hp += (HeroStats(state).maxHp - before).coerceAtLeast(0f)
+            }
             offer.heal -> state.hp = (state.hp + 30f).coerceAtMost(HeroStats(state).maxHp)
         }
     }
@@ -442,6 +501,7 @@ object Upgrades {
         offer.item != null -> offer.item.title
         offer.weapon != null -> offer.weapon.title
         offer.passive != null -> offer.passive.title
+        offer.stat != null -> offer.stat.title
         else -> "Heiltrank"
     }
 
@@ -450,6 +510,7 @@ object Upgrades {
         offer.item != null -> offer.item.icon
         offer.weapon != null -> offer.weapon.icon
         offer.passive != null -> offer.passive.icon
+        offer.stat != null -> offer.stat.icon
         else -> "🧪"
     }
 
@@ -460,6 +521,7 @@ object Upgrades {
             offer.item != null -> return "ITEM · ×${(state.items[offer.item] ?: 0) + 1}"
             offer.weapon != null -> state.weapons[offer.weapon] ?: 0
             offer.passive != null -> state.passives[offer.passive] ?: 0
+            offer.stat != null -> return "BONUS · ×${(state.statBoosts[offer.stat] ?: 0) + 1}"
             else -> return "+30 Leben"
         }
         return if (current == 0) "NEU" else "Stufe ${current + 1}"
@@ -470,6 +532,7 @@ object Upgrades {
         offer.item != null -> offer.item.description(state.items[offer.item] ?: 0)
         offer.weapon != null -> offer.weapon.description((state.weapons[offer.weapon] ?: 0) + 1)
         offer.passive != null -> offer.passive.description
+        offer.stat != null -> offer.stat.label
         else -> "Stellt 30 Leben wieder her."
     }
 

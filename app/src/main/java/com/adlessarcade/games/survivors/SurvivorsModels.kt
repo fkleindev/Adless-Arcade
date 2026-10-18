@@ -323,6 +323,8 @@ data class UpgradeOffer(
     val evolution: WeaponKind? = null,
     /** Stapelbares Item (nur aus Kisten). */
     val item: ItemKind? = null,
+    /** Kleiner Werte-Bonus, wenn alle Waffen und Talente ausgebaut sind. */
+    val stat: StatBoost? = null,
 )
 
 /** Alle Timer des Spawners – Teil des Spielstands. */
@@ -409,6 +411,8 @@ class SurvivorsState(
     val weaponSince: MutableMap<WeaponKind, Float> = LinkedHashMap()
     /** Schaden aus Gift, Funken, Glut und Hinrichtungen (nicht bei den Waffen mitgezählt). */
     val effectDamage: MutableMap<EffectDamage, Float> = LinkedHashMap()
+    /** Gewählte Werte-Boni (Level-ups nach vollem Ausbau). */
+    val statBoosts: MutableMap<StatBoost, Int> = LinkedHashMap()
     /** Aktiver Runenstein (höchstens einer). */
     var runeStone: RuneStone? = null
     var runeStonesActivated: Int = 0

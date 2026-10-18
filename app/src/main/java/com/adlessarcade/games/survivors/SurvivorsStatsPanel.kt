@@ -171,10 +171,11 @@ fun StatsPanel(engine: SurvivorsEngine) {
             }
         }
 
-        if (s.passives.isNotEmpty() || s.items.isNotEmpty()) {
+        if (s.passives.isNotEmpty() || s.items.isNotEmpty() || s.statBoosts.isNotEmpty()) {
             StatSection("Talente & Items") {
                 s.passives.forEach { (p, lv) -> BuildLine(p.icon, p.title, "Stufe $lv", p.description) }
                 s.items.forEach { (i, n) -> BuildLine(i.icon, i.title, "×$n", "Gesamt ${itemTotal(i, n)}") }
+                s.statBoosts.forEach { (b, n) -> BuildLine(b.icon, b.title, "Bonus ×$n", "Gesamt ${b.totalLabel(n)}") }
             }
         }
 
