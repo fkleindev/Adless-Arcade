@@ -13,8 +13,8 @@ android {
         applicationId = "com.adlessarcade"
         minSdk = 26
         targetSdk = 35
-        versionCode = 26
-        versionName = "1.21"
+        versionCode = 27
+        versionName = "1.22"
     }
 
     buildTypes {

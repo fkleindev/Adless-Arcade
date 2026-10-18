@@ -21,6 +21,7 @@ object Achievements {
     private const val GATE_RUSH = "gaterush"
     private const val SURVIVORS = "survivors"
     private const val GALAXY_TOWERS = "galaxytowers"
+    private const val RUNE_TACTICS = "runetactics"
 
     // Block Break
     const val BB_FULL_CLEAR = "bb_full_clear"
@@ -45,6 +46,11 @@ object Achievements {
     const val GT_STREAK = "gt_streak"
     const val GT_ROUND_5 = "gt_round_5"
 
+    // Rune Tactics
+    const val RT_ROUND_15 = "rt_round_15"
+    const val RT_THREE_STAR = "rt_three_star"
+    const val RT_FULL_SYNERGY = "rt_full_synergy"
+
     // Spielübergreifend
     const val ALL_ROUNDER = "all_rounder"
 
@@ -57,6 +63,7 @@ object Achievements {
     const val SV_ENDLESS_SECONDS = 1200f
     const val GT_STREAK_TARGET = 15
     const val GT_ROUND_TARGET = 5
+    const val RT_ROUND_TARGET = 15
 
     val all: List<Achievement> = listOf(
         Achievement(BB_FULL_CLEAR, BLOCK_BREAK, "Tabula Rasa", "Räume das komplette Brett leer.", "✨", "Tabula Rasa"),
@@ -77,6 +84,10 @@ object Achievements {
         Achievement(GT_ROUND_CLEAR, GALAXY_TOWERS, "Sternenstaub", "Räume alle drei Türme einer Runde ab.", "🌠", "Sternenstaub"),
         Achievement(GT_STREAK, GALAXY_TOWERS, "Kometenschweif", "Lege eine Kette aus $GT_STREAK_TARGET Karten.", "☄️", "Kometenschweif"),
         Achievement(GT_ROUND_5, GALAXY_TOWERS, "Galaxie-Meister", "Räume $GT_ROUND_TARGET Runden in einem Spiel ab.", "🌌", "Galaxie-Meister"),
+
+        Achievement(RT_ROUND_15, RUNE_TACTICS, "Feldherr", "Erreiche Runde $RT_ROUND_TARGET.", "⚔️", "Feldherr"),
+        Achievement(RT_THREE_STAR, RUNE_TACTICS, "Dreigestirn", "Werte eine Einheit auf ★★★ auf.", "⭐", "Dreigestirn"),
+        Achievement(RT_FULL_SYNERGY, RUNE_TACTICS, "Bannerträger", "Aktiviere eine Synergie auf höchster Stufe.", "🚩", "Bannerträger"),
 
         Achievement(ALL_ROUNDER, null, "Allrounder", "Schaffe in jedem Spiel mindestens einen Erfolg.", "🏆", "Allrounder"),
     )

@@ -1,0 +1,135 @@
+package com.adlessarcade.games.runetactics
+
+import com.adlessarcade.games.runetactics.AbilityKind.BOLT
+import com.adlessarcade.games.runetactics.AbilityKind.CHAIN
+import com.adlessarcade.games.runetactics.AbilityKind.DRAIN
+import com.adlessarcade.games.runetactics.AbilityKind.FROST
+import com.adlessarcade.games.runetactics.AbilityKind.HEAL_ALLY
+import com.adlessarcade.games.runetactics.AbilityKind.LEAP
+import com.adlessarcade.games.runetactics.AbilityKind.MOON
+import com.adlessarcade.games.runetactics.AbilityKind.QUAKE
+import com.adlessarcade.games.runetactics.AbilityKind.SHIELD_SELF
+import com.adlessarcade.games.runetactics.AbilityKind.SPLASH
+import com.adlessarcade.games.runetactics.AbilityKind.STRIKE
+import com.adlessarcade.games.runetactics.AbilityKind.WHIRL
+import com.adlessarcade.games.runetactics.Trait.DWARF
+import com.adlessarcade.games.runetactics.Trait.ELF
+import com.adlessarcade.games.runetactics.Trait.GUARDIAN
+import com.adlessarcade.games.runetactics.Trait.MAGE
+import com.adlessarcade.games.runetactics.Trait.UNDEAD
+import com.adlessarcade.games.runetactics.Trait.WARRIOR
+
+/** Katalog aller Einheiten. Je Synergie 5 Einheiten über alle Kostenstufen verteilt. */
+object RuneTacticsUnits {
+    val all: List<UnitDef> = listOf(
+        // --- 1 Gold ---
+        UnitDef(
+            "skeleton", "Skelettkrieger", 1, UNDEAD, WARRIOR,
+            hp = 600f, ad = 55f, attackSpeed = 0.7f, range = 1, armor = 30f, mr = 20f, maxMana = 70, startMana = 0,
+            ability = Ability("Knochenhieb", STRIKE, 2.2f, "Schlägt mit 220 % Angriffsschaden zu."),
+        ),
+        UnitDef(
+            "bladedancer", "Klingentänzerin", 1, ELF, WARRIOR,
+            hp = 550f, ad = 50f, attackSpeed = 0.8f, range = 1, armor = 25f, mr = 20f, maxMana = 60, startMana = 0,
+            ability = Ability("Klingenwirbel", WHIRL, 160f, "Wirbelt herum: 160 Schaden an allen angrenzenden Gegnern."),
+        ),
+        UnitDef(
+            "dwarfguard", "Zwergenwache", 1, DWARF, GUARDIAN,
+            hp = 700f, ad = 45f, attackSpeed = 0.6f, range = 1, armor = 40f, mr = 30f, maxMana = 80, startMana = 20,
+            ability = Ability("Schildwall", SHIELD_SELF, 350f, "Erhält einen Schild von 350."),
+        ),
+        UnitDef(
+            "wisp", "Grablicht", 1, UNDEAD, MAGE,
+            hp = 450f, ad = 40f, attackSpeed = 0.65f, range = 3, armor = 15f, mr = 20f, maxMana = 60, startMana = 10,
+            ability = Ability("Seelenpfeil", BOLT, 220f, "Feuert einen Seelenpfeil: 220 magischer Schaden."),
+        ),
+        UnitDef(
+            "apprentice", "Elfen-Lehrling", 1, ELF, MAGE,
+            hp = 450f, ad = 40f, attackSpeed = 0.7f, range = 3, armor = 15f, mr = 20f, maxMana = 70, startMana = 10,
+            ability = Ability("Funkenregen", SPLASH, 170f, "170 magischer Schaden am Ziel und angrenzenden Gegnern."),
+        ),
+        // --- 2 Gold ---
+        UnitDef(
+            "axeman", "Zwergen-Axtkämpfer", 2, DWARF, WARRIOR,
+            hp = 750f, ad = 65f, attackSpeed = 0.7f, range = 1, armor = 35f, mr = 25f, maxMana = 80, startMana = 0,
+            ability = Ability("Spalter", STRIKE, 2.8f, "Spaltet das Ziel mit 280 % Angriffsschaden."),
+        ),
+        UnitDef(
+            "bonewarden", "Knochenwächter", 2, UNDEAD, GUARDIAN,
+            hp = 800f, ad = 50f, attackSpeed = 0.6f, range = 1, armor = 45f, mr = 30f, maxMana = 90, startMana = 30,
+            ability = Ability(
+                "Grabesgriff", QUAKE, 120f, "120 Schaden an angrenzenden Gegnern, betäubt sie 1 s.", stun = 1f,
+            ),
+        ),
+        UnitDef(
+            "warden", "Elfen-Hüterin", 2, ELF, GUARDIAN,
+            hp = 700f, ad = 45f, attackSpeed = 0.65f, range = 2, armor = 35f, mr = 35f, maxMana = 80, startMana = 20,
+            ability = Ability("Waldsegen", HEAL_ALLY, 300f, "Heilt den am stärksten verletzten Verbündeten um 300."),
+        ),
+        UnitDef(
+            "runesmith", "Runenschmied", 2, DWARF, MAGE,
+            hp = 550f, ad = 45f, attackSpeed = 0.65f, range = 3, armor = 20f, mr = 25f, maxMana = 80, startMana = 20,
+            ability = Ability("Feuerschlag", SPLASH, 260f, "260 magischer Schaden am Ziel und angrenzenden Gegnern."),
+        ),
+        // --- 3 Gold ---
+        UnitDef(
+            "deathknight", "Todesritter", 3, UNDEAD, WARRIOR,
+            hp = 900f, ad = 75f, attackSpeed = 0.75f, range = 1, armor = 40f, mr = 30f, maxMana = 80, startMana = 0,
+            ability = Ability("Seelenernte", DRAIN, 300f, "300 magischer Schaden, heilt sich um die Hälfte."),
+        ),
+        UnitDef(
+            "thane", "Zwergen-Than", 3, DWARF, GUARDIAN,
+            hp = 1000f, ad = 60f, attackSpeed = 0.6f, range = 1, armor = 55f, mr = 40f, maxMana = 100, startMana = 40,
+            ability = Ability(
+                "Erdbeben", QUAKE, 220f, "220 Schaden an angrenzenden Gegnern, betäubt sie 1,5 s.", stun = 1.5f,
+            ),
+        ),
+        UnitDef(
+            "lich", "Lich", 3, UNDEAD, MAGE,
+            hp = 650f, ad = 50f, attackSpeed = 0.7f, range = 3, armor = 25f, mr = 30f, maxMana = 90, startMana = 30,
+            ability = Ability(
+                "Frostnova", FROST, 300f, "300 Schaden am Ziel und angrenzenden Gegnern, betäubt 1,2 s.", stun = 1.2f,
+            ),
+        ),
+        // --- 4 Gold ---
+        UnitDef(
+            "stormmage", "Sturmmagierin", 4, ELF, MAGE,
+            hp = 750f, ad = 55f, attackSpeed = 0.75f, range = 3, armor = 25f, mr = 35f, maxMana = 90, startMana = 30,
+            ability = Ability("Kettenblitz", CHAIN, 350f, "Blitz mit 350 Schaden, springt auf bis zu 4 Gegner.", count = 4),
+        ),
+        UnitDef(
+            "warlord", "Zwergen-Kriegsherr", 4, DWARF, WARRIOR,
+            hp = 1100f, ad = 90f, attackSpeed = 0.75f, range = 1, armor = 50f, mr = 35f, maxMana = 90, startMana = 20,
+            ability = Ability(
+                "Bergsturz", LEAP, 300f,
+                "Springt zum entferntesten Gegner: 300 Schaden in der Nähe, betäubt 0,8 s.", stun = 0.8f,
+            ),
+        ),
+        // --- 5 Gold ---
+        UnitDef(
+            "queen", "Elfenkönigin", 5, ELF, GUARDIAN,
+            hp = 1300f, ad = 80f, attackSpeed = 0.8f, range = 2, armor = 50f, mr = 50f, maxMana = 100, startMana = 40,
+            ability = Ability(
+                "Mondsegen", MOON, 300f,
+                "Schild von 300 für alle Verbündeten, 300 Schaden an Gegnern im Umkreis von 2 Feldern.",
+            ),
+        ),
+    )
+
+    private val byId = all.associateBy { it.id }
+
+    fun byId(id: String): UnitDef = byId.getValue(id)
+
+    fun find(id: String): UnitDef? = byId[id]
+
+    fun ofCost(cost: Int): List<UnitDef> = all.filter { it.cost == cost }
+
+    /** Kopien pro Einheit im gemeinsamen Pool. */
+    fun poolSize(cost: Int): Int = when (cost) {
+        1 -> 22
+        2 -> 18
+        3 -> 15
+        4 -> 12
+        else -> 10
+    }
+}

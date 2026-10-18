@@ -11,6 +11,8 @@ import com.adlessarcade.games.galaxytowers.GalaxyTowersPreview
 import com.adlessarcade.games.gaterush.GateRush
 import com.adlessarcade.games.gaterush.GateRushMode
 import com.adlessarcade.games.gaterush.GateRushPreview
+import com.adlessarcade.games.runetactics.RuneTactics
+import com.adlessarcade.games.runetactics.RuneTacticsPreview
 import com.adlessarcade.core.leaderboard.LeaderboardVariant
 import com.adlessarcade.games.survivors.HeroClass
 import com.adlessarcade.games.survivors.Survivors
@@ -168,6 +170,30 @@ object GameRegistry {
                 ),
             ),
             preview = { modifier -> GalaxyTowersPreview(modifier) },
+        ),
+        GameInfo(
+            id = RuneTactics.GAME_ID,
+            title = "Rune Tactics",
+            tagline = "Armee aufstellen, Runden überleben",
+            description = "Auto-Chess gegen endlose KI-Armeen: Kaufe Einheiten im Shop, verschmelze 3 gleiche zu einem " +
+                "stärkeren Stern, kombiniere Herkünfte und Klassen zu Synergien und stelle dein Team auf – " +
+                "gekämpft wird automatisch. Jede Runde wird der Gegner stärker.",
+            accent = Color(0xFF6366F1),
+            accentSecondary = Color(0xFFF59E0B),
+            modes = listOf(
+                ModeInfo(
+                    id = RuneTactics.MODE_ENDLESS,
+                    title = "Endlos",
+                    description = "Immer stärkere Armeen, ab Runde 25 mit Aufstieg. Wie viele Runden überlebst du?",
+                ),
+                ModeInfo(
+                    id = "coming_soon",
+                    title = "Weitere Modi",
+                    description = "Kommen bald.",
+                    available = false,
+                ),
+            ),
+            preview = { modifier -> RuneTacticsPreview(modifier) },
         ),
     )
 

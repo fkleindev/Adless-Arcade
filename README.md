@@ -29,11 +29,18 @@ Eine werbefreie Sammlung kleiner Spiele für Android – offline, ohne Tracking,
   - Modus *Timeless*: 10 Runden ohne Zeitlimit.
   - Modus *Single Round*: eine Runde mit 80 Sekunden.
   - Modus *Tägliche Challenge*: Classic mit gleichen Karten und Funden für alle pro Tag, eigener Tagesrekord.
+- **Rune Tactics**: Auto-Chess gegen endlose KI-Armeen. In der Planungsphase Einheiten im Shop kaufen (Würfeln 2 Gold,
+  XP 4 Gold), auf Bank und Brett (7×4 eigene Felder) ziehen, zum Verkaufen in den Shop ziehen; 3 gleiche verschmelzen zu ★★,
+  3 ★★ zu ★★★. 15 Einheiten in 5 Kostenstufen mit eigener Fähigkeit, je eine Herkunft (Untote, Elfen, Zwerge) und Klasse
+  (Krieger, Wächter, Magier) als Synergien mit Stufen bei 2 und 4. Gekämpft wird automatisch (1×/2×/4× Tempo);
+  Gold aus Grundeinkommen, Zinsen und Serien, 100 Leben, Niederlagen kosten je nach Runde und überlebenden Gegnern.
+  - Modus *Endlos*: Ein KI-Kommandant baut aus einem wachsenden Budget Armeen mit eigenen Synergien,
+    ab Runde 25 werden alle Gegner mit jedem Durchgang stärker (Aufstieg). Score = erreichte Runde.
 
 **Rund um die Spiele**
 - **Coins & Shop**: In allen Spielen Coins verdienen und gegen Skins, Kartenrückseiten, Hintergründe, App-Themes, Avatare und Titel tauschen.
 - **Bestenlisten**: Lokale Top 10 pro Modus (mit App-Version je Eintrag), bei Rune Survivors zusätzlich pro Stage und Klasse.
-- **Erfolge**: 16 Erfolge über alle Spiele, jeder schaltet einen exklusiven Titel frei, den es nicht im Shop gibt.
+- **Erfolge**: 19 Erfolge über alle Spiele, jeder schaltet einen exklusiven Titel frei, den es nicht im Shop gibt.
 - **Fortsetzen**: Jedes Spiel lässt sich pausieren und später weiterspielen, auch nach einem App-Neustart.
 
 ## Bauen & Starten

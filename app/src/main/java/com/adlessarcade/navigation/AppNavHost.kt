@@ -19,6 +19,8 @@ import com.adlessarcade.games.galaxytowers.GalaxyTowers
 import com.adlessarcade.games.galaxytowers.GalaxyTowersScreen
 import com.adlessarcade.games.gaterush.GateRush
 import com.adlessarcade.games.gaterush.GateRushScreen
+import com.adlessarcade.games.runetactics.RuneTactics
+import com.adlessarcade.games.runetactics.RuneTacticsScreen
 import com.adlessarcade.games.survivors.Survivors
 import com.adlessarcade.games.survivors.SurvivorsForgeScreen
 import com.adlessarcade.games.survivors.SurvivorsScreen
@@ -106,5 +108,6 @@ private fun GameHost(gameId: String, modeId: String, onExit: () -> Unit, onOpenF
         GateRush.GAME_ID -> GateRushScreen(modeId = modeId, onExit = onExit)
         Survivors.GAME_ID -> SurvivorsScreen(onExit = onExit, onOpenForge = onOpenForge)
         GalaxyTowers.GAME_ID -> GalaxyTowersScreen(modeId = modeId, onExit = onExit)
+        RuneTactics.GAME_ID -> RuneTacticsScreen(onExit = onExit)
     }
 }
