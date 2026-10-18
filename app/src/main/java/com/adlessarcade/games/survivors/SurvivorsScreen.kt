@@ -390,6 +390,7 @@ private fun GameView(viewModel: SurvivorsViewModel, onExit: () -> Unit) {
             leaderboardRank = viewModel.leaderboardRank,
             leaderboardName = "${engine.state.stage.title} · ${engine.state.heroClass.title}",
             extraReward = if (hud.runes > 0) "$RUNE_SYMBOL +${hud.runes} Runen" else null,
+            extraContent = { DamageBreakdown(engine) },
         )
     }
 }

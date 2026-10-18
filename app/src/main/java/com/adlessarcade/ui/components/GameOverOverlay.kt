@@ -12,6 +12,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -62,6 +63,8 @@ fun GameOverOverlay(
     leaderboardName: String? = null,
     /** Zusätzliche Belohnungszeile, z. B. Runen bei Rune Survivors. */
     extraReward: String? = null,
+    /** Zusätzlicher Inhalt vor den Buttons, z. B. die Schadensübersicht bei Rune Survivors. */
+    extraContent: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -137,6 +140,10 @@ fun GameOverOverlay(
                 if (extraReward != null) {
                     Spacer(Modifier.height(6.dp))
                     Text(extraReward, style = MaterialTheme.typography.titleMedium, color = Color(0xFFA78BFA))
+                }
+                if (extraContent != null) {
+                    Spacer(Modifier.height(20.dp))
+                    extraContent()
                 }
                 Spacer(Modifier.height(24.dp))
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {

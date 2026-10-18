@@ -95,6 +95,39 @@ fun BarLabelStyle(): TextStyle = MaterialTheme.typography.labelSmall.merge(
     TextStyle(fontWeight = FontWeight.Bold, shadow = Shadow(Color.Black, blurRadius = 4f))
 )
 
+/** Schaden pro Waffe und weiterer Quelle (Gift, Funken …) – im Pause-Menü und auf dem Endscreen. */
+@Composable
+fun DamageBreakdown(engine: SurvivorsEngine) {
+    val s = engine.state
+    val weaponTotal = s.weapons.keys.sumOf { (s.weaponDamage[it] ?: 0f).toDouble() }.toFloat()
+    val effects = EffectDamage.entries.filter { (s.effectDamage[it] ?: 0f) > 0f }
+    val total = weaponTotal + effects.sumOf { (s.effectDamage[it] ?: 0f).toDouble() }.toFloat()
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        StatSection("Waffen · ${big(total)} Schaden gesamt") {
+            s.weapons.keys.sortedByDescending { s.weaponDamage[it] ?: 0f }.forEach { w ->
+                WeaponStatCard(engine, w, total)
+            }
+        }
+
+        if (effects.isNotEmpty()) {
+            StatSection("Weitere Schadensquellen") {
+                effects.sortedByDescending { s.effectDamage[it] ?: 0f }.forEach { kind ->
+                    val dealt = s.effectDamage[kind] ?: 0f
+                    DamageCard(
+                        icon = kind.icon,
+                        title = kind.title,
+                        badge = null,
+                        highlight = false,
+                        share = if (total > 0f) dealt / total else 0f,
+                        summary = "${big(dealt)} Schaden · ${pct(if (total > 0f) dealt / total else 0f)} · ${big(engine.effectDps(kind))} DPS",
+                        details = null,
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** Vollständige Werte des Laufs für das Pause-Menü: Held, Angriff, Waffen mit Schadensanteil, Build und Lauf. */
 @Composable
 fun StatsPanel(engine: SurvivorsEngine) {
@@ -145,31 +178,7 @@ fun StatsPanel(engine: SurvivorsEngine) {
             if (st.lootBonus > 0f) StatRow("Coins & Erfahrung", "+${pct(st.lootBonus)}")
         }
 
-        val weaponTotal = s.weapons.keys.sumOf { (s.weaponDamage[it] ?: 0f).toDouble() }.toFloat()
-        val effects = EffectDamage.entries.filter { (s.effectDamage[it] ?: 0f) > 0f }
-        val total = weaponTotal + effects.sumOf { (s.effectDamage[it] ?: 0f).toDouble() }.toFloat()
-        StatSection("Waffen · ${big(total)} Schaden gesamt") {
-            s.weapons.keys.sortedByDescending { s.weaponDamage[it] ?: 0f }.forEach { w ->
-                WeaponStatCard(engine, w, total)
-            }
-        }
-
-        if (effects.isNotEmpty()) {
-            StatSection("Weitere Schadensquellen") {
-                effects.sortedByDescending { s.effectDamage[it] ?: 0f }.forEach { kind ->
-                    val dealt = s.effectDamage[kind] ?: 0f
-                    DamageCard(
-                        icon = kind.icon,
-                        title = kind.title,
-                        badge = null,
-                        highlight = false,
-                        share = if (total > 0f) dealt / total else 0f,
-                        summary = "${big(dealt)} Schaden · ${pct(if (total > 0f) dealt / total else 0f)} · ${big(engine.effectDps(kind))} DPS",
-                        details = null,
-                    )
-                }
-            }
-        }
+        DamageBreakdown(engine)
 
         if (s.passives.isNotEmpty() || s.items.isNotEmpty() || s.statBoosts.isNotEmpty()) {
             StatSection("Talente & Items") {
