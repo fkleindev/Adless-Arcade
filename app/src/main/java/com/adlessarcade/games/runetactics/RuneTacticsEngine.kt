@@ -40,6 +40,21 @@ class RuneTacticsEngine(val seed: Long) {
 
     val roundType: RoundType get() = RoundType.of(round)
 
+    /** Gewählte Runen-Segen. */
+    val augments = ArrayList<Augment>()
+
+    /** Segen zur Auswahl; solange nicht gewählt, startet kein Kampf. */
+    var pendingAugments: List<Augment> = emptyList()
+        private set
+
+    /** Fluch der aktuellen Runde (ab Runde 15). */
+    var curse: Curse? = null
+        private set
+
+    /** Kostenlose Würfe in dieser Runde (Glückswürfel). */
+    var freeRerolls = 0
+        private set
+
     var enemyArmy: List<PlacedUnit> = emptyList()
         private set
     var combat: RuneTacticsCombat? = null
@@ -56,7 +71,9 @@ class RuneTacticsEngine(val seed: Long) {
     }
 
     val isGameOver: Boolean get() = phase == Phase.GAME_OVER
-    val boardCap: Int get() = level
+    val boardCap: Int get() = level + if (Augment.COMMANDER in augments) 1 else 0
+
+    val emblems: Map<Trait, Int> get() = CombatModifiers.of(augments, null).emblems
     val enemyScale: Float get() = RuneTacticsEnemyAI.scale(round)
 
     fun poolCount(defId: String): Int = pool[defId] ?: 0
@@ -66,7 +83,7 @@ class RuneTacticsEngine(val seed: Long) {
         is Slot.Bench -> bench.getOrNull(slot.index)
     }
 
-    fun activeTraits(): Map<Trait, Int> = Traits.count(board.values.map { it.def })
+    fun activeTraits(): Map<Trait, Int> = Traits.count(board.values.map { it.def }, emblems)
 
     /** Würde der Kauf dieser Einheit eine ★2 ergeben? (für die Shop-Hervorhebung) */
     fun wouldCombine(defId: String): Boolean = copies(defId, 1).size >= 2
@@ -99,7 +116,13 @@ class RuneTacticsEngine(val seed: Long) {
     }
 
     fun reroll(): Boolean {
-        if (phase != Phase.PLANNING || gold < Economy.REROLL_COST) return false
+        if (phase != Phase.PLANNING) return false
+        if (freeRerolls > 0) {
+            freeRerolls--
+            rollShop()
+            return true
+        }
+        if (gold < Economy.REROLL_COST) return false
         gold -= Economy.REROLL_COST
         rollShop()
         return true
@@ -203,6 +226,24 @@ class RuneTacticsEngine(val seed: Long) {
         put(slot, unit.copy(items = unit.items + id))
         items.removeAt(itemIndex)
         return item
+    }
+
+    /** Wählt einen der angebotenen Runen-Segen. */
+    fun chooseAugment(index: Int): Augment? {
+        val augment = pendingAugments.getOrNull(index) ?: return null
+        augments += augment
+        pendingAugments = emptyList()
+        when (augment) {
+            Augment.WAR_CHEST -> gold += 15
+            Augment.ARMORY -> {
+                val rng = nextRandom()
+                repeat(3) { addItem(randomComponent(rng)) }
+            }
+            Augment.SPRING -> hp = minOf(Economy.START_HP, hp + 25)
+            Augment.LUCKY_DICE -> freeRerolls = 1
+            else -> Unit
+        }
+        return augment
     }
 
     /** Wählt eine der Boss-Belohnungen. */
@@ -316,7 +357,7 @@ class RuneTacticsEngine(val seed: Long) {
     }
 
     fun startCombat(): Boolean {
-        if (phase != Phase.PLANNING || pendingRewards.isNotEmpty()) return false
+        if (phase != Phase.PLANNING || pendingRewards.isNotEmpty() || pendingAugments.isNotEmpty()) return false
         autoFill()
         preCombat = snapshot()
         phase = Phase.COMBAT
@@ -325,6 +366,7 @@ class RuneTacticsEngine(val seed: Long) {
             enemies = enemyArmy,
             enemyScale = enemyScale,
             seed = seed * 92821 + round,
+            modifiers = CombatModifiers.of(augments, curse),
         )
         return true
     }
@@ -368,15 +410,18 @@ class RuneTacticsEngine(val seed: Long) {
             RoundType.NORMAL -> Unit
         }
         val overflow = loot.sumOf { addItem(it) }
-        val interest = Economy.interest(gold - overflow)
+        val interest = Economy.interest(gold - overflow, if (Augment.TREASURY in augments) 8 else Economy.MAX_INTEREST)
         val streak = Economy.streakBonus(maxOf(winStreak, lossStreak))
         val income = Economy.BASE_INCOME + interest + streak + if (outcome == Outcome.WIN) Economy.WIN_BONUS else 0
         val result = RoundResult(round, outcome, hpLost, income, interest, streak, type, loot, overflow)
         round++
         gold += income
-        addXp(Economy.PASSIVE_XP)
+        addXp(Economy.PASSIVE_XP + if (Augment.WISDOM in augments) 2 else 0)
         rollShop()
         enemyArmy = RuneTacticsEnemyAI.army(seed, round)
+        curse = Curse.roll(seed, round)
+        freeRerolls = if (Augment.LUCKY_DICE in augments) 1 else 0
+        if (Augment.isAugmentRound(round)) pendingAugments = Augment.roll(augments, nextRandom())
         phase = Phase.PLANNING
         return result
     }
@@ -404,6 +449,10 @@ class RuneTacticsEngine(val seed: Long) {
             rngCounter = rngCounter,
             items = items.toList(),
             pendingRewards = pendingRewards,
+            augments = augments.map { it.name },
+            pendingAugments = pendingAugments.map { it.name },
+            curse = curse?.name,
+            freeRerolls = freeRerolls,
         )
     }
 
@@ -430,6 +479,11 @@ class RuneTacticsEngine(val seed: Long) {
         items.clear()
         items += s.items
         pendingRewards = s.pendingRewards
+        augments.clear()
+        augments += s.augments.mapNotNull { name -> Augment.entries.firstOrNull { it.name == name } }
+        pendingAugments = s.pendingAugments.mapNotNull { name -> Augment.entries.firstOrNull { it.name == name } }
+        curse = s.curse?.let { name -> Curse.entries.firstOrNull { it.name == name } }
+        freeRerolls = s.freeRerolls
         combat = null
         preCombat = null
         phase = Phase.PLANNING

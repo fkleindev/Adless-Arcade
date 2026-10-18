@@ -80,6 +80,7 @@ fun RuneTacticsScreen(
     val textMeasurer = rememberTextMeasurer(cacheSize = 64)
     var drag by remember { mutableStateOf<DragInfo?>(null) }
     var traitInfo by remember { mutableStateOf<Trait?>(null) }
+    var showRunes by remember { mutableStateOf(false) }
 
     LaunchedEffect(viewModel) {
         var last = 0L
@@ -115,7 +116,13 @@ fun RuneTacticsScreen(
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize()) {
                 TopHud(engine, viewModel.best)
-                TraitBar(engine.activeTraits(), onTrait = { traitInfo = if (traitInfo == it) null else it })
+                TraitBar(
+                    engine.activeTraits(),
+                    runes = engine.augments.size,
+                    curse = engine.curse.takeIf { planning || engine.phase == Phase.COMBAT },
+                    onTrait = { traitInfo = if (traitInfo == it) null else it; showRunes = false },
+                    onRunes = { showRunes = !showRunes; traitInfo = null },
+                )
 
                 Box(
                     Modifier
@@ -144,6 +151,7 @@ fun RuneTacticsScreen(
                                             dragging = true
                                             viewModel.inspect(null)
                                             traitInfo = null
+                                            showRunes = false
                                         }
                                         if (dragging) {
                                             drag = DragInfo(from!!, unit!!, pos)
@@ -159,6 +167,7 @@ fun RuneTacticsScreen(
                                         drag = null
                                     } else {
                                         traitInfo = null
+                                        showRunes = false
                                         val slot = layout.slotAt(down.position)
                                         val equipped = if (slot != null) viewModel.equipSelected(slot) else {
                                             viewModel.selectItem(null)
@@ -182,6 +191,7 @@ fun RuneTacticsScreen(
                         ItemCard(RuneTacticsItems.byId(id), Modifier.align(Alignment.TopCenter).padding(8.dp))
                     }
                     traitInfo?.let { TraitCard(it, engine.activeTraits()[it] ?: 0, Modifier.align(Alignment.TopCenter).padding(8.dp)) }
+                    if (showRunes) RunesCard(engine.augments, engine.curse, Modifier.align(Alignment.TopCenter).padding(8.dp))
                     Banner(viewModel.banner, Modifier.align(Alignment.Center))
                 }
 
@@ -194,6 +204,8 @@ fun RuneTacticsScreen(
 
             if (planning && engine.pendingRewards.isNotEmpty() && !viewModel.paused && !viewModel.gameOver) {
                 RewardOverlay(engine.pendingRewards, onChoose = viewModel::chooseReward)
+            } else if (planning && engine.pendingAugments.isNotEmpty() && !viewModel.paused && !viewModel.gameOver) {
+                AugmentOverlay(engine.pendingAugments, onChoose = viewModel::chooseAugment)
             }
 
             if (viewModel.paused) {
@@ -286,7 +298,13 @@ private fun TopHud(engine: RuneTacticsEngine, best: Int) {
 }
 
 @Composable
-private fun TraitBar(traits: Map<Trait, Int>, onTrait: (Trait) -> Unit) {
+private fun TraitBar(
+    traits: Map<Trait, Int>,
+    runes: Int,
+    curse: Curse?,
+    onTrait: (Trait) -> Unit,
+    onRunes: () -> Unit,
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -296,6 +314,21 @@ private fun TraitBar(traits: Map<Trait, Int>, onTrait: (Trait) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (runes > 0 || curse != null) {
+            val color = if (curse != null) MagicViolet else StarGold
+            val shape = RoundedCornerShape(8.dp)
+            Text(
+                listOfNotNull(if (runes > 0) "ᚱ $runes Segen" else null, curse?.let { "☠ ${it.title}" }).joinToString(" · "),
+                style = MaterialTheme.typography.labelMedium,
+                color = color,
+                modifier = Modifier
+                    .clip(shape)
+                    .background(color.copy(alpha = 0.18f))
+                    .border(1.dp, color, shape)
+                    .clickable(onClick = onRunes)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            )
+        }
         if (traits.isEmpty()) {
             Text(
                 "Stelle Einheiten aufs Brett, um Synergien zu aktivieren",
@@ -352,8 +385,8 @@ private fun BottomPanel(viewModel: RuneTacticsViewModel, engine: RuneTacticsEngi
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (planning) {
                 SecondaryButton(
-                    "↻ Würfeln · ${Economy.REROLL_COST}", viewModel::reroll,
-                    Modifier.weight(1f).alpha(if (engine.gold >= Economy.REROLL_COST) 1f else 0.45f),
+                    if (engine.freeRerolls > 0) "↻ Gratis" else "↻ Würfeln · ${Economy.REROLL_COST}", viewModel::reroll,
+                    Modifier.weight(1f).alpha(if (engine.gold >= Economy.REROLL_COST || engine.freeRerolls > 0) 1f else 0.45f),
                 )
                 SecondaryButton(
                     "▲ XP · ${Economy.XP_COST}", viewModel::buyXp,
@@ -720,6 +753,74 @@ private fun RewardOverlay(rewards: List<Reward>, onChoose: (Int) -> Unit) {
                         Text(reward.title, style = MaterialTheme.typography.titleMedium, color = ArcadeText)
                         Text(reward.description, style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RunesCard(augments: List<Augment>, curse: Curse?, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(ArcadeSurface.copy(alpha = 0.96f))
+            .border(1.dp, MagicViolet, shape)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        if (curse != null) {
+            Text("☠ Fluch dieser Runde: ${curse.title}", style = MaterialTheme.typography.titleSmall, color = MagicViolet)
+            Text(curse.description, style = MaterialTheme.typography.bodySmall, color = ArcadeText)
+            if (augments.isNotEmpty()) Spacer(Modifier.height(6.dp))
+        }
+        if (augments.isNotEmpty()) {
+            Text("ᚱ Runen-Segen", style = MaterialTheme.typography.titleSmall, color = StarGold)
+            augments.groupingBy { it }.eachCount().forEach { (augment, count) ->
+                Text(
+                    "${augment.title}${if (count > 1) " ×$count" else ""}: ${augment.description}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ArcadeTextMuted,
+                )
+            }
+        }
+    }
+}
+
+/** Auswahl eines Runen-Segens; blockiert das Spiel, bis gewählt wurde. */
+@Composable
+private fun AugmentOverlay(options: List<Augment>, onChoose: (Int) -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.72f))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier.padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("ᚱ RUNEN-SEGEN", style = MaterialTheme.typography.headlineMedium, color = MagicViolet)
+            Text("Wähle einen Segen für den restlichen Lauf", style = MaterialTheme.typography.bodyMedium, color = ArcadeTextMuted)
+            Spacer(Modifier.height(4.dp))
+            options.forEachIndexed { index, augment ->
+                val shape = RoundedCornerShape(16.dp)
+                val color = augment.emblem?.let { if (it.kind == TraitKind.ORIGIN) originColor(it) else StarGold } ?: MagicViolet
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(shape)
+                        .background(ArcadeSurfaceHigh)
+                        .border(1.dp, color.copy(alpha = 0.8f), shape)
+                        .clickable { onChoose(index) }
+                        .padding(14.dp),
+                ) {
+                    Text(augment.title, style = MaterialTheme.typography.titleMedium, color = color)
+                    Text(augment.description, style = MaterialTheme.typography.bodySmall, color = ArcadeText)
                 }
             }
         }

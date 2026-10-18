@@ -39,8 +39,13 @@ Eine werbefreie Sammlung kleiner Spiele für Android – offline, ohne Tracking,
   - 5er-Zyklus: Runde x4 Kreaturen (lassen Komponenten fallen), Runde x5 Boss (Knochendrache, Steintitan, Sturmhexe)
     mit Gefolge und angekündigten Flächenangriffen; ein Bosssieg bringt eine von 3 Belohnungen zur Wahl
     (Gold, Komponenten, fertiges Item oder Einheit).
+  - Runen-Segen in Runde 3, 12, 22 und danach alle 15 Runden: einer von 3 dauerhaften Boni (z. B. höhere Zinsgrenze,
+    Gratis-Würfeln, +1 Brettplatz, Lebens-/Schadens-/Tempo-Runen oder Synergie-Banner).
+  - Flüche ab Runde 15: normale Runden können verflucht sein (Knochenpanzer, Fäulnis, Hinterhalt, Blutmond, Stille),
+    angekündigt in der Planungsphase.
   - Modus *Endlos*: Ein KI-Kommandant baut aus einem wachsenden Budget Armeen mit eigenen Synergien und ab Runde 8
-    auch mit Items, ab Runde 25 werden alle Gegner mit jedem Durchgang stärker (Aufstieg). Score = erreichte Runde.
+    auch mit Items, ab Runde 25 werden alle Gegner mit jedem Durchgang stärker (Aufstieg: +2 % pro Runde,
+    ab Runde 50 +4 %). Score = erreichte Runde.
 
 **Rund um die Spiele**
 - **Coins & Shop**: In allen Spielen Coins verdienen und gegen Skins, Kartenrückseiten, Hintergründe, App-Themes, Avatare und Titel tauschen.

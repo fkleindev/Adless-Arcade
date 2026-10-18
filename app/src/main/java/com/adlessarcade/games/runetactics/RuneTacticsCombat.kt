@@ -32,13 +32,16 @@ class Fighter(
     /** Gegner-Skalierung (Aufstieg, Kreaturen, Bosse), 1 für den Spieler. */
     scale: Float,
     val items: List<ItemDef> = emptyList(),
+    /** Zusatz-Leben und -Angriffstempo in Prozent (Segen, Flüche). */
+    hpBonus: Float = 0f,
+    speedBonus: Float = 0f,
 ) {
     val effects: Set<ItemEffect> = items.mapNotNull { it.effect }.toSet()
-    val maxHp = def.hp * Stars.stat(star) * scale + items.sumOf { it.hp.toDouble() }.toFloat()
+    val maxHp = (def.hp * Stars.stat(star) * scale + items.sumOf { it.hp.toDouble() }.toFloat()) * (1f + hpBonus)
     var hp = maxHp
     val ad = def.ad * Stars.stat(star) * scale + items.sumOf { it.ad.toDouble() }.toFloat()
     val power = Stars.ability(star) * scale
-    val attackSpeed = def.attackSpeed * (1f + items.sumOf { it.attackSpeed.toDouble() }.toFloat())
+    val attackSpeed = def.attackSpeed * (1f + speedBonus + items.sumOf { it.attackSpeed.toDouble() }.toFloat())
     val range = def.range + if (ItemEffect.RANGE in effects) 1 else 0
     var armor = def.armor + items.sumOf { it.armor.toDouble() }.toFloat()
     var mr = def.mr + items.sumOf { it.mr.toDouble() }.toFloat()
@@ -96,6 +99,7 @@ class RuneTacticsCombat(
     enemies: List<PlacedUnit>,
     enemyScale: Float,
     seed: Long,
+    private val modifiers: CombatModifiers = CombatModifiers(),
 ) {
     val fighters = ArrayList<Fighter>()
     var time = 0f
@@ -113,18 +117,24 @@ class RuneTacticsCombat(
 
     init {
         var id = 0
+        val curse = modifiers.curse
         players.forEach { (unit, cell) ->
-            val f = Fighter(id++, 0, unit.def, unit.star, cell.col, cell.row, 1f, unit.items.map(RuneTacticsItems::byId))
+            val f = Fighter(
+                id++, 0, unit.def, unit.star, cell.col, cell.row, 1f, unit.items.map(RuneTacticsItems::byId),
+                hpBonus = modifiers.playerHpPct, speedBonus = modifiers.playerAttackSpeed,
+            )
             playerUids[f.id] = unit.uid
             fighters += f
         }
         enemies.forEach {
             fighters += Fighter(
                 id++, 1, it.def, it.star, it.col, it.row, enemyScale * it.scale, it.items.map(RuneTacticsItems::byId),
+                speedBonus = if (curse == Curse.BLOOD_MOON) 0.25f else 0f,
             )
         }
         applyTraits(0)
         applyTraits(1)
+        applyModifiers()
         // Leicht versetzte erste Angriffe, damit nicht alle im Gleichtakt schlagen.
         fighters.forEach { it.attackCd = rng.nextFloat() * 0.3f }
         if (fighters.none { it.side == 0 }) outcome = Outcome.LOSS
@@ -172,7 +182,8 @@ class RuneTacticsCombat(
 
     private fun applyTraits(side: Int) {
         val team = fighters.filter { it.side == side }
-        val levels = Traits.count(team.map { it.def }).mapValues { (trait, n) -> trait.level(n) }
+        val emblems = if (side == 0) modifiers.emblems else emptyMap()
+        val levels = Traits.count(team.map { it.def }, emblems).mapValues { (trait, n) -> trait.level(n) }
         fun lvl(t: Trait) = levels[t] ?: 0
         for (f in team) {
             val traits = f.def.traits
@@ -191,6 +202,37 @@ class RuneTacticsCombat(
             val guards = team.filter { Trait.GUARDIAN in it.def.traits }
             for (f in team) {
                 if (guards.any { dist(it, f) <= 1 }) f.shield += guardShield
+            }
+        }
+    }
+
+    /** Segen für die eigene Seite, Flüche für den Kampfbeginn. */
+    private fun applyModifiers() {
+        val curse = modifiers.curse
+        for (f in fighters) {
+            if (f.side == 0) {
+                f.damageBonus += modifiers.playerDamage
+                f.shield += modifiers.playerShield
+                if (f.maxMana > 0f) f.mana = min(f.maxMana, f.mana + modifiers.playerStartMana)
+                if (curse == Curse.SILENCE) f.mana = 0f
+            } else if (curse == Curse.BONE_ARMOR) {
+                f.shield += f.maxHp * 0.15f
+            }
+        }
+        if (curse == Curse.AMBUSH) {
+            // Die zwei stärksten Gegner landen in der hintersten eigenen Reihe.
+            val ambushers = fighters.filter { it.side == 1 && !it.def.isBoss }
+                .sortedWith(compareByDescending<Fighter>({ it.def.cost * Stars.copies(it.star) }).thenBy { it.id })
+                .take(2)
+            for (f in ambushers) {
+                val occupied = fighters.filter { it !== f }.map { Cell(it.col, it.row) }.toSet()
+                val cell = (Board.ROWS - 1 downTo Board.PLAYER_FIRST_ROW).firstNotNullOfOrNull { row ->
+                    (0 until Board.COLS).sortedBy { abs(it - Board.COLS / 2) }.map { Cell(it, row) }.firstOrNull { it !in occupied }
+                } ?: continue
+                f.col = cell.col
+                f.row = cell.row
+                f.fromCol = cell.col
+                f.fromRow = cell.row
             }
         }
     }
@@ -383,7 +425,8 @@ class RuneTacticsCombat(
 
     private fun heal(f: Fighter, amount: Float) {
         if (!f.alive || amount <= 0f) return
-        val healed = min(amount, f.maxHp - f.hp)
+        val factor = if (f.side == 0 && modifiers.curse == Curse.ROT) 0.5f else 1f
+        val healed = min(amount * factor, f.maxHp - f.hp)
         if (healed <= 0f) return
         f.hp += healed
         events += CombatEvent.Heal(f.id, healed.roundToInt())

@@ -53,6 +53,7 @@ class RuneTacticsBalanceTest {
         startCombat()
         finishCombat()
         if (pendingRewards.isNotEmpty()) chooseReward(pendingRewards.indexOfFirst { it.kind == RewardKind.ITEM }.coerceAtLeast(0))
+        if (pendingAugments.isNotEmpty()) chooseAugment(0)
     }
 
     private fun RuneTacticsEngine.startFill(benchIndex: Int) {
@@ -60,6 +61,34 @@ class RuneTacticsBalanceTest {
         val rows = if (unit.def.range <= 1) 4..7 else 7 downTo 4
         val cell = rows.flatMap { r -> (0 until Board.COLS).map { Cell(it, r) } }.first { it !in board }
         move(Slot.Bench(benchIndex), Slot.Board(cell))
+    }
+
+    /** Selbst eine nahezu perfekte Armee muss im Aufstieg irgendwann fallen. */
+    @Test
+    fun ascension_eventuallyBeatsMaxedArmy() {
+        val ids = listOf("queen", "stormmage", "warlord", "lich", "thane", "deathknight", "runesmith", "warden", "bonewarden")
+        val items = listOf(
+            listOf("sword_sword", "sword_bow", "belt_belt"), listOf("rod_rod", "rod_cloak", "bow_rod"),
+            listOf("sword_belt", "vest_cloak", "sword_cloak"),
+        )
+        val lost = (1L..4L).map { seed ->
+            var round = 20
+            while (round < 150) {
+                val army = ids.mapIndexed { i, id ->
+                    UnitInstance(i.toLong(), id, 3, items[i % items.size]) to Cell(1 + i % 5, if (i < 5) 4 else 6)
+                }
+                val combat = RuneTacticsCombat(
+                    army, RuneTacticsEnemyAI.army(seed, round), RuneTacticsEnemyAI.scale(round), seed + round,
+                )
+                combat.runToEnd()
+                if (combat.outcome != Outcome.WIN) break
+                round++
+            }
+            round
+        }
+        println("Perfekte Armee fällt in Runde: $lost")
+        assertTrue("Aufstieg zu schwach: $lost", lost.all { it < 120 })
+        assertTrue("Aufstieg zu früh: $lost", lost.all { it > RuneTacticsEnemyAI.ASCENSION_START })
     }
 
     @Test

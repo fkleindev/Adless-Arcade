@@ -27,6 +27,11 @@ data class RuneTacticsSnapshot(
     val inCombat: Boolean = false,
     val items: List<String> = emptyList(),
     val pendingRewards: List<Reward> = emptyList(),
+    /** Enum-Namen von [Augment] bzw. [Curse]. */
+    val augments: List<String> = emptyList(),
+    val pendingAugments: List<String> = emptyList(),
+    val curse: String? = null,
+    val freeRerolls: Int = 0,
 )
 
 @Serializable

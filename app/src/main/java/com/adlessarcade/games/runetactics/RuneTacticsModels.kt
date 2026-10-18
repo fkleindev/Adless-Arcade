@@ -222,9 +222,11 @@ object Board {
 
 object Traits {
     /** Anzahl verschiedener Einheiten pro Synergie. */
-    fun count(defs: Collection<UnitDef>): Map<Trait, Int> {
+    fun count(defs: Collection<UnitDef>, emblems: Map<Trait, Int> = emptyMap()): Map<Trait, Int> {
         val result = LinkedHashMap<Trait, Int>()
         defs.distinctBy { it.id }.forEach { def -> def.traits.forEach { result[it] = (result[it] ?: 0) + 1 } }
+        // Embleme zählen nur, wenn die Synergie schon mit mindestens einer Einheit vertreten ist.
+        emblems.forEach { (trait, n) -> result[trait]?.let { result[trait] = it + n } }
         return result
     }
 }

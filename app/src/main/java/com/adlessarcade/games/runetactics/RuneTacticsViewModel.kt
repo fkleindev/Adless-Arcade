@@ -219,6 +219,15 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
         return true
     }
 
+    fun chooseAugment(index: Int) {
+        if (!loaded || paused || gameOver) return
+        val augment = engine.chooseAugment(index) ?: return
+        showBanner(TacticsBanner(augment.title, augment.description, MagicViolet), 1.6f)
+        rewardTick++
+        saveRun()
+        changed()
+    }
+
     fun chooseReward(index: Int) {
         if (!loaded || paused || gameOver) return
         val reward = engine.chooseReward(index) ?: return
@@ -391,10 +400,17 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
                 RoundType.CREEPS -> "RUNDE ${engine.round} · KREATUREN"
                 RoundType.BOSS -> "RUNDE ${engine.round} · BOSS"
             }
-            showBanner(
-                TacticsBanner(title, parts.joinToString(" · "), if (engine.roundType == RoundType.BOSS) LossRed else ArcadeText),
-                1.6f,
-            )
+            val curse = engine.curse
+            when {
+                engine.round == RuneTacticsEnemyAI.ASCENSION_START + 1 ->
+                    showBanner(TacticsBanner("AUFSTIEG", "Gegner werden ab jetzt jede Runde stärker", LossRed), 2.2f)
+                curse != null ->
+                    showBanner(TacticsBanner("FLUCH: ${curse.title.uppercase()}", curse.description, MagicViolet), 2.2f)
+                else -> showBanner(
+                    TacticsBanner(title, parts.joinToString(" · "), if (engine.roundType == RoundType.BOSS) LossRed else ArcadeText),
+                    1.6f,
+                )
+            }
             submitScore()
             saveRun()
         }

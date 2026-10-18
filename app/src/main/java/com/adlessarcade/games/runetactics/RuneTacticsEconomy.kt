@@ -37,7 +37,7 @@ object Economy {
 
     fun odds(level: Int): IntArray = ODDS[level.coerceIn(1, MAX_LEVEL)]
 
-    fun interest(gold: Int): Int = (gold / 10).coerceAtMost(MAX_INTEREST)
+    fun interest(gold: Int, cap: Int = MAX_INTEREST): Int = (gold / 10).coerceAtMost(cap)
 
     fun streakBonus(streak: Int): Int = when {
         streak >= 5 -> 3

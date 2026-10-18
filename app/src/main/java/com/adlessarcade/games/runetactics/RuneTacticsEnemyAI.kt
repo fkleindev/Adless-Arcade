@@ -11,7 +11,7 @@ import kotlin.random.Random
  */
 object RuneTacticsEnemyAI {
     const val ASCENSION_START = 25
-    private const val STEEP_START = 40
+    private const val STEEP_START = 50
 
     /** Gold-Wert der gegnerischen Armee (Kosten × ★1-Kopien). */
     fun budget(round: Int): Float = 2f + 2.2f * round + 0.1f * round * round
@@ -32,11 +32,11 @@ object RuneTacticsEnemyAI {
         else -> 3
     }
 
-    /** Werte-Multiplikator ab Runde 25 (Aufstieg): +4 % pro Runde, ab Runde 40 +6 %. */
+    /** Werte-Multiplikator ab Runde 25 (Aufstieg): +2 % pro Runde, ab Runde 50 +4 %. */
     fun scale(round: Int): Float {
         var m = 1f
-        if (round > ASCENSION_START) m *= 1.04f.pow(min(round, STEEP_START) - ASCENSION_START)
-        if (round > STEEP_START) m *= 1.06f.pow(round - STEEP_START)
+        if (round > ASCENSION_START) m *= 1.02f.pow(min(round, STEEP_START) - ASCENSION_START)
+        if (round > STEEP_START) m *= 1.04f.pow(round - STEEP_START)
         return m
     }
 
@@ -57,7 +57,7 @@ object RuneTacticsEnemyAI {
     }
 
     /** Anzahl fertiger Items der KI-Armee (ab Runde 8). */
-    fun itemCount(round: Int): Int = if (round < 8) 0 else min((round - 4) / 4, 12)
+    fun itemCount(round: Int): Int = if (round < 8) 0 else min((round - 4) / 5, 10)
 
     fun creatureCount(round: Int): Int = min(3 + round / 5, 8)
 

@@ -198,6 +198,8 @@ class RuneTacticsEngineTest {
         val e = RuneTacticsEngine(12)
         var guard = 0
         while (!e.isGameOver && guard++ < 200) {
+            if (e.pendingAugments.isNotEmpty()) e.chooseAugment(0)
+            if (e.pendingRewards.isNotEmpty()) e.chooseReward(0)
             e.startCombat()
             e.finishCombat()
         }
@@ -406,6 +408,7 @@ class RuneTacticsEngineTest {
     private fun RuneTacticsEngine.advanceTo(round: Int) {
         while (this.round < round) {
             if (pendingRewards.isNotEmpty()) chooseReward(0)
+            if (pendingAugments.isNotEmpty()) chooseAugment(0)
             board.clear()
             board[Cell(3, 4)] = UnitInstance(900, "queen", 3, listOf("sword_sword", "belt_belt", "rod_rod"))
             board[Cell(2, 4)] = UnitInstance(901, "thane", 3)
@@ -470,6 +473,116 @@ class RuneTacticsEngineTest {
         }
         assertTrue("Boss hat nie angekündigt", telegraphAt > 0f)
         assertTrue(strikeAt - telegraphAt >= 1.2f)
+    }
+
+    // --- Runen-Segen & Flüche ---
+
+    private fun RuneTacticsEngine.forceAugment(augment: Augment) {
+        val field = RuneTacticsEngine::class.java.getDeclaredField("pendingAugments")
+        field.isAccessible = true
+        field.set(this, listOf(augment))
+        assertEquals(augment, chooseAugment(0))
+    }
+
+    @Test
+    fun augmentRounds_schedule() {
+        val rounds = (1..60).filter(Augment::isAugmentRound)
+        assertEquals(listOf(3, 12, 22, 37, 52), rounds)
+    }
+
+    @Test
+    fun augmentOffer_blocksCombatUntilChosen() {
+        val e = RuneTacticsEngine(40)
+        e.advanceTo(3)
+        assertEquals(Augment.CHOICES, e.pendingAugments.size)
+        assertEquals(Augment.CHOICES, e.pendingAugments.toSet().size)
+        assertFalse(e.startCombat())
+        e.chooseAugment(1)
+        assertEquals(1, e.augments.size)
+        assertTrue(e.startCombat())
+    }
+
+    @Test
+    fun augmentRoll_skipsOwnedUnlessRepeatable() {
+        val owned = Augment.entries.filter { !it.repeatable }
+        repeat(20) {
+            val offer = Augment.roll(owned, Random(it))
+            assertTrue(offer.all { a -> a.repeatable })
+        }
+    }
+
+    @Test
+    fun augments_affectEconomy() {
+        val e = RuneTacticsEngine(41)
+        e.forceAugment(Augment.COMMANDER)
+        assertEquals(e.level + 1, e.boardCap)
+        e.forceAugment(Augment.LUCKY_DICE)
+        val gold = e.gold
+        assertTrue(e.reroll())
+        assertEquals(gold, e.gold) // gratis
+        assertTrue(e.reroll())
+        assertEquals(gold - Economy.REROLL_COST, e.gold)
+        e.forceAugment(Augment.WAR_CHEST)
+        assertEquals(gold - Economy.REROLL_COST + 15, e.gold)
+        e.forceAugment(Augment.ARMORY)
+        assertEquals(3, e.items.size)
+    }
+
+    @Test
+    fun treasury_raisesInterestCap() {
+        val e = RuneTacticsEngine(42)
+        e.forceAugment(Augment.TREASURY)
+        e.giveGold(90)
+        e.startCombat()
+        assertEquals(8, e.finishCombat()!!.interest)
+    }
+
+    @Test
+    fun emblem_countsOnlyWithTraitPresent() {
+        val e = RuneTacticsEngine(43)
+        e.forceAugment(Augment.EMBLEM_UNDEAD)
+        assertNull(e.activeTraits()[Trait.UNDEAD])
+        e.board[Cell(3, 4)] = UnitInstance(500, "skeleton")
+        assertEquals(2, e.activeTraits()[Trait.UNDEAD])
+        assertEquals(1, Trait.UNDEAD.level(e.activeTraits()[Trait.UNDEAD]!!))
+    }
+
+    @Test
+    fun combatModifiers_applyToPlayer() {
+        val mods = CombatModifiers.of(listOf(Augment.VITALITY, Augment.WARD, Augment.WELLSPRING, Augment.FURY), null)
+        val c = RuneTacticsCombat(army("skeleton" to 1), enemies("wisp" to 1), 1f, seed = 1, modifiers = mods)
+        val f = c.fighters[0]
+        assertEquals(600f * 1.15f, f.maxHp, 0.01f)
+        assertEquals(200f, f.shield, 0.01f)
+        assertEquals(20f, f.mana, 0.01f)
+        assertEquals(0.12f, f.damageBonus, 0.001f)
+    }
+
+    @Test
+    fun curses_onlyFromRound15OnNormalRounds() {
+        for (round in 1..80) {
+            val curse = Curse.roll(7, round)
+            if (round < Curse.START_ROUND || RoundType.of(round) != RoundType.NORMAL) assertNull("Runde $round", curse)
+        }
+        val cursed = (15..200).count { Curse.roll(7, it) != null }
+        assertTrue(cursed > 30)
+        assertEquals(Curse.roll(7, 33), Curse.roll(7, 33))
+    }
+
+    @Test
+    fun curses_changeCombatStart() {
+        fun combat(curse: Curse) = RuneTacticsCombat(
+            army("skeleton" to 1, "wisp" to 1),
+            enemies("axeman" to 2, "wisp" to 1, "skeleton" to 1),
+            1f, seed = 1, modifiers = CombatModifiers(curse = curse),
+        )
+        val armor = combat(Curse.BONE_ARMOR).fighters.filter { it.side == 1 }
+        assertTrue(armor.all { it.shield >= it.maxHp * 0.15f - 0.01f })
+        assertTrue(combat(Curse.SILENCE).fighters.filter { it.side == 0 }.all { it.mana == 0f })
+        val ambush = combat(Curse.AMBUSH).fighters.filter { it.side == 1 }
+        assertEquals(2, ambush.count { it.row == Board.ROWS - 1 })
+        val moon = combat(Curse.BLOOD_MOON).fighters.first { it.side == 1 }
+        assertEquals(moon.def.attackSpeed * 1.25f, moon.attackSpeed, 0.001f)
     }
 
     // --- Spielstand ---
