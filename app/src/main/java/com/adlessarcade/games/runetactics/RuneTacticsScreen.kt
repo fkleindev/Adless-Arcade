@@ -101,11 +101,12 @@ fun RuneTacticsScreen(
         if (viewModel.rewardTick > 0) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
 
-    // Die Engine bleibt dieselbe Instanz und wird intern verändert. Damit Compose die Leisten nicht überspringt,
-    // bekommen sie die Revision als Parameter und Listen als Kopie.
-    val revision = viewModel.revision
+    // Die Engine bleibt dieselbe Instanz und wird intern verändert. Die Revision löst das Neuzeichnen aus; die Leisten
+    // bekommen eine Momentaufnahme der Werte (HudState), damit Compose Änderungen am Inhalt erkennt und sie nicht überspringt.
+    viewModel.revision
     val engine = viewModel.engine
     val planning = engine.phase == Phase.PLANNING
+    val hud = engine.hudState()
 
     ArcadeScaffold(
         title = "Rune Tactics",
@@ -119,7 +120,7 @@ fun RuneTacticsScreen(
     ) {
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize()) {
-                TopHud(engine, viewModel.best, revision)
+                TopHud(hud, viewModel.best)
                 TraitBar(
                     engine.activeTraits(),
                     runes = engine.augments.size,
@@ -200,7 +201,7 @@ fun RuneTacticsScreen(
                 }
 
                 Box {
-                    BottomPanel(viewModel, engine, planning, revision)
+                    BottomPanel(viewModel, hud, planning)
                     val dragged = drag
                     if (dragged != null) SellZone(Economy.sellValue(dragged.unit), Modifier.matchParentSize())
                 }
@@ -253,8 +254,7 @@ private fun hitTest(layout: TacticsLayout, engine: RuneTacticsEngine, p: Offset)
 }
 
 @Composable
-@Suppress("UNUSED_PARAMETER") // revision erzwingt das Neuzeichnen
-private fun TopHud(engine: RuneTacticsEngine, best: Int, revision: Int) {
+private fun TopHud(hud: HudState, best: Int) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -263,14 +263,14 @@ private fun TopHud(engine: RuneTacticsEngine, best: Int, revision: Int) {
     ) {
         Icon(Icons.Filled.Favorite, contentDescription = null, tint = NeonPink, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(4.dp))
-        Text("${engine.hp}", style = MaterialTheme.typography.titleMedium, color = ArcadeText)
+        Text("${hud.hp}", style = MaterialTheme.typography.titleMedium, color = ArcadeText)
         Spacer(Modifier.width(14.dp))
-        Text("● ${engine.gold}", style = MaterialTheme.typography.titleMedium, color = StarGold)
+        Text("● ${hud.gold}", style = MaterialTheme.typography.titleMedium, color = StarGold)
         Spacer(Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("RUNDE ${engine.round}", style = MaterialTheme.typography.titleMedium, color = ArcadeText)
-            val scale = engine.enemyScale
-            val type = engine.roundType
+            Text("RUNDE ${hud.round}", style = MaterialTheme.typography.titleMedium, color = ArcadeText)
+            val scale = hud.enemyScale
+            val type = hud.roundType
             Text(
                 when {
                     type != RoundType.NORMAL -> type.title
@@ -288,13 +288,13 @@ private fun TopHud(engine: RuneTacticsEngine, best: Int, revision: Int) {
         Spacer(Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.End) {
             Text(
-                "Lv ${engine.level} · ${engine.board.size}/${engine.boardCap}",
+                "Lv ${hud.level} · ${hud.boardCount}/${hud.boardCap}",
                 style = MaterialTheme.typography.titleSmall,
                 color = ArcadeText,
             )
-            val need = Economy.xpToNext(engine.level)
+            val need = Economy.xpToNext(hud.level)
             Text(
-                if (need > 0) "XP ${engine.xp}/$need" else "Max. Level",
+                if (need > 0) "XP ${hud.xp}/$need" else "Max. Level",
                 style = MaterialTheme.typography.labelSmall,
                 color = ArcadeTextMuted,
             )
@@ -366,21 +366,20 @@ private fun TraitBar(
 }
 
 @Composable
-@Suppress("UNUSED_PARAMETER") // revision erzwingt das Neuzeichnen
-private fun BottomPanel(viewModel: RuneTacticsViewModel, engine: RuneTacticsEngine, planning: Boolean, revision: Int) {
+private fun BottomPanel(viewModel: RuneTacticsViewModel, hud: HudState, planning: Boolean) {
     Column(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        ItemBar(engine.items.toList(), viewModel.selectedItem, enabled = planning, onSelect = viewModel::selectItem)
+        ItemBar(hud.items, viewModel.selectedItem, enabled = planning, onSelect = viewModel::selectItem)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            engine.shop.forEachIndexed { index, id ->
+            hud.shop.forEachIndexed { index, id ->
                 ShopCard(
                     def = id?.let { RuneTacticsUnits.byId(it) },
-                    affordable = id != null && RuneTacticsUnits.byId(id).cost <= engine.gold,
-                    combines = id != null && engine.wouldCombine(id),
+                    affordable = id != null && RuneTacticsUnits.byId(id).cost <= hud.gold,
+                    combines = id != null && id in hud.combinable,
                     enabled = planning,
                     onBuy = { viewModel.buy(index) },
                     onInfo = { def -> viewModel.inspect(Inspected(def, 1, false)) },
@@ -391,13 +390,13 @@ private fun BottomPanel(viewModel: RuneTacticsViewModel, engine: RuneTacticsEngi
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (planning) {
                 SecondaryButton(
-                    if (engine.freeRerolls > 0) "↻ Gratis" else "↻ Würfeln · ${Economy.REROLL_COST}", viewModel::reroll,
-                    Modifier.weight(1f).alpha(if (engine.gold >= Economy.REROLL_COST || engine.freeRerolls > 0) 1f else 0.45f),
+                    if (hud.freeRerolls > 0) "↻ Gratis" else "↻ Würfeln · ${Economy.REROLL_COST}", viewModel::reroll,
+                    Modifier.weight(1f).alpha(if (hud.gold >= Economy.REROLL_COST || hud.freeRerolls > 0) 1f else 0.45f),
                 )
                 SecondaryButton(
                     "▲ XP · ${Economy.XP_COST}", viewModel::buyXp,
                     Modifier.weight(1f).alpha(
-                        if (engine.gold >= Economy.XP_COST && engine.level < Economy.MAX_LEVEL) 1f else 0.45f,
+                        if (hud.gold >= Economy.XP_COST && hud.level < Economy.MAX_LEVEL) 1f else 0.45f,
                     ),
                 )
                 PrimaryButton("⚔ Kampf!", viewModel::fight, Modifier.weight(1.2f))
@@ -832,3 +831,39 @@ private fun AugmentOverlay(options: List<Augment>, onChoose: (Int) -> Unit) {
         }
     }
 }
+
+/**
+ * Unveränderliche Momentaufnahme der Werte für Kopf- und Fußleiste. Die Engine selbst ist veränderlich und bleibt
+ * dieselbe Instanz; Compose würde Leisten mit ihr als Parameter überspringen. Als Data Class vergleicht Compose den Inhalt.
+ */
+private data class HudState(
+    val hp: Int,
+    val gold: Int,
+    val round: Int,
+    val roundType: RoundType,
+    val enemyScale: Float,
+    val level: Int,
+    val xp: Int,
+    val boardCount: Int,
+    val boardCap: Int,
+    val shop: List<String?>,
+    val combinable: Set<String>,
+    val items: List<String>,
+    val freeRerolls: Int,
+)
+
+private fun RuneTacticsEngine.hudState() = HudState(
+    hp = hp,
+    gold = gold,
+    round = round,
+    roundType = roundType,
+    enemyScale = enemyScale,
+    level = level,
+    xp = xp,
+    boardCount = board.size,
+    boardCap = boardCap,
+    shop = shop.toList(),
+    combinable = shop.filterNotNull().filter(::wouldCombine).toSet(),
+    items = items.toList(),
+    freeRerolls = freeRerolls,
+)

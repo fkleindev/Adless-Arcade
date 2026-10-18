@@ -13,8 +13,8 @@ android {
         applicationId = "com.adlessarcade"
         minSdk = 26
         targetSdk = 35
-        versionCode = 31
-        versionName = "1.25.1"
+        versionCode = 32
+        versionName = "1.25.2"
     }
 
     buildTypes {
@@ -36,6 +36,8 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    testOptions { unitTests.isIncludeAndroidResources = true }
 
     buildFeatures {
         compose = true
@@ -60,4 +62,8 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
+    // Oberflächen-Tests (Compose) auf der JVM
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation("androidx.compose.ui:ui-test-junit4")
 }
