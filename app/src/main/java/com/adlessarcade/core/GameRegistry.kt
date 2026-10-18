@@ -13,6 +13,8 @@ import com.adlessarcade.games.gaterush.GateRushMode
 import com.adlessarcade.games.gaterush.GateRushPreview
 import com.adlessarcade.games.runetactics.RuneTactics
 import com.adlessarcade.games.runetactics.RuneTacticsPreview
+import com.adlessarcade.games.kitchen.KitchenPreview
+import com.adlessarcade.games.kitchen.KitchenRush
 import com.adlessarcade.core.leaderboard.LeaderboardVariant
 import com.adlessarcade.games.survivors.HeroClass
 import com.adlessarcade.games.survivors.Survivors
@@ -194,6 +196,29 @@ object GameRegistry {
                 ),
             ),
             preview = { modifier -> RuneTacticsPreview(modifier) },
+        ),
+        GameInfo(
+            id = KitchenRush.GAME_ID,
+            title = "Kitchen Rush",
+            tagline = "Kochen unter Zeitdruck",
+            description = "Bestellungen laufen ein: Zieh Zutaten aus dem Vorrat auf Brett, Schüssel und Herd, meistere jeden " +
+                "Kochschritt als Minispiel – Schneiden, Aufschlagen, Rühren, Wenden – und bring den Teller rechtzeitig zur " +
+                "Ausgabe. Misslingt etwas, hilft Mama.",
+            accent = Color(0xFFF97316),
+            accentSecondary = Color(0xFFFACC15),
+            modes = listOf(
+                ModeInfo(
+                    id = KitchenRush.MODE_CAMPAIGN,
+                    title = "Kampagne",
+                    description = "Frühstücks-Café mit 5 Leveln, je bis zu 3 Sterne. Pizzeria und Burger-Diner folgen.",
+                ),
+                ModeInfo(
+                    id = KitchenRush.MODE_ENDLESS,
+                    title = "Endlos",
+                    description = "Immer mehr Bestellungen, immer schneller. Nach 3 verpassten ist Schluss.",
+                ),
+            ),
+            preview = { modifier -> KitchenPreview(modifier) },
         ),
     )
 

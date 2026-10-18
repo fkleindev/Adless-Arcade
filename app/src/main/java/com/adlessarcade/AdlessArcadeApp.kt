@@ -8,6 +8,7 @@ import com.adlessarcade.core.SaveGameRepository
 import com.adlessarcade.core.leaderboard.LeaderboardKey
 import com.adlessarcade.core.leaderboard.LeaderboardRepository
 import com.adlessarcade.core.shop.ProfileRepository
+import com.adlessarcade.games.kitchen.KitchenProgressRepository
 import com.adlessarcade.games.survivors.progress.SurvivorsLegacy
 import com.adlessarcade.games.survivors.progress.SurvivorsProgressRepository
 import kotlinx.coroutines.CoroutineScope
@@ -22,6 +23,7 @@ class AdlessArcadeApp : Application() {
     val profile: ProfileRepository by lazy { ProfileRepository(this) }
     val leaderboards: LeaderboardRepository by lazy { LeaderboardRepository(this) }
     val survivorsProgress: SurvivorsProgressRepository by lazy { SurvivorsProgressRepository(this) }
+    val kitchenProgress: KitchenProgressRepository by lazy { KitchenProgressRepository(this) }
 
     override fun onCreate() {
         super.onCreate()

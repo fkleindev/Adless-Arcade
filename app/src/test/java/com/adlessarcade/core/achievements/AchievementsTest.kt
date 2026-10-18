@@ -50,9 +50,10 @@ class AchievementsTest {
         assertTrue(Achievements.derived(setOf(Achievements.BB_FULL_CLEAR, Achievements.GR_BOSS, Achievements.SV_EVOLUTION)).isEmpty())
         val all = setOf(
             Achievements.BB_FULL_CLEAR, Achievements.GR_BOSS, Achievements.SV_EVOLUTION, Achievements.GT_ROUND_CLEAR,
-            Achievements.RT_ROUND_15,
+            Achievements.RT_ROUND_15, Achievements.KR_THREE_STARS,
         )
         assertTrue(Achievements.derived(all - Achievements.RT_ROUND_15).isEmpty())
+        assertTrue(Achievements.derived(all - Achievements.KR_THREE_STARS).isEmpty())
         assertEquals(listOf(Achievements.ALL_ROUNDER), Achievements.derived(all).map { it.id })
         assertTrue(Achievements.derived(all + Achievements.ALL_ROUNDER).isEmpty())
     }

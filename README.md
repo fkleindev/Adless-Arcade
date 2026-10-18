@@ -48,11 +48,19 @@ Eine werbefreie Sammlung kleiner Spiele für Android – offline, ohne Tracking,
     ab Runde 50 +4 %). Score = erreichte Runde.
   - Modus *Tägliche Challenge*: gleiche Gegner und gleicher Start für alle pro Tag, eigener Tagesrekord.
   - Arenen (Brett-Farben) im Shop: Dämmerung, Elfenhain, Gruft, Frostfeste, Höllenschlund.
+- **Kitchen Rush** (Querformat): Overcooked trifft Cooking Mama. Bestellungen laufen als Bons ein; Zutaten aus dem Vorrat
+  auf Brett, Schüssel und Herd ziehen, jeden Kochschritt als Gesten-Minispiel meistern (Schneiden, Schälen, Reiben,
+  Aufschlagen, Gießen, Rühren, Wenden, Hitze halten, Anrichten, Würzen) und den fertigen Teller zur Ausgabe ziehen.
+  Pfannen garen im Hintergrund weiter und brennen an, wenn man sie vergisst. Misslingt ein Schritt, hilft Mama (0 Punkte
+  für den Schritt). Punkte je nach Genauigkeit und Restzeit, Kombo für Drei-Sterne-Gerichte.
+  - Modus *Kampagne*: Frühstücks-Café mit 5 Leveln (Spiegelei, Toast, Obstsalat, Käse-Omelett, Pfannkuchen), je bis zu
+    3 Sterne; Pizzeria und Burger-Diner folgen.
+  - Modus *Endlos*: immer mehr und schnellere Bestellungen, nach 3 verpassten ist Schluss.
 
 **Rund um die Spiele**
 - **Coins & Shop**: In allen Spielen Coins verdienen und gegen Skins, Kartenrückseiten, Hintergründe, Arenen, App-Themes, Avatare und Titel tauschen.
 - **Bestenlisten**: Lokale Top 10 pro Modus (mit App-Version je Eintrag), bei Rune Survivors zusätzlich pro Stage und Klasse.
-- **Erfolge**: 19 Erfolge über alle Spiele, jeder schaltet einen exklusiven Titel frei, den es nicht im Shop gibt.
+- **Erfolge**: 22 Erfolge über alle Spiele, jeder schaltet einen exklusiven Titel frei, den es nicht im Shop gibt.
 - **Fortsetzen**: Jedes Spiel lässt sich pausieren und später weiterspielen, auch nach einem App-Neustart.
 
 ## Bauen & Starten

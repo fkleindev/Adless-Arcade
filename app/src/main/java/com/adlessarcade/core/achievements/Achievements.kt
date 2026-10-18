@@ -22,6 +22,7 @@ object Achievements {
     private const val SURVIVORS = "survivors"
     private const val GALAXY_TOWERS = "galaxytowers"
     private const val RUNE_TACTICS = "runetactics"
+    private const val KITCHEN_RUSH = "kitchenrush"
 
     // Block Break
     const val BB_FULL_CLEAR = "bb_full_clear"
@@ -51,6 +52,11 @@ object Achievements {
     const val RT_THREE_STAR = "rt_three_star"
     const val RT_FULL_SYNERGY = "rt_full_synergy"
 
+    // Kitchen Rush
+    const val KR_THREE_STARS = "kr_three_stars"
+    const val KR_STREAK = "kr_streak"
+    const val KR_CHEF = "kr_chef"
+
     // Spielübergreifend
     const val ALL_ROUNDER = "all_rounder"
 
@@ -64,6 +70,8 @@ object Achievements {
     const val GT_STREAK_TARGET = 15
     const val GT_ROUND_TARGET = 5
     const val RT_ROUND_TARGET = 15
+    const val KR_STREAK_TARGET = 10
+    const val KR_CHEF_SCORE = 3000
 
     val all: List<Achievement> = listOf(
         Achievement(BB_FULL_CLEAR, BLOCK_BREAK, "Tabula Rasa", "Räume das komplette Brett leer.", "✨", "Tabula Rasa"),
@@ -88,6 +96,10 @@ object Achievements {
         Achievement(RT_ROUND_15, RUNE_TACTICS, "Feldherr", "Erreiche Runde $RT_ROUND_TARGET.", "⚔️", "Feldherr"),
         Achievement(RT_THREE_STAR, RUNE_TACTICS, "Dreigestirn", "Werte eine Einheit auf ★★★ auf.", "⭐", "Dreigestirn"),
         Achievement(RT_FULL_SYNERGY, RUNE_TACTICS, "Bannerträger", "Aktiviere eine Synergie auf höchster Stufe.", "🚩", "Bannerträger"),
+
+        Achievement(KR_THREE_STARS, KITCHEN_RUSH, "Sternekoch", "Serviere ein Gericht mit drei Sternen.", "👩‍🍳", "Sternekoch"),
+        Achievement(KR_STREAK, KITCHEN_RUSH, "Fließband", "Serviere $KR_STREAK_TARGET Gerichte in Folge, ohne eine Bestellung zu verpassen.", "🍳", "Fließbandkoch"),
+        Achievement(KR_CHEF, KITCHEN_RUSH, "Küchenchef", "Erreiche im Endlos-Modus $KR_CHEF_SCORE Punkte.", "🥞", "Küchenchef"),
 
         Achievement(ALL_ROUNDER, null, "Allrounder", "Schaffe in jedem Spiel mindestens einen Erfolg.", "🏆", "Allrounder"),
     )
