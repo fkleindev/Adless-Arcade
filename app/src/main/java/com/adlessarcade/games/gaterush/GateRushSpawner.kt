@@ -23,6 +23,8 @@ data class SpawnerState(
     var wave: Int = 1,
     var bossPhase: Boolean = false,
     var phaseTimer: Float = GateRushSpawner.ARM_TIME_FIRST,
+    /** Spielzeit des letzten Gegner-Spawns – frische Gruppen sollen nicht von neuen Hindernissen verdeckt werden. */
+    var lastEnemySpawn: Float = -10f,
 )
 
 /**
@@ -38,6 +40,11 @@ internal class GateRushSpawner(
         const val ARM_TIME_FIRST = 18f
         const val ARM_TIME = 12f
         private const val SPACING = 8f
+        /** Hindernisse näher als das sind schon fast am Spieler und verdecken nichts mehr. */
+        private const val SHADOW_MIN_Z = 2f
+        private const val SHADOW_MARGIN = 0.03f
+        /** So lange liegen frisch gespawnte Gegner noch hinter der Hindernis-Spawnlinie. */
+        private const val FRESH_ENEMY_TIME = 0.8f
     }
 
     /**
@@ -92,7 +99,7 @@ internal class GateRushSpawner(
 
         s.obstacleTimer -= dt
         if (s.obstacleTimer <= 0f) {
-            if (gateNearSpawn()) {
+            if (obstacleMustWait()) {
                 s.obstacleTimer = 1f
             } else {
                 s.obstacleTimer = (10f - t / 40f).coerceAtLeast(4f) * (0.8f + 0.4f * random.nextFloat())
@@ -134,10 +141,10 @@ internal class GateRushSpawner(
             s.enemyTimer -= dt
             if (s.enemyTimer <= 0f) {
                 s.enemyTimer = 1.6f
-                e.spawnEnemy(EnemyType.RUNNER, randomX(), Z_FAR, hpMultiplier = waveMultiplier(s.wave))
+                e.spawnEnemy(EnemyType.RUNNER, freeLane().x, Z_FAR, hpMultiplier = waveMultiplier(s.wave))
             }
             s.obstacleTimer -= dt
-            if (s.wave >= 2 && s.obstacleTimer <= 0f && !gateNearSpawn()) {
+            if (s.wave >= 2 && s.obstacleTimer <= 0f && !obstacleMustWait()) {
                 s.obstacleTimer = 6f
                 spawnObstaclePattern(wallAllowed = s.wave >= 3)
             }
@@ -177,9 +184,47 @@ internal class GateRushSpawner(
     private fun gateNearSpawn() = e.gates.any { it.z > Z_FAR - SPACING }
     private fun obstacleNearSpawn() = e.obstacles.any { it.z > Z_FAR - SPACING }
 
+    // Ein Hindernis vor einer frischen Gegnergruppe würde sie bis kurz vor der Linie verdecken.
+    private fun obstacleMustWait() = gateNearSpawn() || e.time - state.lastEnemySpawn < FRESH_ENEMY_TIME
+
+    /** Freier Streifen [min]..[max] der Straße, in dem [x] liegt. */
+    private class Lane(val x: Float, val min: Float, val max: Float)
+
+    /**
+     * Zufällige Spawn-Position, die nicht im Schatten eines Hindernisses liegt. Gegner laufen etwa so schnell wie die
+     * Hindernisse und blieben dahinter fast bis zur Linie unerreichbar. Verbraucht genau einen Zufallswert wie
+     * [randomX], damit der Aufbau der Täglichen Challenge gleich bleibt.
+     */
+    private fun freeLane(): Lane {
+        state.lastEnemySpawn = e.time
+        val roll = random.nextFloat()
+        val blocked = e.obstacles
+            .filter { it.z > SHADOW_MIN_Z }
+            .map { (it.x - it.halfWidth - SHADOW_MARGIN) to (it.x + it.halfWidth + SHADOW_MARGIN) }
+            .sortedBy { it.first }
+        val free = ArrayList<Pair<Float, Float>>()
+        var start = -MAX_X
+        for ((from, to) in blocked) {
+            if (from > start) free += start to from
+            start = maxOf(start, to)
+        }
+        if (start < MAX_X) free += start to MAX_X
+        val total = free.sumOf { (it.second - it.first).toDouble() }.toFloat()
+        // Komplett zugestellt (sehr selten): dann eben irgendwo.
+        if (total <= 0f) return Lane(roll * 2f * MAX_X - MAX_X, -MAX_X, MAX_X)
+        var rest = roll * total
+        for ((from, to) in free) {
+            if (rest <= to - from) return Lane(from + rest, from, to)
+            rest -= to - from
+        }
+        val (from, to) = free.last()
+        return Lane(to, from, to)
+    }
+
     /** Ein Gegner bzw. eine Gegnergruppe; [t] bestimmt, welche Typen schon vorkommen. */
     private fun spawnWaveUnit(hpMultiplier: Float, t: Float) {
-        val x = randomX()
+        val lane = freeLane()
+        val x = lane.x
         val z = Z_FAR + random.nextFloat() * 2f
         if (t < WARMUP_TIME) {
             e.spawnEnemy(EnemyType.RUNNER, x, z, hpMultiplier)
@@ -196,7 +241,7 @@ internal class GateRushSpawner(
             repeat(4 + (t / 90f).toInt().coerceAtMost(4)) {
                 e.spawnEnemy(
                     EnemyType.SWARM,
-                    x + random.nextFloat() * 0.4f - 0.2f,
+                    (x + random.nextFloat() * 0.4f - 0.2f).coerceIn(lane.min, lane.max),
                     z + random.nextFloat() * 2f,
                     hpMultiplier,
                 )

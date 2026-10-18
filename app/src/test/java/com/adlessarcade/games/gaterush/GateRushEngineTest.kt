@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
 
 class GateRushEngineTest {
 
@@ -518,6 +519,27 @@ class GateRushEngineTest {
         }
         assertTrue(e.killScore > 0 || e.enemies.isNotEmpty())
         assertTrue(sawGate && sawCrate && sawObstacle && sawPickup)
+    }
+
+    @Test
+    fun autoSpawn_enemiesNeverSpawnBehindObstacles() {
+        for (seed in 1L..6L) {
+            val e = engine(autoSpawn = true, seed = seed)
+            e.stats.hearts = 1_000
+            val seen = HashSet<Long>()
+            repeat(4_000) {
+                e.update(0.05f)
+                for (enemy in e.enemies) {
+                    if (enemy.type in setOf(EnemyType.BOSS, EnemyType.ZIGZAG, EnemyType.SPLITLING)) continue
+                    // Frische Gegner (neu oder noch hinter der Spawnlinie) dürfen nicht hinter einem Hindernis stehen.
+                    if (!seen.add(enemy.id) && enemy.z < GateRushEngine.Z_FAR) continue
+                    val shadow = e.obstacles.firstOrNull {
+                        it.z > 2f && it.z < enemy.z && abs(enemy.x - it.x) < it.halfWidth
+                    }
+                    assertTrue("Seed $seed: ${enemy.type} bei x=${enemy.x} hinter Hindernis", shadow == null)
+                }
+            }
+        }
     }
 
     private fun <T> assertNotNullAndGet(value: T?): T {
