@@ -16,7 +16,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import kotlin.math.PI
 import kotlin.math.min
+import kotlin.math.cos
 import kotlin.math.sin
 
 internal val Wall = Color(0xFFFFF4E0)
@@ -30,8 +32,14 @@ internal val Bad = Color(0xFFEF4444)
 /** Was gerade gezogen wird: Startstation, Gegenstand (oder Teller) und Fingerposition. */
 data class KitchenDrag(val from: Station, val item: Item?, val plate: Plate?, val pos: Offset)
 
-/** Rein visuelle Einblendung (Text, der aufsteigt und verblasst). */
-class KitchenEffect(val text: String, val pos: Offset, val color: Color, val lifetime: Float = 1.3f) {
+/** Rein visuelle Einblendung: aufsteigender Text, oder ein kurzer Ring ([ring]) beim Ablegen. */
+class KitchenEffect(val text: String, val pos: Offset, val color: Color, val lifetime: Float = 1.3f, val ring: Boolean = false) {
+    var age = 0f
+    val progress: Float get() = (age / lifetime).coerceIn(0f, 1f)
+}
+
+/** Servierter Teller auf dem Weg zur Ausgabe. */
+class KitchenFly(val from: Offset, val to: Offset, val components: List<ItemKind>, val lifetime: Float = 0.45f) {
     var age = 0f
     val progress: Float get() = (age / lifetime).coerceIn(0f, 1f)
 }
@@ -61,6 +69,7 @@ internal fun DrawScope.drawKitchen(
     effects: List<KitchenEffect>,
     time: Float,
     tm: TextMeasurer,
+    flies: List<KitchenFly> = emptyList(),
 ) {
     val unit = min(layout.kitchen.height, layout.width * 0.5f)
     drawBackground(layout, unit)
@@ -88,7 +97,17 @@ internal fun DrawScope.drawKitchen(
     }
 
     for (e in effects) {
-        label(tm, e.text, e.pos - Offset(0f, unit * 0.15f * e.progress), unit * 0.06f, e.color, alpha = 1f - e.progress)
+        if (e.ring) {
+            drawCircle(e.color.copy(alpha = 0.6f * (1f - e.progress)), unit * (0.06f + 0.12f * e.progress), e.pos, style = Stroke(unit * 0.012f))
+        } else {
+            label(tm, e.text, e.pos - Offset(0f, unit * 0.15f * e.progress), unit * 0.06f, e.color, alpha = 1f - e.progress)
+        }
+    }
+    // Servierte Teller fliegen zur Ausgabe
+    for (fly in flies) {
+        val t = fly.progress
+        val p = fly.from + (fly.to - fly.from) * t - Offset(0f, sin(t * PI.toFloat()) * unit * 0.25f)
+        drawPlate(p, unit * 0.28f * (1f - 0.4f * t), fly.components, ready = true, time = time)
     }
 }
 
@@ -153,11 +172,23 @@ private fun DrawScope.drawStove(layout: KitchenLayout, engine: KitchenEngine, un
         outlinedCircle(c, pr, Color(0xFF292524), unit * 0.008f)
         drawCircle(Color(0xFF44403C), pr * 0.82f, c)
         pan.item?.let { item ->
-            val shown = if (item.kind == ItemKind.BURNT) ItemKind.BURNT else if (pan.progress >= 0.5f) pan.rule?.output ?: item.kind else item.kind
-            drawFood(shown, c, pr * 1.45f)
-            // Bräunung: Gerichte werden mit der Zeit dunkler
-            if (pan.progress > 1f && item.kind != ItemKind.BURNT) {
-                drawCircle(Color(0xFF451A03).copy(alpha = ((pan.progress - 1f) / (KitchenCatalog.BURN_AT - 1f) * 0.6f).coerceIn(0f, 0.6f)), pr * 0.7f, c)
+            // In der Pfanne liegt immer das gegarte Gericht (ein Ei ist sofort aufgeschlagen), das mit der Zeit bräunt
+            if (item.kind == ItemKind.BURNT) {
+                drawFood(ItemKind.BURNT, c, pr * 1.45f)
+            } else {
+                val shown = pan.rule?.output ?: item.kind
+                // Wird gewendet, zeigt die Oberseite die schon gebräunte Seite
+                val doneness = if (pan.rule?.flip == true && !pan.flipped) pan.progress * 0.35f else pan.progress
+                drawFood(shown, c, pr * 1.45f, doneness = doneness, garnish = false)
+                if (pan.rule?.flip == true && !pan.flipped) {
+                    // Unterseite schimmert am Rand durch
+                    drawCircle(cookColor(Color(0xFFFEF3C7), Color(0xFFE6A85C), pan.progress).copy(alpha = 0.7f), pr * 0.62f, c, style = Stroke(pr * 0.08f))
+                }
+                // Brutzeln: kleine Bläschen
+                for (k in 0 until 4) {
+                    val a = time * 3f + k * 1.7f + i
+                    drawCircle(Color.White.copy(alpha = 0.35f), pr * 0.05f, c + Offset(cos(a) * pr * 0.55f, sin(a * 1.3f) * pr * 0.45f))
+                }
             }
             // Fortschrittsring
             val color = when {

@@ -54,7 +54,7 @@ enum class MiniGameKind(val title: String, val hint: String) {
     STIR("Rühren", "Ziehe gleichmäßige Kreise – nicht zu schnell"),
     FLIP("Wenden", "Wische nach oben, wenn es goldbraun ist"),
     HEAT("Hitze halten", "Halten heizt, Loslassen kühlt – bleib im grünen Bereich"),
-    PLATE("Anrichten", "Ziehe die Zutaten auf die Markierungen"),
+    PLATE("Anrichten", "Ziehe jede Zutat auf einen Platz, der sie blass zeigt"),
     SEASON("Würzen", "Tippe auf den Streuer, bis die Anzeige im grünen Bereich ist"),
 }
 

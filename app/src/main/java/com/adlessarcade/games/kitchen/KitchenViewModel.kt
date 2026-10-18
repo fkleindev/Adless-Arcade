@@ -66,6 +66,7 @@ class KitchenViewModel(app: Application, savedStateHandle: SavedStateHandle) : A
     var layout: KitchenLayout? = null
         private set
     val effects = ArrayList<KitchenEffect>()
+    val flies = ArrayList<KitchenFly>()
     var time = 0f
         private set
 
@@ -211,6 +212,8 @@ class KitchenViewModel(app: Application, savedStateHandle: SavedStateHandle) : A
         time += dt
         effects.forEach { it.age += dt }
         effects.removeAll { it.age >= it.lifetime }
+        flies.forEach { it.age += dt }
+        flies.removeAll { it.age >= it.lifetime }
         if (banner != null) {
             bannerTimer -= dt
             if (bannerTimer <= 0f) banner = null
@@ -373,12 +376,18 @@ class KitchenViewModel(app: Application, savedStateHandle: SavedStateHandle) : A
     fun drop(from: Station, to: Station) {
         val e = engine ?: return
         if (!canAct) return
+        val plate = (from as? Station.PlateSpot)?.let { e.plates[it.index] }
         if (e.move(from, to)) {
             recipe = null
-            handleEvents(e)
-        } else {
-            handleEvents(e)
+            layout?.let { l ->
+                if (to == Station.Serve && plate != null) {
+                    flies += KitchenFly(l.rectOf(from).center, l.serve.center, plate.components.map { it.kind })
+                } else {
+                    effects += KitchenEffect("", l.rectOf(to).center, Color.White, lifetime = 0.35f, ring = true)
+                }
+            }
         }
+        handleEvents(e)
         refreshHud()
         frame++
     }

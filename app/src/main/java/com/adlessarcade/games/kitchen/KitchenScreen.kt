@@ -162,7 +162,7 @@ private fun GameView(viewModel: KitchenViewModel, onExit: () -> Unit) {
             viewModel.frame // Neuzeichnen pro Frame
             val layout = viewModel.layout ?: KitchenLayout(size.width, size.height)
             val engine = viewModel.engine ?: return@Canvas
-            drawKitchen(layout, engine, drag, viewModel.effects, viewModel.time, tm)
+            drawKitchen(layout, engine, drag, viewModel.effects, viewModel.time, tm, viewModel.flies)
             drawMiniGameOverlay(layout, engine, viewModel.time, tm)
         }
 

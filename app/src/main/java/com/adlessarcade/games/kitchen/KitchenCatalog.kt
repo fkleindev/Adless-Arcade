@@ -90,7 +90,7 @@ object KitchenCatalog {
         LevelDef("cafe_1", Restaurant.CAFE, 1, listOf("fried_egg", "toast"), 150f, 24f, 75f, 2, 0.05f, listOf(300, 600, 950)),
         LevelDef("cafe_2", Restaurant.CAFE, 2, listOf("fried_egg", "toast", "fruit_salad"), 165f, 22f, 80f, 3, 0.2f, listOf(300, 550, 850)),
         LevelDef("cafe_3", Restaurant.CAFE, 3, listOf("toast", "fruit_salad", "omelette"), 180f, 22f, 85f, 3, 0.35f, listOf(300, 550, 850)),
-        LevelDef("cafe_4", Restaurant.CAFE, 4, listOf("fried_egg", "omelette", "pancake"), 180f, 20f, 70f, 3, 0.5f, listOf(320, 600, 900)),
+        LevelDef("cafe_4", Restaurant.CAFE, 4, listOf("fried_egg", "omelette", "pancake"), 180f, 20f, 70f, 3, 0.5f, listOf(300, 560, 860)),
         LevelDef("cafe_5", Restaurant.CAFE, 5, dishes.map { it.id }, 180f, 16f, 60f, 4, 0.7f, listOf(350, 650, 950)),
     )
 

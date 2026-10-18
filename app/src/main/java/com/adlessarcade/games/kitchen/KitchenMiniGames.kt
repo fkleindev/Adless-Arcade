@@ -3,7 +3,9 @@ package com.adlessarcade.games.kitchen
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.sin
 import kotlin.random.Random
 
 /**
@@ -52,11 +54,12 @@ sealed class MiniGame(val kind: MiniGameKind, val difficulty: Float, protected v
     companion object {
         const val FAIL_BELOW = 0.3f
 
-        fun create(kind: MiniGameKind, difficulty: Float, aspect: Float, seed: Long): MiniGame {
+        /** [kinds]: Komponenten des Gerichts (fürs Anrichten). */
+        fun create(kind: MiniGameKind, difficulty: Float, aspect: Float, seed: Long, kinds: List<ItemKind> = emptyList()): MiniGame {
             val d = difficulty.coerceIn(0f, 1f)
             val rng = Random(seed)
             return when (kind) {
-                MiniGameKind.CHOP -> Chop(d, aspect, rng)
+                MiniGameKind.CHOP -> Chop(d, aspect)
                 MiniGameKind.PEEL -> Peel(d, aspect)
                 MiniGameKind.GRATE -> Grate(d, aspect)
                 MiniGameKind.CRACK -> Crack(d, aspect, rng)
@@ -64,18 +67,23 @@ sealed class MiniGame(val kind: MiniGameKind, val difficulty: Float, protected v
                 MiniGameKind.STIR -> Stir(d, aspect)
                 MiniGameKind.FLIP -> Flip(d, aspect)
                 MiniGameKind.HEAT -> Heat(d, aspect, rng)
-                MiniGameKind.PLATE -> PlateUp(d, aspect, rng)
+                MiniGameKind.PLATE -> PlateUp(d, aspect, kinds.ifEmpty { listOf(ItemKind.TOAST) })
                 MiniGameKind.SEASON -> Season(d, aspect, rng)
             }
         }
     }
 }
 
-/** Messer fährt von links nach rechts; an jeder Linie tippen. */
-class Chop(difficulty: Float, aspect: Float, rng: Random) : MiniGame(MiniGameKind.CHOP, difficulty, aspect) {
+/** Messer fährt von links nach rechts; an jeder Linie (Mitte eines Stücks) tippen. */
+class Chop(difficulty: Float, aspect: Float) : MiniGame(MiniGameKind.CHOP, difficulty, aspect) {
     val lines: List<Float>
     /** Genauigkeit je Linie, null = noch nicht geschnitten. */
     val cuts: Array<Float?>
+    /** Zeitpunkt jedes Schnitts (für die Animation), −1 = ungeschnitten. */
+    val cutTimes: FloatArray
+    /** Letzter Tipp (Messer fährt kurz herunter). */
+    var lastTap = -1f
+        private set
     var knifeX = START
         private set
     val speed = 0.16f + 0.14f * difficulty
@@ -83,9 +91,11 @@ class Chop(difficulty: Float, aspect: Float, rng: Random) : MiniGame(MiniGameKin
 
     init {
         val n = 3 + (difficulty * 3).toInt()
+        // Gleichmäßig verteilt: jede Linie liegt genau in der Mitte eines Stücks
         val spacing = (END - START - 0.12f) / n
-        lines = (0 until n).map { START + 0.08f + spacing * (it + 0.5f) + (rng.nextFloat() - 0.5f) * spacing * 0.3f }
+        lines = (0 until n).map { START + 0.08f + spacing * (it + 0.5f) }
         cuts = arrayOfNulls(n)
+        cutTimes = FloatArray(n) { -1f }
     }
 
     override val timeLimit = 12f
@@ -99,12 +109,14 @@ class Chop(difficulty: Float, aspect: Float, rng: Random) : MiniGame(MiniGameKin
 
     override fun down(x: Float, y: Float) {
         if (done) return
+        lastTap = time
         val index = lines.indices.filter { cuts[it] == null }.minByOrNull { abs(lines[it] - knifeX) }
         if (index == null || abs(lines[index] - knifeX) > tolerance) {
             errors++
             return
         }
         cuts[index] = closeness(lines[index] - knifeX, tolerance) * 0.5f + 0.5f
+        cutTimes[index] = time
         if (cuts.all { it != null }) finish()
     }
 
@@ -122,6 +134,8 @@ class Peel(difficulty: Float, aspect: Float) : MiniGame(MiniGameKind.PEEL, diffi
     val bands = 3 + (difficulty * 2).toInt()
     /** Geschälter Anteil je Streifen, in 20 Abschnitten. */
     val peeled: Array<BooleanArray> = Array(bands) { BooleanArray(SEGMENTS) }
+    /** Zeitpunkt, an dem ein Abschnitt geschält wurde (für fallende Schalenstreifen). */
+    val peelTimes: Array<FloatArray> = Array(bands) { FloatArray(SEGMENTS) { -1f } }
     private var lastX = -1f
 
     override val timeLimit = 7f - 2f * difficulty
@@ -151,7 +165,10 @@ class Peel(difficulty: Float, aspect: Float) : MiniGame(MiniGameKind.PEEL, diffi
         val b = maxOf(from, to)
         for (s in 0 until SEGMENTS) {
             val sx = LEFT + (RIGHT - LEFT) * (s + 0.5f) / SEGMENTS
-            if (sx in a..b || abs(sx - from) < 0.02f) peeled[band][s] = true
+            if ((sx in a..b || abs(sx - from) < 0.02f) && !peeled[band][s]) {
+                peeled[band][s] = true
+                peelTimes[band][s] = time
+            }
         }
     }
 
@@ -173,6 +190,9 @@ class Grate(difficulty: Float, aspect: Float) : MiniGame(MiniGameKind.GRATE, dif
     var progress = 0f
         private set
     private var lastY = -1f
+    /** Letzte Wischbewegung (Späne fallen nur, solange gerieben wird). */
+    var lastMove = -1f
+        private set
     private val needed = 3.5f + 2.5f * difficulty
 
     override val timeLimit = 6f
@@ -184,6 +204,7 @@ class Grate(difficulty: Float, aspect: Float) : MiniGame(MiniGameKind.GRATE, dif
     override fun move(x: Float, y: Float) {
         if (done || lastY < 0f) return
         progress = (progress + abs(y - lastY) / needed).coerceAtMost(1f)
+        if (abs(y - lastY) > 0.005f) lastMove = time
         lastY = y
         if (progress >= 1f) finish()
     }
@@ -205,6 +226,9 @@ class Crack(difficulty: Float, aspect: Float, rng: Random) : MiniGame(MiniGameKi
         private set
     private var dir = 1f
     private var result = 0f
+    /** Zeitpunkt des Aufschlagens (Animation). */
+    var tapTime = -1f
+        private set
 
     override val timeLimit = 6f
 
@@ -219,6 +243,7 @@ class Crack(difficulty: Float, aspect: Float, rng: Random) : MiniGame(MiniGameKi
 
     override fun down(x: Float, y: Float) {
         if (done) return
+        tapTime = time
         val dist = pointer - zoneCenter
         if (abs(dist) > zoneHalf) {
             errors++
@@ -347,6 +372,9 @@ class Flip(difficulty: Float, aspect: Float) : MiniGame(MiniGameKind.FLIP, diffi
     private val rate = 0.28f + 0.17f * difficulty
     private var downY = -1f
     private var flippedAt = -1f
+    /** Zeitpunkt des Wendens (Animation), −1 = noch nicht gewendet. */
+    var flipTime = -1f
+        private set
 
     override val timeLimit = 10f
 
@@ -368,6 +396,7 @@ class Flip(difficulty: Float, aspect: Float) : MiniGame(MiniGameKind.FLIP, diffi
         if (done || downY < 0f) return
         if (downY - y > 0.15f) {
             flippedAt = browning
+            flipTime = time
             finish()
         }
     }
@@ -420,28 +449,52 @@ class Heat(difficulty: Float, aspect: Float, rng: Random) : MiniGame(MiniGameKin
     override val accuracy: Float get() = if (critical) 0f else (inZone / (duration * 0.75f)).coerceIn(0f, 1f)
 }
 
-/** Zutaten aus der Ablage auf die Markierungen am Teller ziehen. */
-class PlateUp(difficulty: Float, aspect: Float, rng: Random) : MiniGame(MiniGameKind.PLATE, difficulty, aspect) {
-    class Piece(val homeX: Float, val homeY: Float, val targetX: Float, val targetY: Float) {
+/**
+ * Zutaten aus der Ablage auf den Teller legen. Jeder Platz zeigt, welche Zutat dorthin gehört; ein Stück passt auf
+ * jeden freien Platz seiner Sorte (z. B. jede Toastscheibe auf jeden Toast-Platz).
+ */
+class PlateUp(difficulty: Float, aspect: Float, kinds: List<ItemKind>) : MiniGame(MiniGameKind.PLATE, difficulty, aspect) {
+    class Spot(val kind: ItemKind, val x: Float, val y: Float) {
+        var filled = false
+    }
+
+    class Piece(val kind: ItemKind, val homeX: Float, val homeY: Float) {
         var x = homeX
         var y = homeY
         var placed: Float? = null
+        /** Zeitpunkt des Ablegens (kleiner Hüpfer). */
+        var placedAt = -1f
     }
 
+    val spots: List<Spot>
     val pieces: List<Piece>
     private var dragging: Piece? = null
     val tolerance = 0.1f - 0.04f * difficulty
 
     init {
-        val n = 3 + (difficulty * 2).toInt()
-        pieces = (0 until n).map { i ->
-            val a = i * 2f * PI.toFloat() / n + rng.nextFloat() * 0.4f
-            Piece(
-                homeX = 0.12f + 0.08f * (i % 2),
-                homeY = 0.2f + 0.6f * i / (n - 1).coerceAtLeast(1),
-                targetX = 0.6f + kotlin.math.cos(a) * 0.22f / aspect,
-                targetY = 0.5f + kotlin.math.sin(a) * 0.22f,
-            )
+        val extra = (difficulty * 2).toInt()
+        // Hauptzutat in die Mitte, Beilagen im Kreis darum; bei nur einer Zutat mehrere Stücke davon
+        val main = kinds.first()
+        val around = when (kinds.size) {
+            1 -> List(2 + extra) { main }
+            else -> List(2 + extra) { kinds[1 + it % (kinds.size - 1)] }
+        }
+        val centerKind = if (kinds.size == 1) null else main
+        val spotList = ArrayList<Spot>()
+        if (centerKind != null) spotList += Spot(centerKind, CENTER_X, CENTER_Y)
+        val ring = if (kinds.size == 1) around + main else around
+        val r = if (centerKind != null) 0.24f else 0.17f
+        ring.forEachIndexed { i, kind ->
+            val a = i * 2f * PI.toFloat() / ring.size - PI.toFloat() / 2f
+            spotList += Spot(kind, CENTER_X + cos(a) * r / aspect * 1.25f, CENTER_Y + sin(a) * r)
+        }
+        spots = spotList
+        // Ablage links: gleiche Sorten nebeneinander
+        val sorted = spots.map { it.kind }.sortedBy { kinds.indexOf(it) }
+        pieces = sorted.mapIndexed { i, kind ->
+            val col = i % 2
+            val row = i / 2
+            Piece(kind, 0.1f + col * 0.1f, 0.28f + row * 0.2f)
         }
     }
 
@@ -449,7 +502,7 @@ class PlateUp(difficulty: Float, aspect: Float, rng: Random) : MiniGame(MiniGame
 
     override fun down(x: Float, y: Float) {
         dragging = pieces.filter { it.placed == null }.minByOrNull { dist(it.x, it.y, x, y) }
-            ?.takeIf { dist(it.x, it.y, x, y) < 0.12f }
+            ?.takeIf { dist(it.x, it.y, x, y) < 0.14f }
     }
 
     override fun move(x: Float, y: Float) {
@@ -459,11 +512,14 @@ class PlateUp(difficulty: Float, aspect: Float, rng: Random) : MiniGame(MiniGame
     override fun up(x: Float, y: Float) {
         val p = dragging ?: return
         dragging = null
-        val d = dist(p.x, p.y, p.targetX, p.targetY)
-        if (d <= tolerance * 2.5f) {
-            p.placed = closeness(d, tolerance * 2.5f) * 0.6f + 0.4f
-            p.x = p.x * 0.5f + p.targetX * 0.5f
-            p.y = p.y * 0.5f + p.targetY * 0.5f
+        val spot = spots.filter { !it.filled && it.kind == p.kind }.minByOrNull { dist(p.x, p.y, it.x, it.y) }
+        val d = spot?.let { dist(p.x, p.y, it.x, it.y) } ?: Float.MAX_VALUE
+        if (spot != null && d <= SNAP * (1f - 0.3f * difficulty)) {
+            spot.filled = true
+            p.placed = closeness(d, SNAP) * 0.6f + 0.4f
+            p.placedAt = time
+            p.x = spot.x
+            p.y = spot.y
         } else {
             p.x = p.homeX
             p.y = p.homeY
@@ -475,6 +531,13 @@ class PlateUp(difficulty: Float, aspect: Float, rng: Random) : MiniGame(MiniGame
     private fun dist(x1: Float, y1: Float, x2: Float, y2: Float) = hypot((x1 - x2) * aspect, y1 - y2)
 
     override val accuracy: Float get() = pieces.sumOf { (it.placed ?: 0f).toDouble() }.toFloat() / pieces.size
+
+    companion object {
+        const val CENTER_X = 0.6f
+        const val CENTER_Y = 0.52f
+        /** Fangradius eines Platzes (in Flächenhöhen); kleiner als der Abstand zwischen zwei Plätzen. */
+        const val SNAP = 0.16f
+    }
 }
 
 /** Auf den Streuer tippen, bis die Anzeige im Zielbereich ist; eine Sekunde Pause beendet. */
@@ -485,6 +548,8 @@ class Season(difficulty: Float, aspect: Float, rng: Random) : MiniGame(MiniGameK
     var amount = 0f
         private set
     private var lastShake = -1f
+    /** Zeitpunkte der letzten Schüttler (fallende Körnchen). */
+    val shakes = ArrayList<Float>()
 
     override val timeLimit = 8f
 
@@ -498,6 +563,8 @@ class Season(difficulty: Float, aspect: Float, rng: Random) : MiniGame(MiniGameK
         if (done) return
         amount = (amount + perShake).coerceAtMost(1f)
         lastShake = time
+        shakes += time
+        if (shakes.size > 8) shakes.removeAt(0)
         if (amount > target + tolerance * 2.5f) {
             critical = true // versalzen
             errors++

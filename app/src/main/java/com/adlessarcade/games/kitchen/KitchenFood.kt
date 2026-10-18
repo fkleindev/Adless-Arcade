@@ -43,8 +43,17 @@ private fun DrawScope.shine(c: Offset, r: Float, alpha: Float) {
     drawOval(Color.White.copy(alpha = 0.55f * alpha), c - Offset(r, r * 0.6f), Size(r * 2f, r * 1.2f))
 }
 
-/** Zeichnet eine Zutat oder ein Zwischenprodukt; [s] ist die Größe (≈ Durchmesser). */
-internal fun DrawScope.drawFood(kind: ItemKind, c: Offset, s: Float, alpha: Float = 1f) {
+/** Farbe beim Garen: roh → fertig (doneness 1) → dunkel bis verbrannt. */
+internal fun cookColor(raw: Color, done: Color, doneness: Float): Color = when {
+    doneness <= 1f -> lerp(raw, done, doneness.coerceIn(0f, 1f))
+    else -> lerp(done, Color(0xFF3B1F0F), ((doneness - 1f) / (KitchenCatalog.BURN_AT - 1f)).coerceIn(0f, 1f) * 0.85f)
+}
+
+/**
+ * Zeichnet eine Zutat oder ein Zwischenprodukt; [s] ist die Größe (≈ Durchmesser).
+ * [doneness] färbt Gegartes (0 = roh, 1 = perfekt, darüber dunkler); [garnish] = Sirup u. Ä. (nicht in der Pfanne).
+ */
+internal fun DrawScope.drawFood(kind: ItemKind, c: Offset, s: Float, alpha: Float = 1f, doneness: Float = 1f, garnish: Boolean = true) {
     val w = s * 0.045f
     val r = s / 2f
     when (kind) {
@@ -155,7 +164,7 @@ internal fun DrawScope.drawFood(kind: ItemKind, c: Offset, s: Float, alpha: Floa
             drawLine(Color(0xFFDC2626).copy(alpha = alpha), Offset(p.x - r * 0.32f, p.y + r * 0.22f), Offset(p.x + r * 0.32f, p.y + r * 0.22f), w * 2f, StrokeCap.Round)
         }
         ItemKind.BREAD_SLICES -> for (i in 0..1) drawSlice(c + Offset((i - 0.5f) * r * 0.75f, (i - 0.5f) * r * 0.2f), r * 0.6f, w, Color(0xFFFEF3C7), alpha)
-        ItemKind.TOAST -> for (i in 0..1) drawSlice(c + Offset((i - 0.5f) * r * 0.75f, (i - 0.5f) * r * 0.2f), r * 0.6f, w, Color(0xFFE6A85C), alpha)
+        ItemKind.TOAST -> for (i in 0..1) drawSlice(c + Offset((i - 0.5f) * r * 0.75f, (i - 0.5f) * r * 0.2f), r * 0.6f, w, cookColor(Color(0xFFFEF3C7), Color(0xFFE6A85C), doneness), alpha)
         ItemKind.CHEESE_GRATED -> {
             outlinedOval(Offset(c.x - r * 0.7f, c.y), Size(r * 1.4f, r * 0.55f), Color(0xFFFDE047), w, alpha)
             for (i in 0 until 9) {
@@ -174,8 +183,10 @@ internal fun DrawScope.drawFood(kind: ItemKind, c: Offset, s: Float, alpha: Floa
                 cubicTo(c.x - r * 0.75f, c.y + r * 0.55f, c.x - r * 0.7f, c.y + r * 0.2f, c.x - r * 0.8f, c.y)
                 close()
             }
-            outlined(white, Color.White, w, alpha)
-            outlinedCircle(c + Offset(r * 0.05f, -r * 0.05f), r * 0.3f, Color(0xFFF59E0B), w, alpha)
+            // Rohes Eiweiß ist glasig, wird beim Braten weiß, am Rand später braun
+            outlined(white, cookColor(Color(0xFFE2E8F0), Color.White, doneness).copy(alpha = if (doneness < 1f) 0.75f + 0.25f * doneness else 1f), w, alpha)
+            if (doneness > 1f) drawPath(white, cookColor(Color.White, Color(0xFFD6A35C), doneness).copy(alpha = 0.6f * alpha), style = Stroke(w * 3f))
+            outlinedCircle(c + Offset(r * 0.05f, -r * 0.05f), r * 0.3f, cookColor(Color(0xFFFBBF24), Color(0xFFF59E0B), doneness), w, alpha)
             shine(c + Offset(-r * 0.05f, -r * 0.15f), r * 0.08f, alpha)
         }
         ItemKind.OMELETTE -> {
@@ -184,12 +195,17 @@ internal fun DrawScope.drawFood(kind: ItemKind, c: Offset, s: Float, alpha: Floa
                 quadraticTo(c.x, c.y - r * 0.95f, c.x + r * 0.85f, c.y + r * 0.25f)
                 close()
             }
-            outlined(half, Color(0xFFFCD34D), w, alpha)
+            outlined(half, cookColor(Color(0xFFFEF9C3), Color(0xFFFCD34D), doneness), w, alpha)
             drawLine(Color(0xFFD97706).copy(alpha = alpha), c + Offset(-r * 0.4f, -r * 0.15f), c + Offset(-r * 0.1f, -r * 0.3f), w * 1.5f, StrokeCap.Round)
             drawLine(Color(0xFFD97706).copy(alpha = alpha), c + Offset(r * 0.2f, -r * 0.1f), c + Offset(r * 0.45f, 0f), w * 1.5f, StrokeCap.Round)
         }
         ItemKind.PANCAKE -> {
-            for (i in 0..1) outlinedOval(Offset(c.x - r * 0.85f, c.y - r * 0.05f - i * r * 0.28f), Size(r * 1.7f, r * 0.6f), Color(0xFFE6A85C), w, alpha)
+            val cake = cookColor(Color(0xFFFEF3C7), Color(0xFFE6A85C), doneness)
+            if (!garnish) {
+                outlinedOval(Offset(c.x - r * 0.85f, c.y - r * 0.35f), Size(r * 1.7f, r * 0.75f), cake, w, alpha)
+                return
+            }
+            for (i in 0..1) outlinedOval(Offset(c.x - r * 0.85f, c.y - r * 0.05f - i * r * 0.28f), Size(r * 1.7f, r * 0.6f), cake, w, alpha)
             val syrup = Path().apply {
                 moveTo(c.x - r * 0.4f, c.y - r * 0.2f)
                 quadraticTo(c.x, c.y - r * 0.5f, c.x + r * 0.45f, c.y - r * 0.15f)

@@ -57,6 +57,12 @@ class KitchenEngine(val seed: Long, val level: LevelDef?) {
     /** Restzeit der Mama-Animation; > 0 = Mama rettet gerade den Schritt. */
     var mamaTimer = 0f
         private set
+    /** Restzeit der Abschluss-Animation eines gelungenen Schritts; < 0 = keine. */
+    var finishLeft = -1f
+        private set
+
+    /** 0..1 während der Abschluss-Animation (z. B. Pfannkuchen fliegt beim Wenden). */
+    val finishProgress: Float get() = if (finishLeft < 0f) 0f else 1f - finishLeft / FINISH_TIME
 
     /** Seitenverhältnis der Minispiel-Fläche (vom Bildschirm gesetzt). */
     var aspect = 1.8f
@@ -165,6 +171,11 @@ class KitchenEngine(val seed: Long, val level: LevelDef?) {
             return
         }
         val game = miniGame ?: startMiniGame(current)
+        if (finishLeft >= 0f) {
+            finishLeft -= dt
+            if (finishLeft <= 0f) resolve(current, game.accuracy)
+            return
+        }
         game.update(dt)
         if (game.done) {
             if (game.failed) {
@@ -172,13 +183,14 @@ class KitchenEngine(val seed: Long, val level: LevelDef?) {
                 events += KitchenEvent.MamaHelps
             } else {
                 events += KitchenEvent.StepDone(game.kind, game.accuracy)
-                resolve(current, game.accuracy)
+                finishLeft = FINISH_TIME
             }
         }
     }
 
     private fun startMiniGame(t: Task): MiniGame {
-        val game = MiniGame.create(t.kind, difficulty, aspect, seed * 977 + (rngCounter++))
+        val kinds = (t as? Task.Plating)?.let { KitchenCatalog.dish(it.dishId).components } ?: emptyList()
+        val game = MiniGame.create(t.kind, difficulty, aspect, seed * 977 + (rngCounter++), kinds)
         task = t
         miniGame = game
         return game
@@ -195,6 +207,7 @@ class KitchenEngine(val seed: Long, val level: LevelDef?) {
         task = null
         miniGame = null
         mamaTimer = 0f
+        finishLeft = -1f
         when (t) {
             is Task.BoardPrep -> {
                 val item = t.item.with(accuracy)
@@ -453,6 +466,7 @@ class KitchenEngine(val seed: Long, val level: LevelDef?) {
         spawnTimer = s.spawnTimer
         rngCounter = s.rngCounter
         mamaTimer = 0f
+        finishLeft = -1f
         miniGame = null
         task = null
         // Ein unterbrochenes Minispiel beginnt von vorn
@@ -463,6 +477,7 @@ class KitchenEngine(val seed: Long, val level: LevelDef?) {
         const val MAX_STRIKES = 3
         const val MISSED_PENALTY = 20
         const val MAMA_TIME = 1.8f
+        const val FINISH_TIME = 0.55f
 
         fun stars(quality: Float): Int = when {
             quality >= 0.92f -> 3

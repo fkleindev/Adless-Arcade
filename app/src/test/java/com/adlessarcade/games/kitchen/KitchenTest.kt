@@ -16,6 +16,7 @@ private const val ASPECT = 1.8f
 
 /** Löst ein Minispiel mit idealen Gesten (für Tests). [quality] < 1 macht absichtlich ungenaue Eingaben. */
 fun solve(game: MiniGame, quality: Float = 1f, step: (Float) -> Unit = { game.update(it) }) {
+    if (game.done) return // z. B. während der Abschluss-Animation
     var guard = 0
     fun tick() { step(DT); guard++ }
     when (game) {
@@ -80,10 +81,11 @@ fun solve(game: MiniGame, quality: Float = 1f, step: (Float) -> Unit = { game.up
         }
         is PlateUp -> {
             for (p in game.pieces) {
+                val spot = game.spots.first { !it.filled && it.kind == p.kind }
                 game.down(p.x, p.y)
-                val tx = p.targetX + (1f - quality) * 0.15f
-                game.move(tx, p.targetY)
-                game.up(tx, p.targetY)
+                val tx = spot.x + (1f - quality) * 0.05f
+                game.move(tx, spot.y)
+                game.up(tx, spot.y)
                 tick()
             }
             while (!game.done && guard < 2000) tick()
@@ -157,7 +159,7 @@ class KitchenEngineTest {
         var guard = 0
         while (busy && !isFinished && guard++ < 100) {
             val g = miniGame
-            if (g == null) { update(DT); continue }
+            if (g == null || g.done) { update(DT); continue }
             wait(humanDelay * 0.5f)
             solve(g, humanQuality) { update(it) }
             update(DT)
@@ -416,5 +418,42 @@ class KitchenEngineTest {
             e.tap(Station.Bowl)
             e.solveTask()
         }
+    }
+}
+
+class KitchenPlateTest {
+    @Test
+    fun plate_anyPieceFitsAnySpotOfItsKind() {
+        val g = MiniGame.create(MiniGameKind.PLATE, 0.5f, ASPECT, 1, listOf(ItemKind.TOAST)) as PlateUp
+        assertTrue(g.spots.all { it.kind == ItemKind.TOAST })
+        // Stücke in umgekehrter Reihenfolge auf die Plätze legen – jedes passt
+        val spots = g.spots.reversed()
+        g.pieces.forEachIndexed { i, p ->
+            g.down(p.x, p.y)
+            g.move(spots[i].x, spots[i].y)
+            g.up(spots[i].x, spots[i].y)
+        }
+        assertTrue(g.done)
+        assertTrue(g.accuracy > 0.95f)
+    }
+
+    @Test
+    fun plate_wrongKindIsRejected() {
+        val g = MiniGame.create(MiniGameKind.PLATE, 0f, ASPECT, 1, listOf(ItemKind.PANCAKE, ItemKind.STRAWBERRY_CUT)) as PlateUp
+        val strawberry = g.pieces.first { it.kind == ItemKind.STRAWBERRY_CUT }
+        val pancakeSpot = g.spots.first { it.kind == ItemKind.PANCAKE }
+        g.down(strawberry.x, strawberry.y)
+        g.move(pancakeSpot.x, pancakeSpot.y)
+        g.up(pancakeSpot.x, pancakeSpot.y)
+        assertNull(strawberry.placed)
+        assertEquals(strawberry.homeX, strawberry.x)
+        assertFalse(pancakeSpot.filled)
+    }
+
+    @Test
+    fun chop_linesAreEvenlySpaced() {
+        val g = MiniGame.create(MiniGameKind.CHOP, 0.7f, ASPECT, 1) as Chop
+        val gaps = g.lines.zipWithNext { a, b -> b - a }
+        assertTrue(gaps.all { abs(it - gaps.first()) < 0.0001f })
     }
 }
