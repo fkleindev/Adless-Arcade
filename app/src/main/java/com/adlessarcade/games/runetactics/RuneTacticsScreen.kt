@@ -101,7 +101,9 @@ fun RuneTacticsScreen(
         if (viewModel.rewardTick > 0) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
 
-    viewModel.revision // Lesen: Leisten neu aufbauen, wenn sich Gold, Shop oder Bank ändern
+    // Die Engine bleibt dieselbe Instanz und wird intern verändert. Damit Compose die Leisten nicht überspringt,
+    // bekommen sie die Revision als Parameter und Listen als Kopie.
+    val revision = viewModel.revision
     val engine = viewModel.engine
     val planning = engine.phase == Phase.PLANNING
 
@@ -117,7 +119,7 @@ fun RuneTacticsScreen(
     ) {
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize()) {
-                TopHud(engine, viewModel.best)
+                TopHud(engine, viewModel.best, revision)
                 TraitBar(
                     engine.activeTraits(),
                     runes = engine.augments.size,
@@ -193,12 +195,12 @@ fun RuneTacticsScreen(
                         ItemCard(RuneTacticsItems.byId(id), Modifier.align(Alignment.TopCenter).padding(8.dp))
                     }
                     traitInfo?.let { TraitCard(it, engine.activeTraits()[it] ?: 0, Modifier.align(Alignment.TopCenter).padding(8.dp)) }
-                    if (showRunes) RunesCard(engine.augments, engine.curse, Modifier.align(Alignment.TopCenter).padding(8.dp))
+                    if (showRunes) RunesCard(engine.augments.toList(), engine.curse, Modifier.align(Alignment.TopCenter).padding(8.dp))
                     Banner(viewModel.banner, Modifier.align(Alignment.Center))
                 }
 
                 Box {
-                    BottomPanel(viewModel, engine, planning)
+                    BottomPanel(viewModel, engine, planning, revision)
                     val dragged = drag
                     if (dragged != null) SellZone(Economy.sellValue(dragged.unit), Modifier.matchParentSize())
                 }
@@ -251,7 +253,8 @@ private fun hitTest(layout: TacticsLayout, engine: RuneTacticsEngine, p: Offset)
 }
 
 @Composable
-private fun TopHud(engine: RuneTacticsEngine, best: Int) {
+@Suppress("UNUSED_PARAMETER") // revision erzwingt das Neuzeichnen
+private fun TopHud(engine: RuneTacticsEngine, best: Int, revision: Int) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -363,14 +366,15 @@ private fun TraitBar(
 }
 
 @Composable
-private fun BottomPanel(viewModel: RuneTacticsViewModel, engine: RuneTacticsEngine, planning: Boolean) {
+@Suppress("UNUSED_PARAMETER") // revision erzwingt das Neuzeichnen
+private fun BottomPanel(viewModel: RuneTacticsViewModel, engine: RuneTacticsEngine, planning: Boolean, revision: Int) {
     Column(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        ItemBar(engine.items, viewModel.selectedItem, enabled = planning, onSelect = viewModel::selectItem)
+        ItemBar(engine.items.toList(), viewModel.selectedItem, enabled = planning, onSelect = viewModel::selectItem)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             engine.shop.forEachIndexed { index, id ->
                 ShopCard(
