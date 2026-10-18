@@ -73,11 +73,19 @@ fun GameCard(game: GameInfo, onClick: () -> Unit, modifier: Modifier = Modifier)
             game.preview(Modifier.fillMaxSize().padding(18.dp))
         }
         Spacer(Modifier.height(12.dp))
-        Text(game.title, style = MaterialTheme.typography.titleMedium, color = ArcadeText)
+        Text(
+            game.title,
+            style = MaterialTheme.typography.titleMedium,
+            color = ArcadeText,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        // Feste Zeilenzahl, damit alle Kacheln einer Reihe gleich hoch sind.
         Text(
             game.tagline,
             style = MaterialTheme.typography.bodySmall,
             color = ArcadeTextMuted,
+            minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
@@ -105,7 +113,7 @@ fun ComingSoonCard(modifier: Modifier = Modifier) {
         }
         Spacer(Modifier.height(12.dp))
         Text("Bald mehr", style = MaterialTheme.typography.titleMedium, color = ArcadeTextMuted)
-        Text("Neue Spiele folgen", style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
+        Text("Neue Spiele folgen", style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted, minLines = 2)
     }
 }
 
