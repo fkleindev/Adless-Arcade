@@ -290,11 +290,22 @@ class RuneTacticsEngineTest {
             assertTrue(budget > last)
             last = budget
             val army = RuneTacticsEnemyAI.army(99, round)
-            assertEquals(RuneTacticsEnemyAI.unitCount(round), army.size)
             assertTrue(army.all { it.row in 0 until Board.PLAYER_FIRST_ROW && it.col in 0 until Board.COLS })
             assertEquals(army.size, army.map { Cell(it.col, it.row) }.toSet().size)
-            assertTrue(army.all { it.def.cost <= RuneTacticsEnemyAI.maxCost(round) })
-            assertTrue(army.all { it.star <= RuneTacticsEnemyAI.maxStar(round) })
+            assertTrue(army.all { it.items.size <= RuneTacticsItems.MAX_PER_UNIT })
+            when (RoundType.of(round)) {
+                RoundType.NORMAL -> {
+                    assertEquals(RuneTacticsEnemyAI.unitCount(round), army.size)
+                    assertTrue(army.all { it.def.cost <= RuneTacticsEnemyAI.maxCost(round) })
+                    assertTrue(army.all { it.star <= RuneTacticsEnemyAI.maxStar(round) })
+                    assertEquals(RuneTacticsEnemyAI.itemCount(round), army.sumOf { it.items.size })
+                }
+                RoundType.CREEPS -> {
+                    assertEquals(RuneTacticsEnemyAI.creatureCount(round), army.size)
+                    assertTrue(army.all { it.def in RuneTacticsUnits.creatures })
+                }
+                RoundType.BOSS -> assertEquals(1, army.count { it.def.isBoss })
+            }
         }
         assertEquals(1f, RuneTacticsEnemyAI.scale(25))
         assertTrue(RuneTacticsEnemyAI.scale(45) > RuneTacticsEnemyAI.scale(40))
@@ -303,6 +314,162 @@ class RuneTacticsEngineTest {
     @Test
     fun enemyArmy_isStablePerSeedAndRound() {
         assertEquals(RuneTacticsEnemyAI.army(5, 12), RuneTacticsEnemyAI.army(5, 12))
+    }
+
+    // --- Items ---
+
+    private fun RuneTacticsEngine.giveItems(vararg ids: String) {
+        items.clear()
+        items += ids
+    }
+
+    @Test
+    fun itemCatalog_hasAllRecipes() {
+        assertEquals(6, RuneTacticsItems.components.size)
+        assertEquals(21, RuneTacticsItems.combinedItems.size)
+        val comps = RuneTacticsItems.components.map { it.id }
+        for (a in comps) for (b in comps) assertNotNull("$a+$b", RuneTacticsItems.combine(a, b))
+        assertEquals(RuneTacticsItems.combine("sword", "bow"), RuneTacticsItems.combine("bow", "sword"))
+    }
+
+    @Test
+    fun equip_combinesComponentsOnUnit() {
+        val e = RuneTacticsEngine(20)
+        e.forceShop("skeleton")
+        e.buy(0)
+        e.giveItems("sword", "bow", "vest", "cloak", "belt")
+        val slot = Slot.Bench(0)
+        assertTrue(e.equip(0, slot)!!.isComponent)
+        assertEquals("Raserklinge", e.equip(0, slot)!!.name) // Schwert + Bogen
+        assertEquals(listOf("sword_bow"), e.unitAt(slot)!!.items)
+        e.equip(0, slot) // Weste (Komponente)
+        e.equip(0, slot) // Umhang verschmilzt mit der Weste
+        assertEquals(listOf("sword_bow", "vest_cloak"), e.unitAt(slot)!!.items)
+        e.giveItems("sword_sword", "rod_rod")
+        assertNotNull(e.equip(0, slot))
+        assertNull(e.equip(0, slot)) // maximal 3 Items
+        assertEquals(listOf("rod_rod"), e.items)
+    }
+
+    @Test
+    fun itemsReturn_onSellAndMoveOnCombine() {
+        val e = RuneTacticsEngine(21)
+        e.giveGold(20)
+        e.forceShop("wisp", "wisp", "wisp")
+        e.buy(0)
+        e.giveItems("rod_rod")
+        e.equip(0, Slot.Bench(0))
+        e.buy(1)
+        e.buy(2)
+        val upgraded = e.bench.filterNotNull().single()
+        assertEquals(2, upgraded.star)
+        assertEquals(listOf("rod_rod"), upgraded.items)
+        e.sell(Slot.Bench(e.bench.indexOf(upgraded)))
+        assertEquals(listOf("rod_rod"), e.items)
+    }
+
+    @Test
+    fun itemEffects_changeFighterStats() {
+        val unit = UnitInstance(1, "skeleton", 1, listOf("belt_belt", "bow_vest", "sword_sword"))
+        val c = RuneTacticsCombat(listOf(unit to Cell(3, 4)), enemies("wisp" to 1), 1f, seed = 1)
+        val f = c.fighters[0]
+        assertEquals(600f + 600f, f.maxHp)
+        assertEquals(2, f.range)
+        assertEquals(0.3f, f.damageBonus, 0.001f)
+    }
+
+    @Test
+    fun allItems_workInCombat() {
+        RuneTacticsItems.combinedItems.forEach { item ->
+            val c = RuneTacticsCombat(
+                army("skeleton" to 2, "wisp" to 2).mapIndexed { i, (u, cell) -> (if (i == 0) u.copy(items = listOf(item.id)) else u) to cell },
+                enemies("dwarfguard" to 2, "lich" to 1, "apprentice" to 1),
+                1f, seed = 9,
+            )
+            c.runToEnd()
+            assertNotNull(item.name, c.outcome)
+        }
+    }
+
+    // --- Kreaturen & Bosse ---
+
+    @Test
+    fun roundTypes_followCycle() {
+        assertEquals(RoundType.NORMAL, RoundType.of(3))
+        assertEquals(RoundType.CREEPS, RoundType.of(4))
+        assertEquals(RoundType.BOSS, RoundType.of(5))
+        assertEquals(RoundType.CREEPS, RoundType.of(9))
+        assertEquals(RoundType.BOSS, RoundType.of(10))
+    }
+
+    /** Spielt Runden mit einer starken Armee bis zur gewünschten Runde. */
+    private fun RuneTacticsEngine.advanceTo(round: Int) {
+        while (this.round < round) {
+            if (pendingRewards.isNotEmpty()) chooseReward(0)
+            board.clear()
+            board[Cell(3, 4)] = UnitInstance(900, "queen", 3, listOf("sword_sword", "belt_belt", "rod_rod"))
+            board[Cell(2, 4)] = UnitInstance(901, "thane", 3)
+            board[Cell(4, 4)] = UnitInstance(902, "warlord", 3)
+            board[Cell(3, 6)] = UnitInstance(903, "stormmage", 3)
+            startCombat()
+            finishCombat()
+        }
+    }
+
+    @Test
+    fun creatureRound_dropsComponents() {
+        val e = RuneTacticsEngine(30)
+        e.advanceTo(4)
+        assertEquals(RoundType.CREEPS, e.roundType)
+        e.startCombat()
+        val result = e.finishCombat()!!
+        assertEquals(Outcome.WIN, result.outcome)
+        assertEquals(2, result.loot.size)
+        assertTrue(result.loot.all { RuneTacticsItems.byId(it).isComponent })
+        assertEquals(result.loot, e.items)
+    }
+
+    @Test
+    fun bossRound_offersRewardChoice() {
+        val e = RuneTacticsEngine(31)
+        e.advanceTo(5)
+        assertEquals(RoundType.BOSS, e.roundType)
+        e.items.clear()
+        e.startCombat()
+        assertEquals(Outcome.WIN, e.finishCombat()!!.outcome)
+        assertEquals(3, e.pendingRewards.size)
+        assertFalse(e.startCombat()) // erst wählen
+        val goldBefore = e.gold
+        val reward = e.chooseReward(e.pendingRewards.indexOfFirst { it.kind != RewardKind.UNIT })!!
+        when (reward.kind) {
+            RewardKind.GOLD -> assertEquals(goldBefore + reward.amount, e.gold)
+            RewardKind.COMPONENTS -> assertEquals(reward.amount, e.items.size)
+            RewardKind.ITEM -> assertEquals(listOf(reward.id), e.items)
+            RewardKind.UNIT -> Unit
+        }
+        assertTrue(e.pendingRewards.isEmpty())
+        assertTrue(e.startCombat())
+    }
+
+    @Test
+    fun boss_telegraphsBeforeStriking() {
+        val boss = RuneTacticsUnits.byId("bonedragon")
+        val c = RuneTacticsCombat(
+            army("dwarfguard" to 3, "warden" to 3, "skeleton" to 3),
+            listOf(PlacedUnit(boss.id, 1, 3, 2)),
+            1f, seed = 2,
+        )
+        var telegraphAt = -1f
+        var strikeAt = -1f
+        while (!c.isOver && strikeAt < 0f) {
+            c.step()
+            for (ev in c.drainEvents()) {
+                if (ev is CombatEvent.Telegraph && telegraphAt < 0f) telegraphAt = c.time
+                if (ev is CombatEvent.Area && ev.kind == AbilityKind.SLAM && strikeAt < 0f) strikeAt = c.time
+            }
+        }
+        assertTrue("Boss hat nie angekündigt", telegraphAt > 0f)
+        assertTrue(strikeAt - telegraphAt >= 1.2f)
     }
 
     // --- Spielstand ---

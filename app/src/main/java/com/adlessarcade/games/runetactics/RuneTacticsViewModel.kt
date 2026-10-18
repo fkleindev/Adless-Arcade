@@ -32,13 +32,23 @@ sealed class TacticsEffect(val lifetime: Float) {
     class Number(val col: Float, val row: Float, val text: String, val color: Color) : TacticsEffect(0.8f)
     class Ring(val col: Float, val row: Float, val radius: Float, val color: Color) : TacticsEffect(0.45f)
     class Slash(val col: Float, val row: Float, val color: Color) : TacticsEffect(0.18f)
+
+    /** Markierte Zone eines Bossangriffs bis zum Einschlag. */
+    class Telegraph(val col: Int, val row: Int, val radius: Int, delay: Float) : TacticsEffect(delay)
 }
 
 /** Großer Hinweis in der Bildmitte mit optionaler zweiter Zeile. */
 data class TacticsBanner(val title: String, val subtitle: String?, val color: Color)
 
 /** Angetippte Einheit für die Info-Karte. */
-data class Inspected(val def: UnitDef, val star: Int, val enemy: Boolean)
+data class Inspected(
+    val def: UnitDef,
+    val star: Int,
+    val enemy: Boolean,
+    val items: List<String> = emptyList(),
+    /** Werte-Skalierung gegnerischer Einheiten (Aufstieg, Kreaturen, Bosse). */
+    val scale: Float = 1f,
+)
 
 private const val MAX_EFFECTS = 90
 private const val RESULT_DELAY = 1.6f
@@ -78,6 +88,9 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
     var banner by mutableStateOf<TacticsBanner?>(null)
         private set
     var inspected by mutableStateOf<Inspected?>(null)
+        private set
+    /** Ausgewähltes Item im Inventar; ein Tipp auf eine eigene Einheit rüstet sie damit aus. */
+    var selectedItem by mutableStateOf<Int?>(null)
         private set
     var leaderboardRank by mutableStateOf<Int?>(null)
         private set
@@ -173,6 +186,45 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
         val gold = engine.sell(slot) ?: return
         effects += TacticsEffect.Number(3f, 7.5f, "+$gold Gold", StarGold)
         inspected = null
+        selectedItem = null
+        changed()
+    }
+
+    fun selectItem(index: Int?) {
+        selectedItem = if (index == null || index == selectedItem || index !in engine.items.indices) null else index
+        if (selectedItem != null) inspected = null
+    }
+
+    /** Rüstet die Einheit mit dem ausgewählten Item aus; liefert false, wenn kein Item gewählt ist. */
+    fun equipSelected(slot: Slot): Boolean {
+        val index = selectedItem ?: return false
+        if (!canPlan) return true
+        val unit = engine.unitAt(slot)
+        if (unit == null) {
+            selectedItem = null
+            return true
+        }
+        val item = engine.equip(index, slot)
+        if (item == null) {
+            showBanner(TacticsBanner("Kein Platz", "Höchstens ${RuneTacticsItems.MAX_PER_UNIT} Items pro Einheit", LossRed), 1.2f)
+            hurtTick++
+        } else {
+            selectedItem = null
+            if (!item.isComponent) {
+                showBanner(TacticsBanner(item.name, unit.def.name, StarGold), 1.2f)
+                rewardTick++
+            }
+            changed()
+        }
+        return true
+    }
+
+    fun chooseReward(index: Int) {
+        if (!loaded || paused || gameOver) return
+        val reward = engine.chooseReward(index) ?: return
+        showBanner(TacticsBanner(reward.title, null, StarGold), 1.2f)
+        rewardTick++
+        saveRun()
         changed()
     }
 
@@ -204,6 +256,7 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
             return
         }
         inspected = null
+        selectedItem = null
         if (engine.startCombat()) {
             accumulator = 0f
             resultTimer = -1f
@@ -247,6 +300,7 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
         effects.clear()
         banner = null
         inspected = null
+        selectedItem = null
         resultTimer = -1f
         accumulator = 0f
         paused = false
@@ -330,8 +384,17 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
                 add("+${result.income} Gold")
                 if (result.interest > 0) add("${result.interest} Zinsen")
                 if (result.streakBonus > 0) add("${result.streakBonus} Serie")
+                if (result.loot.isNotEmpty()) add("+${result.loot.size} Komponente" + if (result.loot.size > 1) "n" else "")
             }
-            showBanner(TacticsBanner("RUNDE ${engine.round}", parts.joinToString(" · "), ArcadeText), 1.4f)
+            val title = when (engine.roundType) {
+                RoundType.NORMAL -> "RUNDE ${engine.round}"
+                RoundType.CREEPS -> "RUNDE ${engine.round} · KREATUREN"
+                RoundType.BOSS -> "RUNDE ${engine.round} · BOSS"
+            }
+            showBanner(
+                TacticsBanner(title, parts.joinToString(" · "), if (engine.roundType == RoundType.BOSS) LossRed else ArcadeText),
+                1.6f,
+            )
             submitScore()
             saveRun()
         }
@@ -395,6 +458,10 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
                 is CombatEvent.Cast -> {
                     val caster = fight.find(event.caster) ?: continue
                     effects += TacticsEffect.Number(caster.visualCol, caster.visualRow - 0.4f, event.ability.name, StarGold)
+                }
+                is CombatEvent.Telegraph -> {
+                    effects += TacticsEffect.Telegraph(event.col, event.row, event.radius, event.delay)
+                    hurtTick++
                 }
                 is CombatEvent.Area -> {
                     effects += TacticsEffect.Ring(event.col, event.row, event.radius + 0.5f, areaColor(event.kind))

@@ -44,8 +44,15 @@ class RuneTacticsBalanceTest {
                 if (value(weakest.value) < value(bench[bestBench]!!)) move(Slot.Bench(bestBench), Slot.Board(weakest.key))
             }
         }
+        // Items reihum auf die wertvollsten Einheiten
+        val carriers = board.entries.sortedByDescending { value(it.value) }.map { Slot.Board(it.key) }
+        var attempts = 0
+        while (items.isNotEmpty() && carriers.isNotEmpty() && attempts++ < 20) {
+            if (carriers.none { equip(0, it) != null }) break
+        }
         startCombat()
         finishCombat()
+        if (pendingRewards.isNotEmpty()) chooseReward(pendingRewards.indexOfFirst { it.kind == RewardKind.ITEM }.coerceAtLeast(0))
     }
 
     private fun RuneTacticsEngine.startFill(benchIndex: Int) {

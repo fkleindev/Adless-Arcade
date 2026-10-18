@@ -25,6 +25,8 @@ data class RuneTacticsSnapshot(
     val rngCounter: Long,
     /** true: Kampf lief bereits – nach dem Laden wird er mit derselben Aufstellung neu gestartet. */
     val inCombat: Boolean = false,
+    val items: List<String> = emptyList(),
+    val pendingRewards: List<Reward> = emptyList(),
 )
 
 @Serializable
@@ -46,8 +48,13 @@ object RuneTacticsSaves {
         val save = runCatching { SaveJson.decodeFromString(RuneTacticsSave.serializer(), json) }.getOrNull() ?: return null
         if (save.version != VERSION || save.snapshot.hp <= 0) return null
         // Unbekannte Einheiten (z. B. nach Umbenennung) machen den Stand unbrauchbar.
-        val ids = save.snapshot.board.map { it.unit.defId } + save.snapshot.bench.mapNotNull { it?.defId } +
-            save.snapshot.shop.filterNotNull() + save.snapshot.enemyArmy.map { it.defId }
-        return if (ids.all { RuneTacticsUnits.find(it) != null }) save else null
+        val s = save.snapshot
+        val units = s.board.map { it.unit } + s.bench.filterNotNull()
+        val ids = units.map { it.defId } + s.shop.filterNotNull() + s.enemyArmy.map { it.defId } +
+            s.pendingRewards.filter { it.kind == RewardKind.UNIT }.mapNotNull { it.id }
+        val itemIds = s.items + units.flatMap { it.items } + s.enemyArmy.flatMap { it.items } +
+            s.pendingRewards.filter { it.kind == RewardKind.ITEM }.mapNotNull { it.id }
+        val valid = ids.all { RuneTacticsUnits.find(it) != null } && itemIds.all { RuneTacticsItems.find(it) != null }
+        return if (valid) save else null
     }
 }

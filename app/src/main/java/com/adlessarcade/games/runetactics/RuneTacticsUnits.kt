@@ -116,7 +116,60 @@ object RuneTacticsUnits {
         ),
     )
 
-    private val byId = all.associateBy { it.id }
+    /** Kreaturen ohne Fähigkeit (maxMana 0), nicht im Shop. */
+    private val noAbility = Ability("–", AbilityKind.STRIKE, 1f, "Keine Fähigkeit.")
+    val creatures: List<UnitDef> = listOf(
+        UnitDef(
+            "wolf", "Grauwolf", 1, Trait.BEAST, Trait.BEAST,
+            hp = 500f, ad = 45f, attackSpeed = 0.85f, range = 1, armor = 20f, mr = 15f, maxMana = 0, startMana = 0,
+            ability = noAbility,
+        ),
+        UnitDef(
+            "golem", "Steingolem", 2, Trait.BEAST, Trait.BEAST,
+            hp = 900f, ad = 40f, attackSpeed = 0.5f, range = 1, armor = 50f, mr = 30f, maxMana = 0, startMana = 0,
+            ability = noAbility,
+        ),
+        UnitDef(
+            "spider", "Riesenspinne", 1, Trait.BEAST, Trait.BEAST,
+            hp = 600f, ad = 50f, attackSpeed = 0.7f, range = 1, armor = 25f, mr = 25f, maxMana = 0, startMana = 0,
+            ability = noAbility,
+        ),
+        UnitDef(
+            "harpy", "Harpyie", 1, Trait.BEAST, Trait.BEAST,
+            hp = 400f, ad = 40f, attackSpeed = 0.75f, range = 3, armor = 15f, mr = 20f, maxMana = 0, startMana = 0,
+            ability = noAbility,
+        ),
+    )
+
+    /** Bosse rotieren alle 5 Runden; Werte werden mit der Runde skaliert. */
+    val bosses: List<UnitDef> = listOf(
+        UnitDef(
+            "bonedragon", "Knochendrache", 5, Trait.BOSS, Trait.BOSS,
+            hp = 2600f, ad = 85f, attackSpeed = 0.6f, range = 2, armor = 40f, mr = 40f, maxMana = 70, startMana = 30,
+            ability = Ability(
+                "Seelenfeuer", AbilityKind.SLAM, 280f,
+                "Markiert ein Gebiet (Radius 1) und verbrennt es kurz darauf mit 280 Schaden.", count = 1,
+            ),
+        ),
+        UnitDef(
+            "stonetitan", "Steintitan", 5, Trait.BOSS, Trait.BOSS,
+            hp = 3400f, ad = 75f, attackSpeed = 0.5f, range = 1, armor = 70f, mr = 30f, maxMana = 90, startMana = 30,
+            ability = Ability(
+                "Bergbeben", AbilityKind.SLAM, 200f,
+                "Markiert ein großes Gebiet (Radius 2): 200 Schaden und 1,5 s Betäubung.", stun = 1.5f, count = 2,
+            ),
+        ),
+        UnitDef(
+            "stormwitch", "Sturmhexe", 5, Trait.BOSS, Trait.BOSS,
+            hp = 2200f, ad = 70f, attackSpeed = 0.75f, range = 3, armor = 30f, mr = 60f, maxMana = 60, startMana = 20,
+            ability = Ability(
+                "Blitzschlag", AbilityKind.SLAM, 330f,
+                "Markiert ein Gebiet (Radius 1): 330 Schaden und 0,8 s Betäubung.", stun = 0.8f, count = 1,
+            ),
+        ),
+    )
+
+    private val byId = (all + creatures + bosses).associateBy { it.id }
 
     fun byId(id: String): UnitDef = byId.getValue(id)
 

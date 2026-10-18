@@ -29,7 +29,87 @@ internal fun originColor(trait: Trait): Color = when (trait) {
     Trait.UNDEAD -> Color(0xFFA78BFA)
     Trait.ELF -> Color(0xFF4ADE80)
     Trait.DWARF -> Color(0xFFF59E0B)
+    Trait.BEAST -> Color(0xFFD6A35C)
+    Trait.BOSS -> Color(0xFFFF6B6B)
     else -> Color.White
+}
+
+internal fun componentColor(id: String): Color = when (id) {
+    RuneTacticsItems.SWORD -> Color(0xFFEF4444)
+    RuneTacticsItems.BOW -> Color(0xFFFBBF24)
+    RuneTacticsItems.ROD -> Color(0xFFA855F7)
+    RuneTacticsItems.VEST -> Color(0xFF94A3B8)
+    RuneTacticsItems.CLOAK -> Color(0xFF2DD4BF)
+    else -> Color(0xFFF97316)
+}
+
+/** Item-Symbol: Komponenten mit eigenem Zeichen, fertige Items zweifarbig mit goldenem Rand. */
+internal fun DrawScope.drawItemIcon(center: Offset, size: Float, item: ItemDef, alpha: Float = 1f) {
+    val half = size / 2f
+    val topLeft = Offset(center.x - half, center.y - half)
+    val corner = CornerRadius(size * 0.2f)
+    if (item.isComponent) {
+        drawRoundRect(Color(0xFF1E2130).copy(alpha = alpha), topLeft, Size(size, size), corner)
+        drawComponentGlyph(item.id, center, size * 0.36f, componentColor(item.id).copy(alpha = alpha))
+        drawRoundRect(componentColor(item.id).copy(alpha = 0.7f * alpha), topLeft, Size(size, size), corner, style = Stroke(size * 0.07f))
+    } else {
+        val (a, b) = item.recipe
+        drawRoundRect(lerp(componentColor(a), Color.Black, 0.35f).copy(alpha = alpha), topLeft, Size(size, size), corner)
+        val path = Path().apply {
+            moveTo(topLeft.x + size, topLeft.y)
+            lineTo(topLeft.x + size, topLeft.y + size)
+            lineTo(topLeft.x, topLeft.y + size)
+            close()
+        }
+        drawPath(path, lerp(componentColor(b), Color.Black, 0.35f).copy(alpha = alpha))
+        drawComponentGlyph(a, Offset(center.x - size * 0.17f, center.y - size * 0.17f), size * 0.22f, Color.White.copy(alpha = alpha))
+        drawComponentGlyph(b, Offset(center.x + size * 0.17f, center.y + size * 0.17f), size * 0.22f, Color.White.copy(alpha = alpha))
+        drawRoundRect(StarGold.copy(alpha = alpha), topLeft, Size(size, size), corner, style = Stroke(size * 0.08f))
+    }
+}
+
+private fun DrawScope.drawComponentGlyph(id: String, c: Offset, s: Float, color: Color) {
+    val w = s * 0.28f
+    when (id) {
+        RuneTacticsItems.SWORD -> {
+            drawLine(color, Offset(c.x - s, c.y + s), Offset(c.x + s, c.y - s), w, StrokeCap.Round)
+            drawLine(color, Offset(c.x - s * 0.7f, c.y), Offset(c.x, c.y + s * 0.7f), w, StrokeCap.Round)
+        }
+        RuneTacticsItems.BOW -> {
+            drawArc(color, 120f, 120f, false, Offset(c.x - s * 0.4f, c.y - s), Size(s * 2f, s * 2f), style = Stroke(w))
+            drawLine(color, Offset(c.x + s * 0.1f, c.y - s * 0.85f), Offset(c.x + s * 0.1f, c.y + s * 0.85f), w * 0.5f)
+        }
+        RuneTacticsItems.ROD -> {
+            drawLine(color, Offset(c.x - s * 0.7f, c.y + s), Offset(c.x + s * 0.3f, c.y - s * 0.3f), w, StrokeCap.Round)
+            drawCircle(color, s * 0.38f, Offset(c.x + s * 0.5f, c.y - s * 0.5f))
+        }
+        RuneTacticsItems.VEST -> {
+            val p = Path().apply {
+                moveTo(c.x - s * 0.9f, c.y - s * 0.7f)
+                lineTo(c.x - s * 0.3f, c.y - s)
+                lineTo(c.x + s * 0.3f, c.y - s)
+                lineTo(c.x + s * 0.9f, c.y - s * 0.7f)
+                lineTo(c.x + s * 0.7f, c.y + s)
+                lineTo(c.x - s * 0.7f, c.y + s)
+                close()
+            }
+            drawPath(p, color)
+        }
+        RuneTacticsItems.CLOAK -> {
+            val p = Path().apply {
+                moveTo(c.x - s * 0.35f, c.y - s)
+                lineTo(c.x + s * 0.35f, c.y - s)
+                lineTo(c.x + s, c.y + s)
+                lineTo(c.x - s, c.y + s)
+                close()
+            }
+            drawPath(p, color)
+        }
+        else -> {
+            drawRoundRect(color, Offset(c.x - s, c.y - s * 0.4f), Size(s * 2f, s * 0.8f), CornerRadius(s * 0.3f))
+            drawRect(Color.Black.copy(alpha = 0.5f), Offset(c.x - s * 0.25f, c.y - s * 0.3f), Size(s * 0.5f, s * 0.6f))
+        }
+    }
 }
 
 internal fun costColor(cost: Int): Color = when (cost) {
@@ -115,17 +195,21 @@ internal fun DrawScope.drawTactics(
                 shield = (f.shield / f.maxHp).coerceAtMost(1f),
                 mana = if (f.maxMana > 0f) f.mana / f.maxMana else 0f,
                 stunned = f.stun > 0f,
+                items = f.items,
             )
         }
     } else {
         engine.enemyArmy.forEach {
-            drawUnit(layout.center(it.col.toFloat(), it.row.toFloat()), layout.cell, it.def, it.star, enemy = true)
+            drawUnit(
+                layout.center(it.col.toFloat(), it.row.toFloat()), layout.cell, it.def, it.star, enemy = true,
+                items = it.items.map(RuneTacticsItems::byId),
+            )
         }
         engine.board.forEach { (cell, unit) ->
             val dragged = drag?.from == Slot.Board(cell)
             drawUnit(
                 layout.center(cell.col.toFloat(), cell.row.toFloat()), layout.cell, unit.def, unit.star,
-                enemy = false, alpha = if (dragged) 0.3f else 1f,
+                enemy = false, alpha = if (dragged) 0.3f else 1f, items = unit.items.map(RuneTacticsItems::byId),
             )
         }
     }
@@ -133,7 +217,10 @@ internal fun DrawScope.drawTactics(
     drawEffects(layout, effects, textMeasurer)
 
     if (drag != null) {
-        drawUnit(drag.pos, layout.cell * 1.15f, drag.unit.def, drag.unit.star, enemy = false, alpha = 0.92f)
+        drawUnit(
+            drag.pos, layout.cell * 1.15f, drag.unit.def, drag.unit.star, enemy = false, alpha = 0.92f,
+            items = drag.unit.items.map(RuneTacticsItems::byId),
+        )
     }
 }
 
@@ -190,7 +277,7 @@ private fun DrawScope.drawBench(layout: TacticsLayout, engine: RuneTacticsEngine
         val dragged = drag?.from == Slot.Bench(i)
         drawUnit(
             layout.benchCenter(i), size * 0.92f, unit.def, unit.star,
-            enemy = false, alpha = if (dragged) 0.3f else 1f,
+            enemy = false, alpha = if (dragged) 0.3f else 1f, items = unit.items.map(RuneTacticsItems::byId),
         )
     }
 }
@@ -207,8 +294,9 @@ internal fun DrawScope.drawUnit(
     mana: Float = 0f,
     stunned: Boolean = false,
     alpha: Float = 1f,
+    items: List<ItemDef> = emptyList(),
 ) {
-    val r = size * 0.34f
+    val r = size * if (def.isBoss) 0.5f else 0.34f
     val origin = originColor(def.origin)
     // Sockel in Seitenfarbe
     drawOval(
@@ -232,6 +320,15 @@ internal fun DrawScope.drawUnit(
     val startX = center.x - (star - 1) * starSize * 1.1f
     for (i in 0 until star) {
         drawStar(Offset(startX + i * starSize * 2.2f, center.y + r * 0.95f), starSize, StarGold.copy(alpha = alpha))
+    }
+
+    // Items als kleine Symbole rechts neben der Figur
+    val itemSize = size * 0.2f
+    items.forEachIndexed { i, item ->
+        drawItemIcon(
+            Offset(center.x + r + itemSize * 0.15f, center.y - r * 0.55f + i * itemSize * 1.05f),
+            itemSize, item, alpha,
+        )
     }
 
     if (hp != null) {
@@ -264,6 +361,27 @@ private fun DrawScope.drawRoleGlyph(role: Trait, c: Offset, s: Float, color: Col
                 quadraticTo(c.x + s * 0.4f, c.y + s * 0.6f, c.x, c.y + s * 0.8f)
                 quadraticTo(c.x - s * 0.4f, c.y + s * 0.6f, c.x - s * 0.55f, c.y + s * 0.2f)
                 lineTo(c.x - s * 0.65f, c.y - s * 0.45f)
+                close()
+            }
+            drawPath(path, color)
+        }
+        Trait.BEAST -> {
+            // Drei Krallenspuren
+            for (i in -1..1) {
+                val x = c.x + i * s * 0.4f
+                drawLine(color, Offset(x - s * 0.2f, c.y - s * 0.65f), Offset(x + s * 0.2f, c.y + s * 0.65f), s * 0.18f, StrokeCap.Round)
+            }
+        }
+        Trait.BOSS -> {
+            // Krone
+            val path = Path().apply {
+                moveTo(c.x - s * 0.8f, c.y + s * 0.5f)
+                lineTo(c.x - s * 0.8f, c.y - s * 0.5f)
+                lineTo(c.x - s * 0.4f, c.y)
+                lineTo(c.x, c.y - s * 0.7f)
+                lineTo(c.x + s * 0.4f, c.y)
+                lineTo(c.x + s * 0.8f, c.y - s * 0.5f)
+                lineTo(c.x + s * 0.8f, c.y + s * 0.5f)
                 close()
             }
             drawPath(path, color)
@@ -313,6 +431,19 @@ private fun DrawScope.drawEffects(layout: TacticsLayout, effects: List<TacticsEf
                 val c = layout.center(e.col, e.row)
                 val s = cell * 0.3f
                 drawLine(e.color.copy(alpha = fade), Offset(c.x - s, c.y - s * 0.6f), Offset(c.x + s, c.y + s * 0.6f), cell * 0.04f, StrokeCap.Round)
+            }
+            is TacticsEffect.Telegraph -> {
+                // Pulsierende Warnzone, füllt sich bis zum Einschlag
+                val left = layout.boardLeft + (e.col - e.radius).coerceAtLeast(0) * cell
+                val top = layout.boardTop + (e.row - e.radius).coerceAtLeast(0) * cell
+                val right = layout.boardLeft + (e.col + e.radius + 1).coerceAtMost(Board.COLS) * cell
+                val bottom = layout.boardTop + (e.row + e.radius + 1).coerceAtMost(Board.ROWS) * cell
+                val pulse = 0.5f + 0.5f * sin(e.age * 18f)
+                drawRect(LossRed.copy(alpha = 0.12f + 0.3f * e.progress), Offset(left, top), Size(right - left, bottom - top))
+                drawRect(
+                    LossRed.copy(alpha = 0.5f + 0.4f * pulse), Offset(left, top), Size(right - left, bottom - top),
+                    style = Stroke(width = cell * 0.06f),
+                )
             }
             is TacticsEffect.Ring -> {
                 val c = layout.center(e.col, e.row)

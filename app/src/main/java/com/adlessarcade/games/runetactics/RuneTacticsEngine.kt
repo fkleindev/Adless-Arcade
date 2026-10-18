@@ -31,6 +31,15 @@ class RuneTacticsEngine(val seed: Long) {
     val shop = arrayOfNulls<String>(Board.SHOP_SIZE)
     private val pool = HashMap<String, Int>()
 
+    /** Item-Inventar (Komponenten und fertige Items). */
+    val items = ArrayList<String>()
+
+    /** Offene Boss-Belohnungen; solange nicht gewählt, startet kein Kampf. */
+    var pendingRewards: List<Reward> = emptyList()
+        private set
+
+    val roundType: RoundType get() = RoundType.of(round)
+
     var enemyArmy: List<PlacedUnit> = emptyList()
         private set
     var combat: RuneTacticsCombat? = null
@@ -130,10 +139,7 @@ class RuneTacticsEngine(val seed: Long) {
                 nextUid--
                 return null
             }
-            val target = existing[0]
-            remove(existing[0])
-            remove(existing[1])
-            put(target, UnitInstance(nextUid++, defId, 2))
+            merge(existing.take(2), defId, 2)
         }
         gold -= def.cost
         shop[index] = null
@@ -146,12 +152,99 @@ class RuneTacticsEngine(val seed: Long) {
         while (current < Stars.MAX) {
             val found = copies(defId, current)
             if (found.size < 3) break
-            val target = found[0]
-            found.take(3).forEach(::remove)
-            put(target, UnitInstance(nextUid++, defId, current + 1))
+            merge(found.take(3), defId, current + 1)
             current++
         }
         return current
+    }
+
+    /** Ersetzt die Einheiten an [slots] durch eine mit [star] am ersten Platz; Items wandern mit (Rest ins Inventar). */
+    private fun merge(slots: List<Slot>, defId: String, star: Int) {
+        val carried = slots.flatMap { unitAt(it)?.items.orEmpty() }
+        slots.forEach(::remove)
+        put(slots[0], UnitInstance(nextUid++, defId, star, carried.take(RuneTacticsItems.MAX_PER_UNIT)))
+        carried.drop(RuneTacticsItems.MAX_PER_UNIT).forEach(::addItem)
+    }
+
+    // --- Items ---
+
+    /** Legt ein Item ins Inventar; bei vollem Inventar gibt es Gold. Liefert das Gold (0 wenn eingelagert). */
+    private fun addItem(id: String): Int {
+        if (items.size < RuneTacticsItems.INVENTORY_SIZE) {
+            items += id
+            return 0
+        }
+        gold += ITEM_OVERFLOW_GOLD
+        return ITEM_OVERFLOW_GOLD
+    }
+
+    private fun randomComponent(rng: Random): String =
+        RuneTacticsItems.components[rng.nextInt(RuneTacticsItems.components.size)].id
+
+    /**
+     * Rüstet die Einheit mit dem Inventar-Item [itemIndex] aus. Eine Komponente verschmilzt mit einer bereits
+     * getragenen Komponente zum fertigen Item. Liefert das Ergebnis-Item oder null.
+     */
+    fun equip(itemIndex: Int, slot: Slot): ItemDef? {
+        if (phase != Phase.PLANNING) return null
+        val id = items.getOrNull(itemIndex) ?: return null
+        val unit = unitAt(slot) ?: return null
+        val item = RuneTacticsItems.byId(id)
+        if (item.isComponent) {
+            val partner = unit.items.indexOfFirst { RuneTacticsItems.byId(it).isComponent }
+            if (partner >= 0) {
+                val combined = RuneTacticsItems.combine(unit.items[partner], id) ?: return null
+                put(slot, unit.copy(items = unit.items.toMutableList().also { it[partner] = combined.id }))
+                items.removeAt(itemIndex)
+                return combined
+            }
+        }
+        if (unit.items.size >= RuneTacticsItems.MAX_PER_UNIT) return null
+        put(slot, unit.copy(items = unit.items + id))
+        items.removeAt(itemIndex)
+        return item
+    }
+
+    /** Wählt eine der Boss-Belohnungen. */
+    fun chooseReward(index: Int): Reward? {
+        val reward = pendingRewards.getOrNull(index) ?: return null
+        when (reward.kind) {
+            RewardKind.GOLD -> gold += reward.amount
+            RewardKind.COMPONENTS -> {
+                val rng = nextRandom()
+                repeat(reward.amount) { addItem(randomComponent(rng)) }
+            }
+            RewardKind.ITEM -> addItem(reward.id!!)
+            RewardKind.UNIT -> {
+                val def = RuneTacticsUnits.byId(reward.id!!)
+                val copies = Stars.copies(reward.star)
+                val free = bench.indexOfFirst { it == null }
+                if (free >= 0 && poolCount(def.id) >= copies) {
+                    pool[def.id] = poolCount(def.id) - copies
+                    bench[free] = UnitInstance(nextUid++, def.id, reward.star)
+                    combineFrom(def.id, reward.star)
+                } else {
+                    gold += def.cost * copies
+                }
+            }
+        }
+        pendingRewards = emptyList()
+        return reward
+    }
+
+    private fun rollRewards(rng: Random): List<Reward> {
+        val unitCost = (3 + round / 10).coerceAtMost(5)
+        val units = RuneTacticsUnits.ofCost(unitCost).filter { poolCount(it.id) >= 3 }
+        val item = RuneTacticsItems.combinedItems[rng.nextInt(RuneTacticsItems.combinedItems.size)]
+        val options = buildList {
+            add(Reward(RewardKind.GOLD, amount = 6 + round / 5 * 2))
+            add(Reward(RewardKind.COMPONENTS, amount = 2 + round / 20))
+            add(Reward(RewardKind.ITEM, id = item.id))
+            if (units.isNotEmpty()) {
+                add(Reward(RewardKind.UNIT, id = units[rng.nextInt(units.size)].id, star = if (round >= 25) 2 else 1))
+            }
+        }
+        return options.shuffled(rng).take(3)
     }
 
     /** Fundorte gleicher Einheiten, Brett vor Bank. */
@@ -182,6 +275,7 @@ class RuneTacticsEngine(val seed: Long) {
         remove(slot)
         val value = Economy.sellValue(unit)
         gold += value
+        unit.items.forEach { addItem(it) }
         pool[unit.defId] = poolCount(unit.defId) + Stars.copies(unit.star)
         return value
     }
@@ -222,7 +316,7 @@ class RuneTacticsEngine(val seed: Long) {
     }
 
     fun startCombat(): Boolean {
-        if (phase != Phase.PLANNING) return false
+        if (phase != Phase.PLANNING || pendingRewards.isNotEmpty()) return false
         autoFill()
         preCombat = snapshot()
         phase = Phase.COMBAT
@@ -254,16 +348,30 @@ class RuneTacticsEngine(val seed: Long) {
         }
         combat = null
         preCombat = null
-        coinsEarned += if (outcome == Outcome.WIN) 2 else 1
+        val type = roundType
+        coinsEarned += when {
+            outcome != Outcome.WIN -> 1
+            type == RoundType.BOSS -> 5
+            else -> 2
+        }
         if (hp <= 0) {
             hp = 0
             phase = Phase.GAME_OVER
-            return RoundResult(round, outcome, hpLost, 0, 0, 0)
+            return RoundResult(round, outcome, hpLost, 0, 0, 0, type)
         }
-        val interest = Economy.interest(gold)
+        // Beute: Kreaturen lassen Komponenten fallen, ein Bosssieg bringt eine Belohnung zur Wahl.
+        val rng = nextRandom()
+        val loot = ArrayList<String>()
+        when (type) {
+            RoundType.CREEPS -> repeat(if (outcome == Outcome.WIN) 2 else 1) { loot += randomComponent(rng) }
+            RoundType.BOSS -> if (outcome == Outcome.WIN) pendingRewards = rollRewards(rng) else loot += randomComponent(rng)
+            RoundType.NORMAL -> Unit
+        }
+        val overflow = loot.sumOf { addItem(it) }
+        val interest = Economy.interest(gold - overflow)
         val streak = Economy.streakBonus(maxOf(winStreak, lossStreak))
         val income = Economy.BASE_INCOME + interest + streak + if (outcome == Outcome.WIN) Economy.WIN_BONUS else 0
-        val result = RoundResult(round, outcome, hpLost, income, interest, streak)
+        val result = RoundResult(round, outcome, hpLost, income, interest, streak, type, loot, overflow)
         round++
         gold += income
         addXp(Economy.PASSIVE_XP)
@@ -294,6 +402,8 @@ class RuneTacticsEngine(val seed: Long) {
             enemyArmy = enemyArmy,
             nextUid = nextUid,
             rngCounter = rngCounter,
+            items = items.toList(),
+            pendingRewards = pendingRewards,
         )
     }
 
@@ -317,9 +427,17 @@ class RuneTacticsEngine(val seed: Long) {
         enemyArmy = s.enemyArmy
         nextUid = s.nextUid
         rngCounter = s.rngCounter
+        items.clear()
+        items += s.items
+        pendingRewards = s.pendingRewards
         combat = null
         preCombat = null
         phase = Phase.PLANNING
         if (s.inCombat) startCombat()
+    }
+
+    companion object {
+        /** Gold pro Item, das nicht mehr ins volle Inventar passt. */
+        const val ITEM_OVERFLOW_GOLD = 2
     }
 }

@@ -34,8 +34,13 @@ Eine werbefreie Sammlung kleiner Spiele für Android – offline, ohne Tracking,
   3 ★★ zu ★★★. 15 Einheiten in 5 Kostenstufen mit eigener Fähigkeit, je eine Herkunft (Untote, Elfen, Zwerge) und Klasse
   (Krieger, Wächter, Magier) als Synergien mit Stufen bei 2 und 4. Gekämpft wird automatisch (1×/2×/4× Tempo);
   Gold aus Grundeinkommen, Zinsen und Serien, 100 Leben, Niederlagen kosten je nach Runde und überlebenden Gegnern.
-  - Modus *Endlos*: Ein KI-Kommandant baut aus einem wachsenden Budget Armeen mit eigenen Synergien,
-    ab Runde 25 werden alle Gegner mit jedem Durchgang stärker (Aufstieg). Score = erreichte Runde.
+  - Items: 6 Komponenten (Schwert, Bogen, Stab, Weste, Umhang, Gürtel) verschmelzen auf einer Einheit zu
+    21 fertigen Items mit Sondereffekten (z. B. Raserei, Lebensraub, Dornen, Betäubungsimmunität), max. 3 pro Einheit.
+  - 5er-Zyklus: Runde x4 Kreaturen (lassen Komponenten fallen), Runde x5 Boss (Knochendrache, Steintitan, Sturmhexe)
+    mit Gefolge und angekündigten Flächenangriffen; ein Bosssieg bringt eine von 3 Belohnungen zur Wahl
+    (Gold, Komponenten, fertiges Item oder Einheit).
+  - Modus *Endlos*: Ein KI-Kommandant baut aus einem wachsenden Budget Armeen mit eigenen Synergien und ab Runde 8
+    auch mit Items, ab Runde 25 werden alle Gegner mit jedem Durchgang stärker (Aufstieg). Score = erreichte Runde.
 
 **Rund um die Spiele**
 - **Coins & Shop**: In allen Spielen Coins verdienen und gegen Skins, Kartenrückseiten, Hintergründe, App-Themes, Avatare und Titel tauschen.

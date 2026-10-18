@@ -49,11 +49,54 @@ object RuneTacticsEnemyAI {
 
     fun army(seed: Long, round: Int): List<PlacedUnit> {
         val rng = Random(seed * 7919 + round)
-        val (origin, role) = archetype(seed, round)
-        val count = unitCount(round)
+        return when (RoundType.of(round)) {
+            RoundType.NORMAL -> commanderArmy(round, archetype(seed, round), unitCount(round), budget(round), rng, withItems = true)
+            RoundType.CREEPS -> creatures(round, rng)
+            RoundType.BOSS -> bossArmy(seed, round, rng)
+        }
+    }
+
+    /** Anzahl fertiger Items der KI-Armee (ab Runde 8). */
+    fun itemCount(round: Int): Int = if (round < 8) 0 else min((round - 4) / 4, 12)
+
+    fun creatureCount(round: Int): Int = min(3 + round / 5, 8)
+
+    fun creatureScale(round: Int): Float = 1f + 0.25f * round
+
+    fun bossScale(round: Int): Float = 0.8f + 0.11f * round
+
+    fun bossFor(round: Int): UnitDef = RuneTacticsUnits.bosses[(round / 5 - 1).coerceAtLeast(0) % RuneTacticsUnits.bosses.size]
+
+    private fun creatures(round: Int, rng: Random): List<PlacedUnit> {
+        val pack = RuneTacticsUnits.creatures
+        val units = (0 until creatureCount(round)).map { pack[rng.nextInt(pack.size)] to 1 }
+        return place(units, rng).map { it.copy(scale = creatureScale(round)) }
+    }
+
+    /** Boss in der Mitte der hinteren Reihen, dazu eine halbe KI-Armee als Gefolge. */
+    private fun bossArmy(seed: Long, round: Int, rng: Random): List<PlacedUnit> {
+        val boss = bossFor(round)
+        val bossCell = Cell(Board.COLS / 2, if (boss.range <= 1) 2 else 1)
+        val minions = commanderArmy(
+            round, archetype(seed, round), (unitCount(round) / 2).coerceAtLeast(1), budget(round) / 2f, rng,
+            withItems = false, blocked = setOf(bossCell),
+        )
+        return minions + PlacedUnit(boss.id, 1, bossCell.col, bossCell.row, scale = bossScale(round))
+    }
+
+    private fun commanderArmy(
+        round: Int,
+        archetype: Pair<Trait, Trait>,
+        count: Int,
+        totalBudget: Float,
+        rng: Random,
+        withItems: Boolean,
+        blocked: Set<Cell> = emptySet(),
+    ): List<PlacedUnit> {
+        val (origin, role) = archetype
         val maxCost = maxCost(round)
         val maxStar = maxStar(round)
-        var budget = budget(round)
+        var budget = totalBudget
         val chosen = ArrayList<Pair<UnitDef, Int>>()
         val options = RuneTacticsUnits.all.filter { it.cost <= maxCost }
             .flatMap { def -> (1..maxStar).map { star -> def to star } }
@@ -73,14 +116,30 @@ object RuneTacticsEnemyAI {
             chosen += pick
             budget -= value(pick.first, pick.second)
         }
-        return place(chosen, rng)
+        val placed = place(chosen, rng, blocked)
+        return if (withItems) equip(placed, itemCount(round), rng) else placed
+    }
+
+    /** Verteilt zufällige fertige Items reihum auf die wertvollsten Einheiten (max. 3 je Einheit). */
+    private fun equip(units: List<PlacedUnit>, count: Int, rng: Random): List<PlacedUnit> {
+        if (count <= 0 || units.isEmpty()) return units
+        val result = units.toMutableList()
+        val order = result.indices.sortedByDescending { value(result[it].def, result[it].star) }
+        val carriers = order.take(maxOf(1, (count + 2) / 3))
+        val pool = RuneTacticsItems.combinedItems
+        repeat(minOf(count, carriers.size * RuneTacticsItems.MAX_PER_UNIT)) { i ->
+            val index = carriers[i % carriers.size]
+            val unit = result[index]
+            result[index] = unit.copy(items = unit.items + pool[rng.nextInt(pool.size)].id)
+        }
+        return result
     }
 
     private fun value(def: UnitDef, star: Int): Float = (def.cost * Stars.copies(star)).toFloat()
 
     /** Nahkämpfer vorne (Reihe 3), Fernkämpfer hinten (Reihe 0). */
-    private fun place(units: List<Pair<UnitDef, Int>>, rng: Random): List<PlacedUnit> {
-        val taken = HashSet<Cell>()
+    private fun place(units: List<Pair<UnitDef, Int>>, rng: Random, blocked: Set<Cell> = emptySet()): List<PlacedUnit> {
+        val taken = HashSet(blocked)
         val sorted = units.sortedByDescending { it.first.cost * 10 + it.second }
         return sorted.map { (def, star) ->
             val rows = when {

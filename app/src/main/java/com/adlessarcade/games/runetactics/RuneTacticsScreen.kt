@@ -159,7 +159,12 @@ fun RuneTacticsScreen(
                                         drag = null
                                     } else {
                                         traitInfo = null
-                                        viewModel.inspect(hitTest(layout, current, down.position))
+                                        val slot = layout.slotAt(down.position)
+                                        val equipped = if (slot != null) viewModel.equipSelected(slot) else {
+                                            viewModel.selectItem(null)
+                                            false
+                                        }
+                                        if (!equipped) viewModel.inspect(hitTest(layout, current, down.position))
                                     }
                                 }
                             }
@@ -173,6 +178,9 @@ fun RuneTacticsScreen(
 
                     val info = viewModel.inspected
                     if (info != null) UnitCard(info, Modifier.align(Alignment.TopCenter).padding(8.dp))
+                    viewModel.selectedItem?.let { engine.items.getOrNull(it) }?.let { id ->
+                        ItemCard(RuneTacticsItems.byId(id), Modifier.align(Alignment.TopCenter).padding(8.dp))
+                    }
                     traitInfo?.let { TraitCard(it, engine.activeTraits()[it] ?: 0, Modifier.align(Alignment.TopCenter).padding(8.dp)) }
                     Banner(viewModel.banner, Modifier.align(Alignment.Center))
                 }
@@ -182,6 +190,10 @@ fun RuneTacticsScreen(
                     val dragged = drag
                     if (dragged != null) SellZone(Economy.sellValue(dragged.unit), Modifier.matchParentSize())
                 }
+            }
+
+            if (planning && engine.pendingRewards.isNotEmpty() && !viewModel.paused && !viewModel.gameOver) {
+                RewardOverlay(engine.pendingRewards, onChoose = viewModel::chooseReward)
             }
 
             if (viewModel.paused) {
@@ -212,14 +224,15 @@ private fun hitTest(layout: TacticsLayout, engine: RuneTacticsEngine, p: Offset)
             (layout.center(it.visualCol, it.visualRow) - p).getDistance()
         }
         if (hit != null && (layout.center(hit.visualCol, hit.visualRow) - p).getDistance() < layout.cell * 0.6f) {
-            return Inspected(hit.def, hit.star, hit.side == 1)
+            val scale = if (hit.side == 1) engine.enemyScale * (engine.enemyArmy.getOrNull(hit.id - fight.playerUids.size)?.scale ?: 1f) else 1f
+            return Inspected(hit.def, hit.star, hit.side == 1, hit.items.map { it.id }, scale)
         }
     }
-    layout.benchAt(p)?.let { i -> engine.bench[i]?.let { return Inspected(it.def, it.star, false) } }
+    layout.benchAt(p)?.let { i -> engine.bench[i]?.let { return Inspected(it.def, it.star, false, it.items) } }
     if (engine.phase == Phase.COMBAT) return null
     val cell = layout.cellAt(p) ?: return null
-    engine.board[cell]?.let { return Inspected(it.def, it.star, false) }
-    engine.enemyArmy.firstOrNull { it.col == cell.col && it.row == cell.row }?.let { return Inspected(it.def, it.star, true) }
+    engine.board[cell]?.let { return Inspected(it.def, it.star, false, it.items) }
+    engine.enemyArmy.firstOrNull { it.col == cell.col && it.row == cell.row }?.let { return Inspected(it.def, it.star, true, it.items, engine.enemyScale * it.scale) }
     return null
 }
 
@@ -240,10 +253,19 @@ private fun TopHud(engine: RuneTacticsEngine, best: Int) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("RUNDE ${engine.round}", style = MaterialTheme.typography.titleMedium, color = ArcadeText)
             val scale = engine.enemyScale
+            val type = engine.roundType
             Text(
-                if (scale > 1.001f) "Aufstieg +${((scale - 1f) * 100).roundToInt()} %" else "Rekord $best",
+                when {
+                    type != RoundType.NORMAL -> type.title
+                    scale > 1.001f -> "Aufstieg +${((scale - 1f) * 100).roundToInt()} %"
+                    else -> "Rekord $best"
+                },
                 style = MaterialTheme.typography.labelSmall,
-                color = if (scale > 1.001f) LossRed else ArcadeTextMuted,
+                color = when {
+                    type == RoundType.BOSS || scale > 1.001f -> LossRed
+                    type == RoundType.CREEPS -> originColor(Trait.BEAST)
+                    else -> ArcadeTextMuted
+                },
             )
         }
         Spacer(Modifier.weight(1f))
@@ -313,6 +335,7 @@ private fun BottomPanel(viewModel: RuneTacticsViewModel, engine: RuneTacticsEngi
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        ItemBar(engine.items, viewModel.selectedItem, enabled = planning, onSelect = viewModel::selectItem)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             engine.shop.forEachIndexed { index, id ->
                 ShopCard(
@@ -427,7 +450,7 @@ private fun SellZone(value: Int, modifier: Modifier = Modifier) {
 private fun UnitCard(info: Inspected, modifier: Modifier = Modifier) {
     val def = info.def
     val shape = RoundedCornerShape(16.dp)
-    val star = Stars.stat(info.star)
+    val star = Stars.stat(info.star) * info.scale
     Column(
         modifier
             .fillMaxWidth()
@@ -446,7 +469,7 @@ private fun UnitCard(info: Inspected, modifier: Modifier = Modifier) {
             else Text("● ${def.cost}", style = MaterialTheme.typography.labelMedium, color = StarGold)
         }
         Text(
-            "${def.origin.title} · ${def.role.title}",
+            def.traits.joinToString(" · ") { it.title },
             style = MaterialTheme.typography.labelMedium,
             color = originColor(def.origin),
         )
@@ -462,7 +485,16 @@ private fun UnitCard(info: Inspected, modifier: Modifier = Modifier) {
             color = ArcadeTextMuted,
         )
         Text(def.ability.name, style = MaterialTheme.typography.labelLarge, color = MagicViolet)
-        Text(def.ability.description, style = MaterialTheme.typography.bodySmall, color = ArcadeText)
+        if (def.maxMana > 0) {
+            Text(def.ability.description, style = MaterialTheme.typography.bodySmall, color = ArcadeText)
+        }
+        info.items.map(RuneTacticsItems::byId).forEach { item ->
+            Text(
+                "${item.name}: ${item.description}",
+                style = MaterialTheme.typography.bodySmall,
+                color = StarGold,
+            )
+        }
     }
 }
 
@@ -537,7 +569,7 @@ private fun PauseOverlay(onResume: () -> Unit, onRestart: () -> Unit, onMenu: ()
         ) {
             Text("Pausiert", style = MaterialTheme.typography.headlineMedium, color = ArcadeText)
             Text(
-                "Tippe auf Einheiten für Infos, halte Shop-Karten gedrückt.\nZiehe Einheiten in den Shop, um sie zu verkaufen.",
+                "Tippe auf Einheiten für Infos, halte Shop-Karten gedrückt.\nZiehe Einheiten in den Shop, um sie zu verkaufen.\nItems: antippen, dann eine eigene Einheit antippen.",
                 style = MaterialTheme.typography.bodySmall,
                 color = ArcadeTextMuted,
                 textAlign = TextAlign.Center,
@@ -560,6 +592,136 @@ private fun PauseGlyph() {
                     .clip(RoundedCornerShape(2.dp))
                     .background(ArcadeText)
             )
+        }
+    }
+}
+
+@Composable
+private fun ItemBar(items: List<String>, selected: Int?, enabled: Boolean, onSelect: (Int) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(36.dp)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (items.isEmpty()) {
+            Text(
+                "Items gibt es in Kreaturen- und Bossrunden",
+                style = MaterialTheme.typography.labelSmall,
+                color = ArcadeTextMuted,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+        items.forEachIndexed { index, id ->
+            val item = RuneTacticsItems.byId(id)
+            val isSelected = index == selected
+            val shape = RoundedCornerShape(8.dp)
+            Box(
+                Modifier
+                    .size(34.dp)
+                    .alpha(if (enabled) 1f else 0.45f)
+                    .clip(shape)
+                    .background(if (isSelected) StarGold.copy(alpha = 0.3f) else Color.Transparent)
+                    .border(if (isSelected) 2.dp else 0.dp, if (isSelected) StarGold else Color.Transparent, shape)
+                    .clickable(enabled = enabled) { onSelect(index) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Canvas(Modifier.size(28.dp)) {
+                    drawItemIcon(Offset(size.width / 2f, size.height / 2f), size.width, item)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ItemCard(item: ItemDef, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(ArcadeSurface.copy(alpha = 0.96f))
+            .border(1.dp, StarGold, shape)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(item.name, style = MaterialTheme.typography.titleMedium, color = StarGold)
+        Text(item.statLine, style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
+        if (!item.isComponent) Text(item.description, style = MaterialTheme.typography.bodySmall, color = ArcadeText)
+        if (item.isComponent) {
+            Text("Kombiniert mit:", style = MaterialTheme.typography.labelMedium, color = ArcadeText)
+            RuneTacticsItems.components.forEach { other ->
+                val result = RuneTacticsItems.combine(item.id, other.id) ?: return@forEach
+                Text(
+                    "+ ${other.name} → ${result.name}: ${result.description}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ArcadeTextMuted,
+                )
+            }
+        }
+        Text(
+            "Tippe auf eine eigene Einheit zum Ausrüsten (max. ${RuneTacticsItems.MAX_PER_UNIT}).",
+            style = MaterialTheme.typography.labelSmall,
+            color = ArcadeCyan,
+        )
+    }
+}
+
+/** Auswahl der Boss-Belohnung; blockiert das Spiel, bis gewählt wurde. */
+@Composable
+private fun RewardOverlay(rewards: List<Reward>, onChoose: (Int) -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.72f))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier.padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("BOSS BESIEGT!", style = MaterialTheme.typography.headlineMedium, color = StarGold)
+            Text("Wähle eine Belohnung", style = MaterialTheme.typography.bodyMedium, color = ArcadeTextMuted)
+            Spacer(Modifier.height(4.dp))
+            rewards.forEachIndexed { index, reward ->
+                val shape = RoundedCornerShape(16.dp)
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(shape)
+                        .background(ArcadeSurfaceHigh)
+                        .border(1.dp, StarGold.copy(alpha = 0.7f), shape)
+                        .clickable { onChoose(index) }
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Canvas(Modifier.size(40.dp)) {
+                        val c = Offset(size.width / 2f, size.height / 2f)
+                        when (reward.kind) {
+                            RewardKind.ITEM -> drawItemIcon(c, size.width * 0.9f, RuneTacticsItems.byId(reward.id!!))
+                            RewardKind.COMPONENTS -> {
+                                drawItemIcon(Offset(c.x - size.width * 0.12f, c.y - size.width * 0.12f), size.width * 0.6f, RuneTacticsItems.components[0])
+                                drawItemIcon(Offset(c.x + size.width * 0.12f, c.y + size.width * 0.12f), size.width * 0.6f, RuneTacticsItems.components[3])
+                            }
+                            RewardKind.UNIT -> drawUnit(c, size.width * 1.1f, RuneTacticsUnits.byId(reward.id!!), reward.star, enemy = false)
+                            RewardKind.GOLD -> {
+                                drawCircle(StarGold, size.width * 0.32f, c)
+                                drawCircle(Color(0xFFB45309), size.width * 0.32f, c, style = androidx.compose.ui.graphics.drawscope.Stroke(size.width * 0.06f))
+                            }
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(reward.title, style = MaterialTheme.typography.titleMedium, color = ArcadeText)
+                        Text(reward.description, style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
+                    }
+                }
+            }
         }
     }
 }

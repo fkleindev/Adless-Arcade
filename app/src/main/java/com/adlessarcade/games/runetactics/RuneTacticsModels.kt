@@ -2,7 +2,12 @@ package com.adlessarcade.games.runetactics
 
 import kotlinx.serialization.Serializable
 
-enum class TraitKind { ORIGIN, CLASS }
+enum class TraitKind {
+    ORIGIN,
+    CLASS,
+    /** Kreaturen und Bosse – keine Synergie. */
+    MONSTER,
+}
 
 /** Synergien: Stufen werden mit unterschiedlichen Einheiten (nicht Kopien) auf dem Brett erreicht. */
 enum class Trait(
@@ -19,7 +24,9 @@ enum class Trait(
         "Wächter", TraitKind.CLASS, listOf(2, 4),
         "Zum Kampfbeginn erhalten Wächter und angrenzende Verbündete einen Schild von 150 / 350.",
     ),
-    MAGE("Magier", TraitKind.CLASS, listOf(2, 4), "Fähigkeiten von Magiern verursachen +30 % / +70 % Schaden.");
+    MAGE("Magier", TraitKind.CLASS, listOf(2, 4), "Fähigkeiten von Magiern verursachen +30 % / +70 % Schaden."),
+    BEAST("Kreatur", TraitKind.MONSTER, emptyList(), "Wilde Kreaturen lassen Item-Komponenten fallen."),
+    BOSS("Boss", TraitKind.MONSTER, emptyList(), "Bosse kündigen ihre Flächenangriffe an. Ein Sieg bringt eine Belohnung zur Wahl.");
 
     /** Erreichte Stufe (0 = inaktiv) bei [count] verschiedenen Einheiten. */
     fun level(count: Int): Int = tiers.count { count >= it }
@@ -53,6 +60,8 @@ enum class AbilityKind {
     LEAP,
     /** Schild für alle Verbündeten und Schaden an Gegnern im Umkreis von 2 Feldern. */
     MOON,
+    /** Angekündigter Flächenangriff (Bosse): Zone wird markiert, schlägt nach kurzer Verzögerung ein. Radius = count. */
+    SLAM,
 }
 
 data class Ability(
@@ -87,11 +96,18 @@ data class UnitDef(
     val startMana: Int,
     val ability: Ability,
 ) {
-    val traits: List<Trait> get() = listOf(origin, role)
+    val traits: List<Trait> get() = if (origin == role) listOf(origin) else listOf(origin, role)
+    val isBoss: Boolean get() = role == Trait.BOSS
 }
 
 @Serializable
-data class UnitInstance(val uid: Long, val defId: String, val star: Int = 1) {
+data class UnitInstance(
+    val uid: Long,
+    val defId: String,
+    val star: Int = 1,
+    /** Item-IDs (max. 3). */
+    val items: List<String> = emptyList(),
+) {
     val def: UnitDef get() = RuneTacticsUnits.byId(defId)
 }
 
@@ -106,8 +122,53 @@ sealed interface Slot {
 
 /** Gegnerische Einheit mit fester Position (obere Brett-Hälfte). */
 @Serializable
-data class PlacedUnit(val defId: String, val star: Int, val col: Int, val row: Int) {
+data class PlacedUnit(
+    val defId: String,
+    val star: Int,
+    val col: Int,
+    val row: Int,
+    val items: List<String> = emptyList(),
+    /** Eigene Werte-Skalierung (Kreaturen, Bosse), zusätzlich zum Aufstieg. */
+    val scale: Float = 1f,
+) {
     val def: UnitDef get() = RuneTacticsUnits.byId(defId)
+}
+
+enum class RoundType(val title: String) {
+    NORMAL("KI-Armee"),
+    CREEPS("Kreaturen"),
+    BOSS("Boss");
+
+    companion object {
+        /** 5er-Zyklus: x4 Kreaturen, x5 Boss, sonst KI-Armee. */
+        fun of(round: Int): RoundType = when (round % 5) {
+            4 -> CREEPS
+            0 -> BOSS
+            else -> NORMAL
+        }
+    }
+}
+
+enum class RewardKind { GOLD, COMPONENTS, ITEM, UNIT }
+
+/** Belohnung nach einem Bosssieg (eine von drei wählen). */
+@Serializable
+data class Reward(val kind: RewardKind, val amount: Int = 0, val id: String? = null, val star: Int = 1) {
+    val title: String
+        get() = when (kind) {
+            RewardKind.GOLD -> "$amount Gold"
+            RewardKind.COMPONENTS -> "$amount Komponenten"
+            RewardKind.ITEM -> RuneTacticsItems.byId(id!!).name
+            RewardKind.UNIT -> "${"★".repeat(star)} ${RuneTacticsUnits.byId(id!!).name}"
+        }
+
+    val description: String
+        get() = when (kind) {
+            RewardKind.GOLD -> "Sofort aufs Konto."
+            RewardKind.COMPONENTS -> "Zufällige Item-Komponenten."
+            RewardKind.ITEM -> RuneTacticsItems.byId(id!!).description
+            RewardKind.UNIT -> "Kommt auf die Bank (bei voller Bank als Gold)."
+        }
 }
 
 enum class Phase { PLANNING, COMBAT, GAME_OVER }
@@ -122,6 +183,11 @@ data class RoundResult(
     val income: Int,
     val interest: Int,
     val streakBonus: Int,
+    val type: RoundType = RoundType.NORMAL,
+    /** Erbeutete Items (Kreaturen- und Bossrunden). */
+    val loot: List<String> = emptyList(),
+    /** Gold aus vollem Inventar oder Bank. */
+    val overflowGold: Int = 0,
 )
 
 object Stars {
