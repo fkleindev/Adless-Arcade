@@ -514,7 +514,8 @@ sealed interface SurvivorsEvent {
     data object MapEventFailed : SurvivorsEvent
 
     // Rein visuelle Waffeneffekte
-    data class Swing(val x: Float, val y: Float, val angle: Float, val range: Float, val fullCircle: Boolean, val evolved: Boolean = false) : SurvivorsEvent
+    /** [sweep]: Bogenbreite in Grad (bei [fullCircle] ohne Bedeutung). */
+    data class Swing(val x: Float, val y: Float, val angle: Float, val range: Float, val fullCircle: Boolean, val evolved: Boolean = false, val sweep: Float = 180f) : SurvivorsEvent
     data class Lightning(val x: Float, val y: Float, val radius: Float) : SurvivorsEvent
     data class Nova(val x: Float, val y: Float, val radius: Float, val freeze: Boolean = false) : SurvivorsEvent
     /** Gewittersturm: Blitz springt von (x1, y1) nach (x2, y2). */

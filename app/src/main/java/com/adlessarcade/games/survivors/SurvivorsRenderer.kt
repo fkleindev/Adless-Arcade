@@ -58,7 +58,8 @@ sealed class SurvivorsFx(val x: Float, val y: Float, val lifetime: Float) {
     var age = 0f
     val progress: Float get() = (age / lifetime).coerceIn(0f, 1f)
 
-    class Swing(x: Float, y: Float, val angle: Float, val range: Float, val fullCircle: Boolean, val evolved: Boolean) : SurvivorsFx(x, y, if (evolved) 0.3f else 0.22f)
+    class Swing(x: Float, y: Float, val angle: Float, val range: Float, val fullCircle: Boolean, val evolved: Boolean, val sweep: Float = 180f) :
+        SurvivorsFx(x, y, if (evolved) 0.3f else 0.22f)
     class Bolt(x: Float, y: Float, val radius: Float) : SurvivorsFx(x, y, 0.3f)
     class Nova(x: Float, y: Float, val radius: Float, val freeze: Boolean) : SurvivorsFx(x, y, 0.45f)
     class Arc(x: Float, y: Float, val x2: Float, val y2: Float) : SurvivorsFx(x, y, 0.25f)
@@ -877,7 +878,7 @@ private fun DrawScope.drawFx(cam: SurvivorsCamera, fx: SurvivorsFx, textMeasurer
     when (fx) {
         is SurvivorsFx.Swing -> {
             val range = cam.len(fx.range)
-            val sweep = 180f
+            val sweep = if (fx.fullCircle) 180f else fx.sweep
             val start = fx.angle * 180f / PI.toFloat() - sweep / 2f
             val arcs = if (fx.fullCircle) listOf(start, start + 180f) else listOf(start)
             val fill = if (fx.evolved) Color(0xFF60A5FA) else Color.White

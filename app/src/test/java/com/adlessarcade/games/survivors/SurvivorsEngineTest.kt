@@ -126,6 +126,46 @@ class SurvivorsEngineTest {
         assertTrue(Upgrades.pool(f.state).none { it.weapon == WeaponKind.SPEAR })
     }
 
+    /** Schwert schlägt nach vorn; ab Stufe 4 breiter, rundum nur als Runenklinge. Liefert getroffen (Seite, Rücken). */
+    private fun swordHits(level: Int, evolved: Boolean): Pair<Boolean, Boolean> {
+        val e = engine(HeroClass.KNIGHT)
+        e.clearSpawns()
+        e.state.weapons.clear()
+        e.state.weapons[WeaponKind.SWORD] = level
+        if (evolved) e.state.evolved += WeaponKind.SWORD
+        e.state.invulnerable = 1_000f
+        e.spawnEnemy(EnemyKind.ORC, e.state.px + 1.2f, e.state.py, hpMultiplier = 100f)
+        // 110° neben der Schlagrichtung bzw. direkt dahinter, weiter weg als das Ziel vorn
+        val side = e.spawnEnemy(EnemyKind.ORC, e.state.px - 0.55f, e.state.py + 1.5f, hpMultiplier = 100f)
+        val back = e.spawnEnemy(EnemyKind.ORC, e.state.px - 1.6f, e.state.py, hpMultiplier = 100f)
+        e.update(1f / 60f)
+        assertTrue(e.drainEvents().any { it is SurvivorsEvent.Swing })
+        return (side.hp < side.maxHp) to (back.hp < back.maxHp)
+    }
+
+    @Test
+    fun sword_hitsAllAroundOnlyWhenEvolved() {
+        assertEquals(false to false, swordHits(level = 3, evolved = false))
+        assertEquals(true to false, swordHits(level = 4, evolved = false))
+        assertEquals(true to false, swordHits(level = MAX_LEVEL, evolved = false))
+        assertEquals(true to true, swordHits(level = MAX_LEVEL, evolved = true))
+    }
+
+    @Test
+    fun daggers_aimAtNearestEnemy_evenBehindTheHero() {
+        val e = engine(HeroClass.ASSASSIN)
+        e.clearSpawns()
+        e.state.weapons.clear()
+        e.state.weapons[WeaponKind.DAGGERS] = 1
+        e.state.faceX = 1f
+        e.state.faceY = 0f
+        e.spawnEnemy(EnemyKind.ORC, e.state.px - 4f, e.state.py, hpMultiplier = 100f)
+        e.update(1f / 60f)
+        val daggers = e.state.projectiles.filter { it.weapon == WeaponKind.DAGGERS }
+        assertTrue(daggers.isNotEmpty())
+        assertTrue(daggers.all { it.vx < 0f })
+    }
+
     @Test
     fun kills_areCountedPerWeapon() {
         val e = engine(HeroClass.KNIGHT)

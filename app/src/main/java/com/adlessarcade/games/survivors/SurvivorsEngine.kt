@@ -81,12 +81,20 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         /** Entwicklungen gibt es erst ab dem ersten Boss. */
         const val EVOLUTION_MIN_TIME = 300f
         const val METEOR_DELAY = 0.45f
+        /** Meteorregen: Radius relativ zur Feuerball-Explosion, Abklingzeit-Faktor und brennender Boden. */
+        private const val METEOR_AREA = 1.4f
+        private const val METEOR_COOLDOWN = 1.3f
+        private const val METEOR_BURN_SHARE = 0.08f
+        private const val METEOR_BURN_TIME = 1.5f
         /** Siegesrunde: mindestens/höchstens so lange fliegen die Drops zum Helden. */
         const val VICTORY_SWEEP_MIN_TIME = 0.6f
         const val VICTORY_SWEEP_MAX_TIME = 3f
         private const val PULL_SPEED = 9f
         private const val SWEEP_PULL_SPEED = 14f
         private const val STORM_BOW_PIERCE = 4
+        /** Klingensturm: Schadensfaktor und Durchschläge, damit der Dolch-Buff die Entwicklung nicht verstärkt. */
+        private const val BLADE_STORM_DAMAGE = 0.7f
+        private const val BLADE_STORM_PIERCE = 3
         private const val MAX_HAZARDS = 64
         private const val MAX_PROJECTILES = 600
         /** Durchschlag ohne praktisches Limit (Speer, Klingen, Schilde). */
@@ -940,7 +948,9 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
     private fun cooldown(weapon: WeaponKind, level: Int, st: HeroStats): Float {
         val factor = when {
             weapon == WeaponKind.ARROWS && isEvolved(weapon) -> 0.65f
-            weapon == WeaponKind.ARCANE && isEvolved(weapon) -> 0.6f
+            // Arkansturm: gleicht den Nerf der Basis-Abklingzeit größtenteils aus (insgesamt ~14 % weniger Schaden)
+            weapon == WeaponKind.ARCANE && isEvolved(weapon) -> 0.47f
+            weapon == WeaponKind.FIREBALL && isEvolved(weapon) -> METEOR_COOLDOWN
             // Windklingen: je schneller der Held, desto öfter
             weapon == WeaponKind.WIND -> 3f / st.speed
             else -> 1f
@@ -1025,15 +1035,18 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                 val radius = 0.18f * st.areaMultiplier
                 val life = 0.9f * st.areaMultiplier
                 if (evolved) {
-                    // Klingensturm: Dolche in alle Richtungen, die umkehren und erneut treffen
-                    val total = 4 + 2 * n
+                    // Klingensturm: Dolche in alle Richtungen, die umkehren und erneut treffen.
+                    // Behält die Werte von vor dem Dolch-Buff (ein Dolch weniger, weniger Schaden, feste Durchschläge).
+                    val total = 4 + 2 * (n - 1)
                     val base = atan2(state.faceY, state.faceX) + state.time * 1.3f
                     repeat(total) { i ->
-                        shootAngle(weapon, base + i * 2f * PI.toFloat() / total, speed = 11f, damage = damage, radius = radius,
-                            pierce = weapon.pierce(level) + 2, life = life * 1.2f, returnAt = life * 0.6f)
+                        shootAngle(weapon, base + i * 2f * PI.toFloat() / total, speed = 11f, damage = damage * BLADE_STORM_DAMAGE,
+                            radius = radius, pierce = BLADE_STORM_PIERCE, life = life * 1.2f, returnAt = life * 0.6f)
                     }
                 } else {
-                    val base = atan2(state.faceY, state.faceX)
+                    // Zielt auf den nächsten Gegner in Wurfweite, sonst in Blickrichtung
+                    val target = nearestEnemies(1, 13f * life).firstOrNull()
+                    val base = if (target != null) atan2(target.y - state.py, target.x - state.px) else atan2(state.faceY, state.faceX)
                     repeat(n) { i ->
                         val angle = base + (i - (n - 1) / 2f) * 0.15f
                         shootAngle(weapon, angle, speed = 13f, damage = damage, radius = radius, pierce = weapon.pierce(level), life = life)
@@ -1213,12 +1226,15 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
         // Schlägt Richtung nächstem Gegner (sonst in Laufrichtung) – wer flieht, trifft trotzdem.
         // Folgeschläge peilen den zweit-, dritt- … nächsten Gegner an.
         val facing = facingTo(targetIndex, range * 1.6f)
-        val fullCircle = evolved || weapon.doubleSwing(level)
+        // Nur die Runenklinge schlägt rundum; das Schwert schlägt nach vorn, ab Stufe 4 in einem breiteren Bogen.
+        val fullCircle = evolved
+        val sweep = weapon.swingArc(level)
+        val half = sweep / 2f * PI.toFloat() / 180f
         forEnemiesNear(state.px, state.py, range) { e ->
             val angle = atan2(e.y - state.py, e.x - state.px)
-            if (fullCircle || angleDiff(angle, facing) <= PI.toFloat() / 2f) damage(e, hit)
+            if (fullCircle || angleDiff(angle, facing) <= half) damage(e, hit)
         }
-        events += SurvivorsEvent.Swing(state.px, state.py, facing, range, fullCircle, evolved)
+        events += SurvivorsEvent.Swing(state.px, state.py, facing, range, fullCircle, evolved, sweep)
     }
 
     /** Richtung zum ([targetIndex]+1)-nächsten Gegner, sonst Laufrichtung (leicht gedreht für Folgeschläge). */
@@ -1332,7 +1348,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
 
     fun meteorRadius(): Float {
         val level = state.weapons[WeaponKind.FIREBALL] ?: return 0f
-        return WeaponKind.FIREBALL.area(level) * stats.areaMultiplier * 1.8f
+        return WeaponKind.FIREBALL.area(level) * stats.areaMultiplier * METEOR_AREA
     }
 
     /** Gewittersturm: springt vom getroffenen Gegner auf bis zu 3 Nachbarn über. */
@@ -1388,7 +1404,7 @@ class SurvivorsEngine(val state: SurvivorsState, seed: Long) {
                     val radius = meteorRadius()
                     forEnemiesNear(p.x, p.y, radius) { damage(it, damage) }
                     events += SurvivorsEvent.Explosion(p.x, p.y, radius)
-                    addHazard(Hazard(p.x, p.y, radius * 0.8f, damage * 0.12f, life = 2f))
+                    addHazard(Hazard(p.x, p.y, radius * 0.8f, damage * METEOR_BURN_SHARE, life = METEOR_BURN_TIME))
                 }
                 else -> Unit
             }

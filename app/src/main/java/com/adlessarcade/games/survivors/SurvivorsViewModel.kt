@@ -446,7 +446,7 @@ class SurvivorsViewModel(app: Application, savedStateHandle: SavedStateHandle) :
                     rewardTick++
                 }
                 is SurvivorsEvent.Swing ->
-                    effects += SurvivorsFx.Swing(event.x, event.y, event.angle, event.range, event.fullCircle, event.evolved)
+                    effects += SurvivorsFx.Swing(event.x, event.y, event.angle, event.range, event.fullCircle, event.evolved, event.sweep)
                 is SurvivorsEvent.Lightning -> if (effects.size < MAX_FX) effects += SurvivorsFx.Bolt(event.x, event.y, event.radius)
                 is SurvivorsEvent.Chain -> if (effects.size < MAX_FX) effects += SurvivorsFx.Arc(event.x1, event.y1, event.x2, event.y2)
                 is SurvivorsEvent.Anchor -> if (effects.size < MAX_FX) effects += SurvivorsFx.Anchor(event.x1, event.y1, event.x2, event.y2, event.evolved)

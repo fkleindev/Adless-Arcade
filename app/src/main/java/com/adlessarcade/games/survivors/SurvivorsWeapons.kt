@@ -51,7 +51,7 @@ enum class WeaponKind(val title: String, val icon: String) {
         FROST_NOVA -> listOf(4f, 3.6f, 3.2f, 2.8f, 2.5f).at(level)
         ANCHOR -> listOf(2.0f, 1.85f, 1.7f, 1.5f, 1.3f).at(level)
         HAMMER -> listOf(1.6f, 1.5f, 1.4f, 1.25f, 1.1f).at(level)
-        ARCANE -> listOf(0.8f, 0.72f, 0.64f, 0.55f, 0.45f).at(level)
+        ARCANE -> listOf(0.85f, 0.78f, 0.7f, 0.62f, 0.55f).at(level)
         WIND -> listOf(0.5f, 0.45f, 0.4f, 0.35f, 0.3f).at(level)
         THORNS -> listOf(2.0f, 1.8f, 1.6f, 1.4f, 1.2f).at(level)
         SPEAR -> listOf(1.5f, 1.4f, 1.25f, 1.1f, 1.0f).at(level)
@@ -68,11 +68,11 @@ enum class WeaponKind(val title: String, val icon: String) {
         BONE_ORBIT -> listOf(10f, 13f, 16f, 20f, 24f).at(level)
         LIGHTNING -> listOf(20f, 26f, 32f, 38f, 45f).at(level)
         AURA -> listOf(4f, 5f, 6.5f, 8f, 10f).at(level)
-        DAGGERS -> listOf(7f, 8.5f, 10f, 12f, 14f).at(level)
+        DAGGERS -> listOf(10f, 12f, 14.5f, 17f, 20f).at(level)
         FROST_NOVA -> listOf(10f, 14f, 18f, 21f, 25f).at(level)
         ANCHOR -> listOf(14f, 18f, 23f, 28f, 34f).at(level)
         HAMMER -> listOf(30f, 38f, 47f, 57f, 70f).at(level)
-        ARCANE -> listOf(9f, 11f, 13.5f, 16.5f, 20f).at(level)
+        ARCANE -> listOf(8f, 10f, 12f, 14f, 16.5f).at(level)
         WIND -> listOf(8f, 10f, 12.5f, 15f, 18f).at(level)
         THORNS -> listOf(6f, 8f, 10f, 12f, 14f).at(level)
         SPEAR -> listOf(25f, 31f, 38f, 46f, 55f).at(level)
@@ -88,7 +88,7 @@ enum class WeaponKind(val title: String, val icon: String) {
         ARROWS -> listOf(1, 2, 2, 3, 4).at(level)
         BONE_ORBIT -> listOf(3, 3, 4, 5, 6).at(level)
         LIGHTNING -> listOf(1, 2, 2, 3, 4).at(level)
-        DAGGERS -> listOf(1, 1, 2, 2, 3).at(level)
+        DAGGERS -> listOf(1, 2, 2, 3, 4).at(level)
         ARCANE -> listOf(1, 2, 2, 3, 3).at(level)
         SPEAR -> listOf(1, 1, 1, 2, 2).at(level)
         VINES -> listOf(1, 1, 2, 2, 2).at(level)
@@ -118,13 +118,13 @@ enum class WeaponKind(val title: String, val icon: String) {
 
     fun pierce(level: Int): Int = when (this) {
         ARROWS -> listOf(1, 1, 2, 2, 3).at(level)
-        DAGGERS -> listOf(0, 0, 1, 1, 1).at(level)
+        DAGGERS -> listOf(1, 1, 2, 2, 3).at(level)
         SHARDS -> listOf(2, 2, 3, 3, 4).at(level) // Abpraller
         else -> 0
     }
 
-    /** Ab Stufe 4 schlägt das Schwert auch nach hinten. */
-    fun doubleSwing(level: Int): Boolean = this == SWORD && level >= 4
+    /** Breite des Schwertbogens in Grad: ab Stufe 4 breiter, rundum schlägt nur die Runenklinge. */
+    fun swingArc(level: Int): Float = if (this == SWORD && level >= 4) 240f else 180f
 
     /** Waffen, bei denen „Vielfalt“ zusätzliche Projektile/Einschläge/Schädel bringt. */
     val usesExtraProjectiles: Boolean
@@ -231,13 +231,13 @@ enum class WeaponKind(val title: String, val icon: String) {
         }
 
     fun description(level: Int): String = when (this) {
-        SWORD -> if (level <= 1) "Schlägt vor dir einen Bogen." else if (level == 4) "Schlägt jetzt auch nach hinten." else "Mehr Schaden und Reichweite."
+        SWORD -> if (level <= 1) "Schlägt vor dir einen Bogen." else if (level == 4) "Breiterer Schwertbogen." else "Mehr Schaden und Reichweite."
         FIREBALL -> if (level <= 1) "Zielt auf den nächsten Gegner und explodiert." else "Mehr Feuerbälle und größere Explosion."
         ARROWS -> if (level <= 1) "Schnelle Pfeile, die durchschlagen." else "Mehr Pfeile, mehr Durchschlag."
         BONE_ORBIT -> if (level <= 1) "Schädel kreisen um dich." else "Mehr Schädel, größerer Kreis."
         LIGHTNING -> if (level <= 1) "Blitze schlagen in zufällige Gegner ein." else "Mehr Einschläge, mehr Schaden."
         AURA -> if (level <= 1) "Schadet Gegnern in deiner Nähe dauerhaft." else "Größere und stärkere Aura."
-        DAGGERS -> if (level <= 1) "Wirft Dolche in Laufrichtung." else "Mehr Dolche, schnellere Würfe."
+        DAGGERS -> if (level <= 1) "Wirft durchschlagende Dolche auf den nächsten Gegner." else "Mehr Dolche, mehr Durchschlag, schnellere Würfe."
         FROST_NOVA -> if (level <= 1) "Eiswelle um dich, verlangsamt Gegner." else "Größere, häufigere Nova."
         ANCHOR -> if (level <= 1) "Schleudert einen Anker zum fernsten Gegner im Sammelradius und reißt ihn heran. Magnet erhöht die Reichweite." else "Mehr Anker, mehr Schaden, häufiger."
         HAMMER -> if (level <= 1) "Wuchtiger Hieb nach vorn, stößt Gegner zurück." else "Mehr Schaden, größere Schockwelle."
