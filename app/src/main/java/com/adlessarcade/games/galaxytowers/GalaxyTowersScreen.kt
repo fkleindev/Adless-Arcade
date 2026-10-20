@@ -69,6 +69,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextMeasurer
@@ -82,6 +83,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.adlessarcade.core.GameRegistry
+import com.adlessarcade.core.shareDailyResult
 import com.adlessarcade.ui.components.ArcadeIconButton
 import com.adlessarcade.ui.components.ArcadeScaffold
 import com.adlessarcade.ui.components.CoinGold
@@ -225,6 +227,8 @@ fun GalaxyTowersScreen(
         }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { viewModel.pause() }
+    LaunchedEffect(viewModel.alreadyPlayed) { if (viewModel.alreadyPlayed) onExit() }
+    val context = LocalContext.current
 
     // Wie im ersten Teil im Querformat; beim Verlassen dreht die App zurück ins Hochformat.
     LockOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE)
@@ -339,17 +343,19 @@ fun GalaxyTowersScreen(
             if (viewModel.paused) {
                 PauseOverlay(
                     onResume = viewModel::resume,
-                    onRestart = { showRestartDialog = true },
+                    onRestart = if (viewModel.isDaily) null else { { showRestartDialog = true } },
                     onMenu = onExit,
                 )
             }
 
+            val dailyResult = viewModel.dailyResult
             GameOverOverlay(
                 visible = game.isGameOver,
                 score = game.score,
                 best = viewModel.best,
                 isNewBest = viewModel.isNewBest,
-                onPlayAgain = viewModel::restart,
+                onPlayAgain = if (viewModel.isDaily) null else viewModel::restart,
+                onShare = dailyResult?.let { { shareDailyResult(context, "Galaxy Towers 2", it) } },
                 onMenu = onExit,
                 title = "Ergebnis",
                 message = "${game.roundsCleared} von ${game.mode.rounds} " + (if (game.mode.rounds == 1) "Runde" else "Runden") + " abgeräumt",
@@ -849,7 +855,7 @@ private fun RoundOverOverlay(game: GameState, reason: RoundEnd, clear: ClearBonu
 }
 
 @Composable
-private fun PauseOverlay(onResume: () -> Unit, onRestart: () -> Unit, onMenu: () -> Unit) {
+private fun PauseOverlay(onResume: () -> Unit, onRestart: (() -> Unit)?, onMenu: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
@@ -872,7 +878,7 @@ private fun PauseOverlay(onResume: () -> Unit, onRestart: () -> Unit, onMenu: ()
             Text("Pausiert", style = MaterialTheme.typography.headlineMedium, color = ArcadeText)
             Spacer(Modifier.height(8.dp))
             PrimaryButton("Weiter", onResume)
-            SecondaryButton("Neu starten", onRestart)
+            if (onRestart != null) SecondaryButton("Neu starten", onRestart)
             SecondaryButton("Zum Menü", onMenu)
         }
     }

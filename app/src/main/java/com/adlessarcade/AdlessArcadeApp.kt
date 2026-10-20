@@ -2,6 +2,7 @@ package com.adlessarcade
 
 import android.app.Application
 import android.content.Context
+import com.adlessarcade.core.DailyResultRepository
 import com.adlessarcade.core.GameRegistry
 import com.adlessarcade.core.HighscoreRepository
 import com.adlessarcade.core.SaveGameRepository
@@ -22,6 +23,7 @@ class AdlessArcadeApp : Application() {
     val saves: SaveGameRepository by lazy { SaveGameRepository(this) }
     val profile: ProfileRepository by lazy { ProfileRepository(this) }
     val leaderboards: LeaderboardRepository by lazy { LeaderboardRepository(this) }
+    val dailyResults: DailyResultRepository by lazy { DailyResultRepository(this) }
     val survivorsProgress: SurvivorsProgressRepository by lazy { SurvivorsProgressRepository(this) }
     val kitchenProgress: KitchenProgressRepository by lazy { KitchenProgressRepository(this) }
 

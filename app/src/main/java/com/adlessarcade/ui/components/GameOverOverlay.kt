@@ -25,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
@@ -41,6 +43,7 @@ import com.adlessarcade.ui.theme.ArcadeOutline
 import com.adlessarcade.ui.theme.ArcadeSurface
 import com.adlessarcade.ui.theme.ArcadeText
 import com.adlessarcade.ui.theme.ArcadeTextMuted
+import com.adlessarcade.ui.theme.NeonCyan
 import com.adlessarcade.ui.theme.NeonYellow
 
 /** Einheitlicher Game-Over-Screen für alle Spiele. */
@@ -50,7 +53,8 @@ fun GameOverOverlay(
     score: Int,
     best: Int,
     isNewBest: Boolean,
-    onPlayAgain: () -> Unit,
+    /** null blendet „Nochmal spielen“ aus (Tägliche Challenge: ein Lauf pro Tag). */
+    onPlayAgain: (() -> Unit)?,
     onMenu: () -> Unit,
     title: String = "Game Over",
     message: String = "Keine Züge mehr möglich",
@@ -65,6 +69,8 @@ fun GameOverOverlay(
     extraReward: String? = null,
     /** Zusätzlicher Inhalt vor den Buttons, z. B. die Schadensübersicht bei Rune Survivors. */
     extraContent: (@Composable ColumnScope.() -> Unit)? = null,
+    /** Teilen-Chip unter dem Score; null blendet ihn aus. */
+    onShare: (() -> Unit)? = null,
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -113,6 +119,10 @@ fun GameOverOverlay(
                 } else {
                     Text("Bester: $best", style = MaterialTheme.typography.bodyMedium, color = ArcadeTextMuted)
                 }
+                if (onShare != null) {
+                    Spacer(Modifier.height(10.dp))
+                    ShareChip(onShare)
+                }
                 if (leaderboardRank != null) {
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -147,10 +157,30 @@ fun GameOverOverlay(
                 }
                 Spacer(Modifier.height(24.dp))
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PrimaryButton("Nochmal spielen", onPlayAgain)
+                    if (onPlayAgain != null) PrimaryButton("Nochmal spielen", onPlayAgain)
                     SecondaryButton("Zum Menü", onMenu)
                 }
             }
         }
+    }
+}
+
+/** Kleiner Knopf „Teilen“ mit Share-Symbol, z. B. für das Ergebnis der Täglichen Challenge. */
+@Composable
+fun ShareChip(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, label: String = "Teilen") {
+    val shape = RoundedCornerShape(50)
+    Row(
+        modifier
+            .alpha(if (enabled) 1f else 0.45f)
+            .clip(shape)
+            .background(NeonCyan.copy(alpha = 0.12f))
+            .border(1.dp, NeonCyan.copy(alpha = 0.5f), shape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Share, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge, color = NeonCyan)
     }
 }

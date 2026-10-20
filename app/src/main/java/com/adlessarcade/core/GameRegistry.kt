@@ -36,6 +36,8 @@ data class ModeInfo(
     val available: Boolean = true,
     /** Schlüssel für Highscore und Spielstand; z. B. pro Tag bei der Täglichen Challenge. */
     val scoreKey: () -> String = { id },
+    /** Tägliche Challenge: ein Lauf pro Tag, Ergebnis lässt sich teilen. */
+    val daily: Boolean = false,
 )
 
 data class GameInfo(
@@ -106,8 +108,9 @@ object GameRegistry {
                 ModeInfo(
                     id = GateRushMode.DAILY.id,
                     title = "Tägliche Challenge",
-                    description = "Jeden Tag ein neues, festes Level – gleicher Aufbau für alle. Eigener Tagesrekord.",
+                    description = "Jeden Tag ein neues, festes Level – gleicher Aufbau für alle. Ein Versuch pro Tag.",
                     scoreKey = { DailyChallenge.scoreKey(GateRushMode.DAILY.id) },
+                    daily = true,
                 ),
             ),
             preview = { modifier -> GateRushPreview(modifier) },
@@ -167,8 +170,9 @@ object GameRegistry {
                 ModeInfo(
                     id = GalaxyTowersMode.DAILY.id,
                     title = "Tägliche Challenge",
-                    description = "Classic mit den gleichen Karten und Funden für alle. Eigener Tagesrekord.",
+                    description = "Classic mit den gleichen Karten und Funden für alle. Ein Versuch pro Tag.",
                     scoreKey = { DailyChallenge.scoreKey(GalaxyTowersMode.DAILY.id) },
+                    daily = true,
                 ),
             ),
             preview = { modifier -> GalaxyTowersPreview(modifier) },
@@ -191,8 +195,9 @@ object GameRegistry {
                 ModeInfo(
                     id = RuneTactics.MODE_DAILY,
                     title = "Tägliche Challenge",
-                    description = "Gleiche Gegner und gleicher Start für alle an einem Tag. Eigener Tagesrekord.",
+                    description = "Gleiche Gegner und gleicher Start für alle an einem Tag. Ein Versuch pro Tag.",
                     scoreKey = { DailyChallenge.scoreKey(RuneTactics.MODE_DAILY) },
+                    daily = true,
                 ),
             ),
             preview = { modifier -> RuneTacticsPreview(modifier) },

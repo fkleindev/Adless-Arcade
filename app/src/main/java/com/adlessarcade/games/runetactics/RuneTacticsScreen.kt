@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.adlessarcade.core.shareDailyResult
 import com.adlessarcade.ui.components.ArcadeIconButton
 import com.adlessarcade.ui.components.ArcadeScaffold
 import com.adlessarcade.ui.components.GameOverOverlay
@@ -94,6 +96,8 @@ fun RuneTacticsScreen(
         }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { viewModel.pause() }
+    LaunchedEffect(viewModel.alreadyPlayed) { if (viewModel.alreadyPlayed) onExit() }
+    val context = LocalContext.current
     LaunchedEffect(viewModel.hurtTick) {
         if (viewModel.hurtTick > 0) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
@@ -214,15 +218,21 @@ fun RuneTacticsScreen(
             }
 
             if (viewModel.paused) {
-                PauseOverlay(onResume = viewModel::resume, onRestart = viewModel::restart, onMenu = onExit)
+                PauseOverlay(
+                    onResume = viewModel::resume,
+                    onRestart = if (viewModel.isDaily) null else viewModel::restart,
+                    onMenu = onExit,
+                )
             }
 
+            val dailyResult = viewModel.dailyResult
             GameOverOverlay(
                 visible = viewModel.gameOver,
                 score = engine.round,
                 best = viewModel.best,
                 isNewBest = viewModel.isNewBest,
-                onPlayAgain = viewModel::restart,
+                onPlayAgain = if (viewModel.isDaily) null else viewModel::restart,
+                onShare = dailyResult?.let { { shareDailyResult(context, "Rune Tactics", it) } },
                 onMenu = onExit,
                 message = "Deine Armee ist in Runde ${engine.round} gefallen",
                 coinsEarned = engine.coinsEarned + viewModel.recordBonus,
@@ -586,7 +596,7 @@ private fun Banner(banner: TacticsBanner?, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun PauseOverlay(onResume: () -> Unit, onRestart: () -> Unit, onMenu: () -> Unit) {
+private fun PauseOverlay(onResume: () -> Unit, onRestart: (() -> Unit)?, onMenu: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
@@ -614,7 +624,7 @@ private fun PauseOverlay(onResume: () -> Unit, onRestart: () -> Unit, onMenu: ()
             )
             Spacer(Modifier.height(8.dp))
             PrimaryButton("Weiter", onResume)
-            SecondaryButton("Neu starten", onRestart)
+            if (onRestart != null) SecondaryButton("Neu starten", onRestart)
             SecondaryButton("Zum Menü", onMenu)
         }
     }

@@ -12,6 +12,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.adlessarcade.arcadeApp
 import com.adlessarcade.core.DailyChallenge
+import com.adlessarcade.core.DailyResult
 import com.adlessarcade.core.achievements.AchievementTracker
 import com.adlessarcade.core.achievements.Achievements
 import com.adlessarcade.core.leaderboard.LeaderboardEntry
@@ -61,10 +62,14 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
     private val saves = app.arcadeApp.saves
     private val leaderboards = app.arcadeApp.leaderboards
     private val profile = app.arcadeApp.profile
+    private val dailyResults = app.arcadeApp.dailyResults
     private val achievements = AchievementTracker(profile)
 
     val modeId: String = savedStateHandle.get<String>("modeId") ?: RuneTactics.MODE_ENDLESS
     val isDaily: Boolean = modeId == RuneTactics.MODE_DAILY
+
+    /** Tag der Challenge, für den dieser Lauf zählt. */
+    private val day = DailyChallenge.todayKey()
 
     /** Schlüssel für Highscore und Spielstand (bei der Täglichen Challenge pro Tag). */
     private val scoreKey = if (isDaily) DailyChallenge.scoreKey(modeId) else modeId
@@ -108,6 +113,12 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
         private set
     var recordBonus by mutableIntStateOf(0)
         private set
+    /** Gewertetes Ergebnis der Täglichen Challenge nach Game Over (zum Teilen). */
+    var dailyResult by mutableStateOf<DailyResult?>(null)
+        private set
+    /** Tägliche Challenge heute schon beendet und kein Lauf offen – der Screen kehrt ins Menü zurück. */
+    var alreadyPlayed by mutableStateOf(false)
+        private set
     var hurtTick by mutableIntStateOf(0)
         private set
     var rewardTick by mutableIntStateOf(0)
@@ -128,6 +139,10 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
                 // Tägliche Challenge: nur Läufe mit dem heutigen Seed fortsetzen.
                 ?.takeIf { !isDaily || it.seed == DailyChallenge.todaySeed() }
             if (json != null && saved == null) saves.clear(RuneTactics.GAME_ID, scoreKey)
+            if (isDaily && saved == null && dailyResults.hasPlayed(RuneTactics.GAME_ID, modeId, day)) {
+                alreadyPlayed = true
+                return@launch
+            }
             if (saved != null) {
                 engine = RuneTacticsEngine(saved.seed).also { it.restore(saved.snapshot) }
                 coinsBooked = engine.coinsEarned // wurden beim Unterbrechen bereits gutgeschrieben
@@ -313,6 +328,7 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
     }
 
     fun restart() {
+        if (isDaily) return // ein Lauf pro Tag
         flushCoins()
         saves.clear(RuneTactics.GAME_ID, scoreKey)
         bestAtStart = best
@@ -439,6 +455,11 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
 
     private fun submitToLeaderboard() {
         val run = engine
+        if (isDaily) {
+            val result = DailyResult(day, run.round, "🏆 Runde ${run.round} · ⭐ Level ${run.level}")
+            dailyResult = result
+            viewModelScope.launch { dailyResults.record(RuneTactics.GAME_ID, modeId, result) }
+        }
         val details = if (isDaily) {
             "Challenge vom ${LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))} · Level ${run.level}"
         } else {

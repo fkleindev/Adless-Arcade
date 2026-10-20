@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
@@ -50,6 +51,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.adlessarcade.core.GameRegistry
+import com.adlessarcade.core.shareDailyResult
 import com.adlessarcade.ui.components.ArcadeIconButton
 import com.adlessarcade.ui.components.CoinGold
 import com.adlessarcade.ui.components.CoinIcon
@@ -89,6 +91,8 @@ fun GateRushScreen(
         }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { viewModel.pause() }
+    LaunchedEffect(viewModel.alreadyPlayed) { if (viewModel.alreadyPlayed) onExit() }
+    val context = LocalContext.current
 
     LaunchedEffect(viewModel.hurtTick) {
         if (viewModel.hurtTick > 0) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -147,17 +151,19 @@ fun GateRushScreen(
             if (viewModel.paused) {
                 PauseOverlay(
                     onResume = viewModel::resume,
-                    onRestart = viewModel::restart,
+                    onRestart = if (viewModel.isDaily) null else viewModel::restart,
                     onMenu = onExit,
                 )
             }
 
+            val dailyResult = viewModel.dailyResult
             GameOverOverlay(
                 visible = viewModel.gameOver,
                 score = hud.score,
                 best = viewModel.best,
                 isNewBest = viewModel.isNewBest,
-                onPlayAgain = viewModel::restart,
+                onPlayAgain = if (viewModel.isDaily) null else viewModel::restart,
+                onShare = dailyResult?.let { { shareDailyResult(context, "Gate Rush", it) } },
                 onMenu = onExit,
                 message = "Die Gegner haben die Linie durchbrochen",
                 coinsEarned = hud.coins + viewModel.recordBonus,
@@ -357,7 +363,7 @@ private fun StartHint(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun PauseOverlay(onResume: () -> Unit, onRestart: () -> Unit, onMenu: () -> Unit) {
+private fun PauseOverlay(onResume: () -> Unit, onRestart: (() -> Unit)?, onMenu: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
@@ -379,7 +385,7 @@ private fun PauseOverlay(onResume: () -> Unit, onRestart: () -> Unit, onMenu: ()
             Text("Pausiert", style = MaterialTheme.typography.headlineMedium, color = ArcadeText)
             Spacer(Modifier.height(8.dp))
             PrimaryButton("Weiter", onResume)
-            SecondaryButton("Neu starten", onRestart)
+            if (onRestart != null) SecondaryButton("Neu starten", onRestart)
             SecondaryButton("Zum Menü", onMenu)
         }
     }

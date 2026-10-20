@@ -37,10 +37,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.adlessarcade.arcadeApp
+import com.adlessarcade.core.DailyChallenge
 import com.adlessarcade.core.GameInfo
 import com.adlessarcade.core.leaderboard.LeaderboardEntry
 import com.adlessarcade.core.leaderboard.LeaderboardKey
+import com.adlessarcade.core.shareDailyResult
 import com.adlessarcade.ui.components.ArcadeScaffold
+import com.adlessarcade.ui.components.ShareChip
 import com.adlessarcade.ui.theme.ArcadeOutline
 import com.adlessarcade.ui.theme.ArcadeSurface
 import com.adlessarcade.ui.theme.ArcadeSurfaceHigh
@@ -104,6 +107,8 @@ fun LeaderboardScreen(game: GameInfo, onBack: () -> Unit) {
                     small = true,
                 )
             }
+            val mode = modes.firstOrNull { it.id == modeId }
+            if (mode?.daily == true) TodayShareRow(game, mode.id)
             val list = entries
             when {
                 list == null -> Unit
@@ -116,6 +121,32 @@ fun LeaderboardScreen(game: GameInfo, onBack: () -> Unit) {
                     itemsIndexed(list) { index, entry -> EntryRow(index + 1, entry) }
                 }
             }
+        }
+    }
+}
+
+/** „Heute teilen“ für die Tägliche Challenge; ausgegraut, solange heute kein Lauf beendet wurde. */
+@Composable
+private fun TodayShareRow(game: GameInfo, modeId: String) {
+    val context = LocalContext.current
+    val today = DailyChallenge.todayKey()
+    val resultFlow = remember(modeId, today) { context.arcadeApp.dailyResults.result(game.id, modeId, today) }
+    val result by resultFlow.collectAsState(initial = null)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val played = result
+        ShareChip(
+            onClick = { if (played != null) shareDailyResult(context, game.title, played) },
+            enabled = played != null,
+            label = "Heute teilen",
+        )
+        if (played == null) {
+            Spacer(Modifier.width(10.dp))
+            Text("Heute noch nicht gespielt", style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
         }
     }
 }

@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.adlessarcade.core.DailyResult
 import com.adlessarcade.core.GameInfo
 import com.adlessarcade.core.ModeInfo
 import com.adlessarcade.ui.theme.ArcadeOutline
@@ -125,12 +126,16 @@ fun ModeCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     savedScore: Int? = null,
+    /** Heute schon gespielte Tägliche Challenge: Karte gesperrt, zeigt Ergebnis und Restzeit. */
+    dailyResult: DailyResult? = null,
+    nextChallengeIn: String? = null,
 ) {
     val shape = RoundedCornerShape(20.dp)
+    val locked = dailyResult != null
     Row(
         modifier
             .fillMaxWidth()
-            .alpha(if (mode.available) 1f else 0.5f)
+            .alpha(if (!mode.available) 0.5f else if (locked) 0.75f else 1f)
             .clip(shape)
             .background(ArcadeSurface)
             .border(1.dp, if (mode.available) game.accent.copy(alpha = 0.45f) else ArcadeOutline, shape)
@@ -143,13 +148,13 @@ fun ModeCard(
                 .size(48.dp)
                 .clip(CircleShape)
                 .background(
-                    if (mode.available) Brush.linearGradient(listOf(game.accent, game.accentSecondary))
+                    if (mode.available && !locked) Brush.linearGradient(listOf(game.accent, game.accentSecondary))
                     else Brush.linearGradient(listOf(ArcadeSurfaceHigh, ArcadeSurfaceHigh))
                 ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                if (mode.available) Icons.Filled.PlayArrow else Icons.Filled.Lock,
+                if (mode.available && !locked) Icons.Filled.PlayArrow else Icons.Filled.Lock,
                 contentDescription = null,
                 tint = ArcadeText,
             )
@@ -170,8 +175,23 @@ fun ModeCard(
                         .padding(horizontal = 10.dp, vertical = 3.dp),
                 )
             }
+            if (dailyResult != null) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Heute gespielt · ${dailyResult.summary}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = game.accentSecondary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(game.accentSecondary.copy(alpha = 0.12f))
+                        .padding(horizontal = 10.dp, vertical = 3.dp),
+                )
+                nextChallengeIn?.let {
+                    Text("Neue Challenge in $it", style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted)
+                }
+            }
         }
-        if (mode.available && best != null) {
+        if (mode.available && best != null && !locked) {
             Spacer(Modifier.width(12.dp))
             Column(horizontalAlignment = Alignment.End) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

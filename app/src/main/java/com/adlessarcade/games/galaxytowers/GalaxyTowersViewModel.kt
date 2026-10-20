@@ -10,6 +10,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.adlessarcade.arcadeApp
 import com.adlessarcade.core.DailyChallenge
+import com.adlessarcade.core.DailyResult
 import com.adlessarcade.core.achievements.AchievementTracker
 import com.adlessarcade.core.achievements.Achievements
 import com.adlessarcade.core.leaderboard.LeaderboardEntry
@@ -44,15 +45,20 @@ class GalaxyTowersViewModel(app: Application, savedStateHandle: SavedStateHandle
     private val saves = app.arcadeApp.saves
     private val leaderboards = app.arcadeApp.leaderboards
     private val profile = app.arcadeApp.profile
+    private val dailyResults = app.arcadeApp.dailyResults
     private val achievements = AchievementTracker(profile)
     private var eventCounter = 0L
     /** Sekunden seit dem letzten Speichern während die Zeit läuft. */
     private var sinceSave = 0f
 
     val mode = GalaxyTowersMode.fromId(savedStateHandle.get<String>("modeId"))
+    val isDaily = mode == GalaxyTowersMode.DAILY
+
+    /** Tag der Challenge, für den dieser Lauf zählt. */
+    private val day = DailyChallenge.todayKey()
 
     /** Schlüssel für Highscore und Spielstand (bei der Täglichen Challenge pro Tag). */
-    private val scoreKey = if (mode == GalaxyTowersMode.DAILY) DailyChallenge.scoreKey(mode.id) else mode.id
+    private val scoreKey = if (isDaily) DailyChallenge.scoreKey(mode.id) else mode.id
 
     private fun newSeed(): Long = if (mode == GalaxyTowersMode.DAILY) DailyChallenge.todaySeed() else System.nanoTime()
 
@@ -84,6 +90,12 @@ class GalaxyTowersViewModel(app: Application, savedStateHandle: SavedStateHandle
         private set
     var loaded by mutableStateOf(false)
         private set
+    /** Gewertetes Ergebnis der Täglichen Challenge nach Spielende (zum Teilen). */
+    var dailyResult by mutableStateOf<DailyResult?>(null)
+        private set
+    /** Tägliche Challenge heute schon beendet und kein Lauf offen – der Screen kehrt ins Menü zurück. */
+    var alreadyPlayed by mutableStateOf(false)
+        private set
 
     init {
         viewModelScope.launch {
@@ -93,6 +105,10 @@ class GalaxyTowersViewModel(app: Application, savedStateHandle: SavedStateHandle
                 // Tägliche Challenge: nur Läufe mit dem heutigen Seed fortsetzen.
                 ?.takeIf { mode != GalaxyTowersMode.DAILY || it.game.seed == DailyChallenge.todaySeed() }
             if (json != null && saved == null) saves.clear(GalaxyTowers.GAME_ID, scoreKey) // defekt/inkompatibel/veraltet
+            if (isDaily && saved == null && dailyResults.hasPlayed(GalaxyTowers.GAME_ID, mode.id, day)) {
+                alreadyPlayed = true
+                return@launch
+            }
             if (saved != null) {
                 bestAtStart = minOf(saved.bestAtStart, best)
                 game = saved.game
@@ -198,6 +214,15 @@ class GalaxyTowersViewModel(app: Application, savedStateHandle: SavedStateHandle
         profile.addCoins(recordBonus)
         saves.clear(GalaxyTowers.GAME_ID, scoreKey)
         val score = ended.score
+        if (isDaily) {
+            val result = DailyResult(
+                day,
+                score,
+                "🏆 ${DailyChallenge.formatScore(score)} Punkte · 🃏 ${ended.roundsCleared}/${mode.rounds} Runden abgeräumt",
+            )
+            dailyResult = result
+            viewModelScope.launch { dailyResults.record(GalaxyTowers.GAME_ID, mode.id, result) }
+        }
         viewModelScope.launch {
             val rank = leaderboards.submit(
                 LeaderboardKey(GalaxyTowers.GAME_ID, mode.id),
@@ -217,6 +242,7 @@ class GalaxyTowersViewModel(app: Application, savedStateHandle: SavedStateHandle
     }
 
     fun restart() {
+        if (isDaily) return // ein Lauf pro Tag
         saves.clear(GalaxyTowers.GAME_ID, scoreKey)
         bestAtStart = best
         game = GalaxyTowersEngine.newGame(newSeed(), mode)

@@ -12,6 +12,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.adlessarcade.arcadeApp
 import com.adlessarcade.core.DailyChallenge
+import com.adlessarcade.core.DailyResult
 import com.adlessarcade.core.achievements.AchievementTracker
 import com.adlessarcade.core.achievements.Achievements
 import com.adlessarcade.core.leaderboard.LeaderboardEntry
@@ -65,14 +66,19 @@ class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : 
     private val saves = app.arcadeApp.saves
     private val leaderboards = app.arcadeApp.leaderboards
     private val profile = app.arcadeApp.profile
+    private val dailyResults = app.arcadeApp.dailyResults
     private val achievements = AchievementTracker(profile)
     /** Zeit seit dem letzten Herzverlust (Erfolg „Unantastbar“). */
     private var timeSinceHit = 0f
 
     val mode = GateRushMode.fromId(savedStateHandle.get<String>("modeId"))
+    val isDaily = mode == GateRushMode.DAILY
+
+    /** Tag der Challenge, für den dieser Lauf zählt. */
+    private val day = DailyChallenge.todayKey()
 
     /** Schlüssel für Highscore und Spielstand (bei der Täglichen Challenge pro Tag). */
-    private val scoreKey = if (mode == GateRushMode.DAILY) DailyChallenge.scoreKey(mode.id) else mode.id
+    private val scoreKey = if (isDaily) DailyChallenge.scoreKey(mode.id) else mode.id
 
     private fun newSeed(): Long = if (mode == GateRushMode.DAILY) DailyChallenge.todaySeed() else System.nanoTime()
 
@@ -124,6 +130,13 @@ class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : 
     var recordBonus by mutableIntStateOf(0)
         private set
 
+    /** Gewertetes Ergebnis der Täglichen Challenge nach Game Over (zum Teilen). */
+    var dailyResult by mutableStateOf<DailyResult?>(null)
+        private set
+    /** Tägliche Challenge heute schon beendet und kein Lauf offen – der Screen kehrt ins Menü zurück. */
+    var alreadyPlayed by mutableStateOf(false)
+        private set
+
     /** Bereits ins Profil gebuchte Coins dieses Laufs; Gutschriften werden gebündelt. */
     private var coinsBooked = 0
     private var coinFlushTimer = 0f
@@ -136,6 +149,10 @@ class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : 
                 // Tägliche Challenge: nur Läufe mit dem heutigen Seed fortsetzen.
                 ?.takeIf { mode != GateRushMode.DAILY || it.seed == DailyChallenge.todaySeed() }
             if (json != null && saved == null) saves.clear(GateRush.GAME_ID, scoreKey) // defekt/inkompatibel/veraltet
+            if (isDaily && saved == null && dailyResults.hasPlayed(GateRush.GAME_ID, mode.id, day)) {
+                alreadyPlayed = true
+                return@launch
+            }
             if (saved != null) {
                 engine = GateRushEngine(saved.seed, mode).also { it.restore(saved.snapshot) }
                 coinsBooked = engine.coinsEarned // wurden beim Unterbrechen bereits gutgeschrieben
@@ -239,6 +256,11 @@ class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : 
         val run = engine
         val seconds = run.time.toInt()
         val time = "%d:%02d".format(seconds / 60, seconds % 60)
+        if (isDaily) {
+            val result = DailyResult(day, run.score, "🏆 ${DailyChallenge.formatScore(run.score)} Punkte · ⏱ $time")
+            dailyResult = result
+            viewModelScope.launch { dailyResults.record(GateRush.GAME_ID, mode.id, result) }
+        }
         val details = when (mode) {
             GateRushMode.DAILY -> "Challenge vom ${LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))} · $time"
             GateRushMode.BOSS_RUSH -> "Welle ${run.wave} · $time"
@@ -284,6 +306,7 @@ class GateRushViewModel(app: Application, savedStateHandle: SavedStateHandle) : 
     }
 
     fun restart() {
+        if (isDaily) return // ein Lauf pro Tag
         flushCoins()
         saves.clear(GateRush.GAME_ID, scoreKey)
         bestAtStart = best
