@@ -29,6 +29,12 @@ class RuneTacticsEngine(val seed: Long) {
     val board = LinkedHashMap<Cell, UnitInstance>()
     val bench = arrayOfNulls<UnitInstance>(Board.BENCH_SIZE)
     val shop = arrayOfNulls<String>(Board.SHOP_SIZE)
+
+    /** Sternstufe je Shop-Platz (selten ★2, ab Level 5). */
+    val shopStars = IntArray(Board.SHOP_SIZE) { 1 }
+
+    /** Gesperrte Shop-Plätze bleiben beim Würfeln und in der nächsten Runde erhalten. */
+    val shopLocked = BooleanArray(Board.SHOP_SIZE)
     private val pool = HashMap<String, Int>()
 
     /** Item-Inventar (Komponenten und fertige Items). */
@@ -85,8 +91,12 @@ class RuneTacticsEngine(val seed: Long) {
 
     fun activeTraits(): Map<Trait, Int> = Traits.count(board.values.map { it.def }, emblems)
 
-    /** Würde der Kauf dieser Einheit eine ★2 ergeben? (für die Shop-Hervorhebung) */
-    fun wouldCombine(defId: String): Boolean = copies(defId, 1).size >= 2
+    /** Würde der Kauf dieser Einheit eine höhere Sternstufe ergeben? (für die Shop-Hervorhebung) */
+    fun wouldCombine(defId: String, star: Int = 1): Boolean = copies(defId, star).size >= 2
+
+    /** Preis des Shop-Platzes [index] (null wenn leer). */
+    fun shopPrice(index: Int): Int? =
+        shop.getOrNull(index)?.let { Economy.shopPrice(RuneTacticsUnits.byId(it).cost, shopStars[index]) }
 
     private fun nextRandom(): Random = Random(seed * 6364136223846793005L + (rngCounter++) * 1442695040888963407L)
 
@@ -96,23 +106,36 @@ class RuneTacticsEngine(val seed: Long) {
         returnShop()
         val rng = nextRandom()
         for (i in shop.indices) {
+            if (shopLocked[i]) continue
             val cost = Economy.rollCost(level, rng) { c -> RuneTacticsUnits.ofCost(c).any { poolCount(it.id) > 0 } }
                 ?: continue
             val candidates = RuneTacticsUnits.ofCost(cost).filter { poolCount(it.id) > 0 }
             var pick = rng.nextInt(candidates.sumOf { poolCount(it.id) })
             val def = candidates.first { pick -= poolCount(it.id); pick < 0 }
-            pool[def.id] = poolCount(def.id) - 1
+            val star2 = Economy.star2Odds(level)
+            val star = if (star2 > 0 && rng.nextInt(1000) < star2 && poolCount(def.id) >= Stars.copies(2)) 2 else 1
+            pool[def.id] = poolCount(def.id) - Stars.copies(star)
             shop[i] = def.id
+            shopStars[i] = star
         }
     }
 
-    /** Nicht gekaufte Shop-Einheiten wandern zurück in den Pool. */
+    /** Nicht gekaufte, nicht gesperrte Shop-Einheiten wandern zurück in den Pool. */
     private fun returnShop() {
         for (i in shop.indices) {
+            if (shopLocked[i]) continue
             val id = shop[i] ?: continue
-            pool[id] = poolCount(id) + 1
+            pool[id] = poolCount(id) + Stars.copies(shopStars[i])
             shop[i] = null
+            shopStars[i] = 1
         }
+    }
+
+    /** Sperrt oder entsperrt den Shop-Platz [index]; leere Plätze lassen sich nicht sperren. */
+    fun toggleLock(index: Int): Boolean {
+        if (phase != Phase.PLANNING || shop.getOrNull(index) == null) return false
+        shopLocked[index] = !shopLocked[index]
+        return true
     }
 
     fun reroll(): Boolean {
@@ -149,24 +172,24 @@ class RuneTacticsEngine(val seed: Long) {
     fun buy(index: Int): Int? {
         if (phase != Phase.PLANNING) return null
         val defId = shop.getOrNull(index) ?: return null
-        val def = RuneTacticsUnits.byId(defId)
-        if (gold < def.cost) return null
+        val star = shopStars[index]
+        val price = shopPrice(index) ?: return null
+        if (gold < price) return null
+        val discount = RuneTacticsUnits.byId(defId).cost * Stars.copies(star) - price
         val freeBench = bench.indexOfFirst { it == null }
-        val unit = UnitInstance(nextUid++, defId, 1)
         if (freeBench >= 0) {
-            bench[freeBench] = unit
+            bench[freeBench] = UnitInstance(nextUid++, defId, star, discount = discount)
         } else {
-            // Bank voll: nur kaufen, wenn die Einheit sofort zu ★2 verschmilzt.
-            val existing = copies(defId, 1)
-            if (existing.size < 2) {
-                nextUid--
-                return null
-            }
-            merge(existing.take(2), defId, 2)
+            // Bank voll: nur kaufen, wenn die Einheit sofort zur nächsten Sternstufe verschmilzt.
+            val existing = copies(defId, star)
+            if (existing.size < 2) return null
+            merge(existing.take(2), defId, star + 1, discount)
         }
-        gold -= def.cost
+        gold -= price
         shop[index] = null
-        return combineFrom(defId, if (freeBench >= 0) 1 else 2)
+        shopStars[index] = 1
+        shopLocked[index] = false
+        return combineFrom(defId, if (freeBench >= 0) star else star + 1)
     }
 
     /** Verschmilzt 3 gleiche Einheiten zur nächsten Sternstufe (Brett zuerst). Liefert den höchsten Stern. */
@@ -182,10 +205,11 @@ class RuneTacticsEngine(val seed: Long) {
     }
 
     /** Ersetzt die Einheiten an [slots] durch eine mit [star] am ersten Platz; Items wandern mit (Rest ins Inventar). */
-    private fun merge(slots: List<Slot>, defId: String, star: Int) {
+    private fun merge(slots: List<Slot>, defId: String, star: Int, extraDiscount: Int = 0) {
         val carried = slots.flatMap { unitAt(it)?.items.orEmpty() }
+        val discount = extraDiscount + slots.sumOf { unitAt(it)?.discount ?: 0 }
         slots.forEach(::remove)
-        put(slots[0], UnitInstance(nextUid++, defId, star, carried.take(RuneTacticsItems.MAX_PER_UNIT)))
+        put(slots[0], UnitInstance(nextUid++, defId, star, carried.take(RuneTacticsItems.MAX_PER_UNIT), discount))
         carried.drop(RuneTacticsItems.MAX_PER_UNIT).forEach(::addItem)
     }
 
@@ -453,6 +477,8 @@ class RuneTacticsEngine(val seed: Long) {
             pendingAugments = pendingAugments.map { it.name },
             curse = curse?.name,
             freeRerolls = freeRerolls,
+            shopStars = shopStars.toList(),
+            shopLocked = shopLocked.toList(),
         )
     }
 
@@ -471,6 +497,10 @@ class RuneTacticsEngine(val seed: Long) {
         s.bench.take(bench.size).forEachIndexed { i, u -> bench[i] = u }
         shop.fill(null)
         s.shop.take(shop.size).forEachIndexed { i, id -> shop[i] = id }
+        shopStars.fill(1)
+        s.shopStars.take(shopStars.size).forEachIndexed { i, star -> shopStars[i] = star }
+        shopLocked.fill(false)
+        s.shopLocked.take(shopLocked.size).forEachIndexed { i, locked -> shopLocked[i] = locked }
         pool.clear()
         RuneTacticsUnits.all.forEach { pool[it.id] = s.pool[it.id] ?: 0 }
         enemyArmy = s.enemyArmy

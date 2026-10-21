@@ -13,6 +13,7 @@ class RuneTacticsEngineTest {
     /** Setzt einen festen Shop, damit Käufe vorhersagbar sind. */
     private fun RuneTacticsEngine.forceShop(vararg ids: String) {
         for (i in shop.indices) shop[i] = ids.getOrNull(i)
+        shopStars.fill(1)
     }
 
     private fun RuneTacticsEngine.giveGold(amount: Int) {
@@ -118,6 +119,101 @@ class RuneTacticsEngineTest {
         assertTrue(e.reroll())
         assertEquals(before, total())
         assertEquals(Economy.START_GOLD - Economy.REROLL_COST, e.gold)
+    }
+
+    @Test
+    fun lockedOffers_surviveRerollAndNextRound_untilBought() {
+        val e = RuneTacticsEngine(16)
+        e.giveGold(50)
+        val total = { RuneTacticsUnits.all.sumOf { e.poolCount(it.id) } + e.shop.count { it != null } }
+        val before = total()
+        val kept = e.shop[1]
+        assertTrue(e.toggleLock(1))
+        assertTrue(e.reroll())
+        assertEquals(kept, e.shop[1])
+        assertEquals(before, total())
+        e.startCombat()
+        e.finishCombat()
+        assertEquals(kept, e.shop[1])
+        assertTrue(e.shopLocked[1])
+        assertEquals(before, total())
+        assertNotNull(e.buy(1))
+        assertFalse(e.shopLocked[1])
+        assertFalse(e.toggleLock(1)) // leerer Platz
+        assertTrue(e.reroll())
+        assertNotNull(e.shop[1])
+    }
+
+    @Test
+    fun lockedOffers_unlockKeepsNormalReroll() {
+        val e = RuneTacticsEngine(17)
+        e.toggleLock(0)
+        e.toggleLock(0)
+        assertFalse(e.shopLocked[0])
+        e.toggleLock(2)
+        val restored = RuneTacticsEngine(18).apply { restore(e.snapshot()) }
+        assertTrue(restored.shopLocked[2])
+        assertEquals(e.shop.toList(), restored.shop.toList())
+    }
+
+    @Test
+    fun twoStarOffers_onlyFromLevel5_andKeepPoolIntact() {
+        val e = RuneTacticsEngine(13)
+        e.giveGold(2000)
+        val total = {
+            RuneTacticsUnits.all.sumOf { e.poolCount(it.id) } +
+                e.shop.indices.sumOf { if (e.shop[it] != null) Stars.copies(e.shopStars[it]) else 0 }
+        }
+        val before = total()
+        repeat(200) { e.reroll() }
+        assertTrue(e.shopStars.all { it == 1 }) // Level 2: nie ★2
+        while (e.level < Economy.MAX_LEVEL) e.buyXp()
+        var offers = 0
+        repeat(400) {
+            e.reroll()
+            offers += e.shopStars.count { it == 2 }
+            assertEquals(before, total())
+        }
+        // Level 9: 8 % pro Platz → rund 160 bei 2000 Plätzen
+        assertTrue("★2-Angebote: $offers", offers in 90..250)
+    }
+
+    @Test
+    fun twoStarOffer_costsDouble_andSellsWithoutProfit() {
+        val e = RuneTacticsEngine(14)
+        e.giveGold(20)
+        e.forceShop("skeleton")
+        e.shopStars[0] = 2
+        assertEquals(2, e.shopPrice(0))
+        assertEquals(2, e.buy(0))
+        assertEquals(18, e.gold)
+        assertEquals(2, e.bench[0]?.star)
+        assertEquals(2, e.sell(Slot.Bench(0)))
+        assertEquals(20, e.gold)
+    }
+
+    @Test
+    fun twoStarOffer_combinesWithTwoStars_evenOnFullBench() {
+        val e = RuneTacticsEngine(15)
+        e.giveGold(100)
+        listOf("bladedancer", "dwarfguard", "apprentice", "axeman", "runesmith", "lich").forEach {
+            e.forceShop(it)
+            assertNotNull(e.buy(0))
+        }
+        repeat(2) {
+            e.forceShop("wisp")
+            e.shopStars[0] = 2
+            assertEquals(2, e.buy(0))
+        }
+        assertTrue(e.bench.all { it != null })
+        e.forceShop("wisp")
+        e.shopStars[0] = 2
+        assertTrue(e.wouldCombine("wisp", 2))
+        assertEquals(3, e.buy(0))
+        val wisp = e.bench.filterNotNull().single { it.defId == "wisp" }
+        assertEquals(3, wisp.star)
+        // Drei vergünstigte ★2 zu je 2 Gold: Verkauf bringt genau den Kaufpreis zurück.
+        assertEquals(6, Economy.sellValue(wisp))
     }
 
     @Test
@@ -602,8 +698,8 @@ class RuneTacticsEngineTest {
     }
 
     @Test
-    fun everyUnitHasFigureStyle_andEveryArenaStyleIsUsed() {
-        assertEquals(emptyList<String>(), RuneTacticsFigures.missing())
+    fun everyUnitHasFigure_andEveryArenaStyleIsUsed() {
+        assertEquals(emptyList<String>(), RuneTacticsArt.missing())
         val arenaStyles = com.adlessarcade.core.shop.ShopCatalog.inCategory(com.adlessarcade.core.shop.ShopCategory.ARENA)
             .map { com.adlessarcade.ui.theme.CosmeticRegistry.arena(it.id).style }.toSet()
         assertEquals(com.adlessarcade.ui.theme.ArenaStyle.entries.toSet(), arenaStyles)

@@ -14,21 +14,21 @@ object RuneTacticsEnemyAI {
     private const val STEEP_START = 50
 
     /** Gold-Wert der gegnerischen Armee (Kosten × ★1-Kopien). */
-    fun budget(round: Int): Float = 2f + 2f * round + 0.09f * round * round
+    fun budget(round: Int): Float = 2f + 1.7f * round + 0.07f * round * round
 
     fun unitCount(round: Int): Int = if (round >= ASCENSION_START) 10 else min(2 + (round - 1) / 3, 9)
 
     fun maxCost(round: Int): Int = when {
         round < 3 -> 1
-        round < 6 -> 2
-        round < 10 -> 3
-        round < 15 -> 4
+        round < 7 -> 2
+        round < 11 -> 3
+        round < 17 -> 4
         else -> 5
     }
 
     fun maxStar(round: Int): Int = when {
-        round < 5 -> 1
-        round < 14 -> 2
+        round < 6 -> 1
+        round < 17 -> 2
         else -> 3
     }
 
@@ -56,14 +56,14 @@ object RuneTacticsEnemyAI {
         }
     }
 
-    /** Anzahl fertiger Items der KI-Armee (ab Runde 8). */
-    fun itemCount(round: Int): Int = if (round < 8) 0 else min((round - 4) / 5, 10)
+    /** Anzahl fertiger Items der KI-Armee (ab Runde 10). */
+    fun itemCount(round: Int): Int = if (round < 10) 0 else min((round - 5) / 5, 10)
 
     fun creatureCount(round: Int): Int = min(3 + round / 5, 8)
 
-    fun creatureScale(round: Int): Float = 1f + 0.25f * round
+    fun creatureScale(round: Int): Float = 1f + 0.2f * round
 
-    fun bossScale(round: Int): Float = 0.8f + 0.11f * round
+    fun bossScale(round: Int): Float = 0.8f + 0.09f * round
 
     fun bossFor(round: Int): UnitDef = RuneTacticsUnits.bosses[(round / 5 - 1).coerceAtLeast(0) % RuneTacticsUnits.bosses.size]
 

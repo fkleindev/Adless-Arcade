@@ -202,12 +202,18 @@ class RuneTacticsViewModel(app: Application, savedStateHandle: SavedStateHandle)
 
     fun buy(index: Int) {
         if (!canPlan) return
+        val bought = engine.shopStars.getOrNull(index) ?: return
         val star = engine.buy(index) ?: return
-        if (star > 1) {
+        if (star > bought) {
             showBanner(TacticsBanner("${"★".repeat(star)} AUFGEWERTET", null, StarGold), 1.1f)
             rewardTick++
         }
         changed()
+    }
+
+    fun toggleLock(index: Int) {
+        if (!canPlan) return
+        if (engine.toggleLock(index)) changed()
     }
 
     fun sell(slot: Slot) {

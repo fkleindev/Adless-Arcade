@@ -37,6 +37,14 @@ object Economy {
 
     fun odds(level: Int): IntArray = ODDS[level.coerceIn(1, MAX_LEVEL)]
 
+    /** Chance in Promille, dass ein Shop-Platz eine ★2-Einheit anbietet, Index = Level. */
+    private val STAR2_ODDS = intArrayOf(0, 0, 0, 0, 0, 20, 30, 50, 65, 80)
+
+    fun star2Odds(level: Int): Int = STAR2_ODDS[level.coerceIn(1, MAX_LEVEL)]
+
+    /** Preis eines Shop-Angebots: eine ★2 kostet zwei statt drei Kopien. */
+    fun shopPrice(cost: Int, star: Int): Int = if (star >= 2) cost * 2 else cost
+
     fun interest(gold: Int, cap: Int = MAX_INTEREST): Int = (gold / 10).coerceAtMost(cap)
 
     fun streakBonus(streak: Int): Int = when {
@@ -49,7 +57,7 @@ object Economy {
     /** Verlorene Leben bei einer Niederlage. */
     fun damage(round: Int, survivingEnemyStars: Int): Int = 2 + round / 3 + survivingEnemyStars
 
-    fun sellValue(unit: UnitInstance): Int = unit.def.cost * Stars.copies(unit.star)
+    fun sellValue(unit: UnitInstance): Int = unit.def.cost * Stars.copies(unit.star) - unit.discount
 
     /** Würfelt eine Kostenstufe nach den Odds des Levels; nur Stufen mit Kopien im Pool. */
     fun rollCost(level: Int, rng: Random, available: (Int) -> Boolean): Int? {

@@ -16,17 +16,20 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.Icon
@@ -49,6 +52,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -133,11 +137,17 @@ fun RuneTacticsScreen(
                     onRunes = { showRunes = !showRunes; traitInfo = null },
                 )
 
-                Box(
+                BoxWithConstraints(
                     Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
+                    // Item-Karten bleiben über der gegnerischen Hälfte, damit die eigenen Einheiten antippbar bleiben.
+                    val density = LocalDensity.current
+                    val enemyHalf = with(density) {
+                        val layout = TacticsLayout(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat())
+                        (layout.boardTop + layout.cell * Board.PLAYER_FIRST_ROW).toDp()
+                    }
                     Canvas(
                         Modifier
                             .fillMaxSize()
@@ -197,7 +207,13 @@ fun RuneTacticsScreen(
                     val info = viewModel.inspected
                     if (info != null) UnitCard(info, Modifier.align(Alignment.TopCenter).padding(8.dp))
                     viewModel.selectedItem?.let { engine.items.getOrNull(it) }?.let { id ->
-                        ItemCard(RuneTacticsItems.byId(id), Modifier.align(Alignment.TopCenter).padding(8.dp))
+                        ItemCard(
+                            RuneTacticsItems.byId(id),
+                            Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .heightIn(max = (enemyHalf - 8.dp).coerceAtLeast(120.dp)),
+                        )
                     }
                     traitInfo?.let { TraitCard(it, engine.activeTraits()[it] ?: 0, Modifier.align(Alignment.TopCenter).padding(8.dp)) }
                     if (showRunes) RunesCard(engine.augments.toList(), engine.curse, Modifier.align(Alignment.TopCenter).padding(8.dp))
@@ -384,99 +400,43 @@ private fun BottomPanel(viewModel: RuneTacticsViewModel, hud: HudState, planning
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         ItemBar(hud.items, viewModel.selectedItem, enabled = planning, onSelect = viewModel::selectItem)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            hud.shop.forEachIndexed { index, id ->
-                ShopCard(
-                    def = id?.let { RuneTacticsUnits.byId(it) },
-                    affordable = id != null && RuneTacticsUnits.byId(id).cost <= hud.gold,
-                    combines = id != null && id in hud.combinable,
-                    enabled = planning,
-                    onBuy = { viewModel.buy(index) },
-                    onInfo = { def -> viewModel.inspect(Inspected(def, 1, false)) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (planning) {
-                SecondaryButton(
-                    if (hud.freeRerolls > 0) "↻ Gratis" else "↻ Würfeln · ${Economy.REROLL_COST}", viewModel::reroll,
-                    Modifier.weight(1f).alpha(if (hud.gold >= Economy.REROLL_COST || hud.freeRerolls > 0) 1f else 0.45f),
-                )
-                SecondaryButton(
-                    "▲ XP · ${Economy.XP_COST}", viewModel::buyXp,
-                    Modifier.weight(1f).alpha(
-                        if (hud.gold >= Economy.XP_COST && hud.level < Economy.MAX_LEVEL) 1f else 0.45f,
-                    ),
-                )
-                PrimaryButton("⚔ Kampf!", viewModel::fight, Modifier.weight(1.2f))
-            } else {
-                Box(
-                    Modifier
-                        .weight(2f)
-                        .height(54.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("Kampf läuft …", style = MaterialTheme.typography.titleMedium, color = ArcadeTextMuted)
-                }
-                SecondaryButton("Tempo ${viewModel.speed}×", viewModel::toggleSpeed, Modifier.weight(1.2f))
-            }
-        }
+        ShopPanel(
+            hud.offers,
+            hud.level,
+            enabled = planning,
+            onBuy = viewModel::buy,
+            onLock = viewModel::toggleLock,
+            onInfo = { def, star -> viewModel.inspect(Inspected(def, star, false)) },
+        ) { ActionRow(viewModel, hud, planning) }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ShopCard(
-    def: UnitDef?,
-    affordable: Boolean,
-    combines: Boolean,
-    enabled: Boolean,
-    onBuy: () -> Unit,
-    onInfo: (UnitDef) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val shape = RoundedCornerShape(10.dp)
-    if (def == null) {
-        Box(
-            modifier
-                .height(90.dp)
-                .clip(shape)
-                .background(ArcadeSurface.copy(alpha = 0.5f))
-                .border(1.dp, ArcadeOutline.copy(alpha = 0.5f), shape)
-        )
-        return
-    }
-    val cost = costColor(def.cost)
-    Column(
-        modifier
-            .height(90.dp)
-            .alpha(if (enabled && affordable) 1f else 0.45f)
-            .clip(shape)
-            .background(ArcadeSurfaceHigh)
-            .border(if (combines) 2.dp else 1.dp, if (combines) StarGold else cost.copy(alpha = 0.7f), shape)
-            .combinedClickable(onClick = onBuy, onLongClick = { onInfo(def) })
-            .padding(horizontal = 4.dp, vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Canvas(Modifier.size(36.dp)) {
-            drawFigure(def, Offset(size.width / 2f, size.height * 0.45f), size.width, time = 0f)
+private fun ActionRow(viewModel: RuneTacticsViewModel, hud: HudState, planning: Boolean) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (planning) {
+            SecondaryButton(
+                if (hud.freeRerolls > 0) "↻ Gratis" else "↻ Würfeln · ${Economy.REROLL_COST}", viewModel::reroll,
+                Modifier.weight(1f).alpha(if (hud.gold >= Economy.REROLL_COST || hud.freeRerolls > 0) 1f else 0.45f),
+            )
+            SecondaryButton(
+                "▲ XP · ${Economy.XP_COST}", viewModel::buyXp,
+                Modifier.weight(1f).alpha(
+                    if (hud.gold >= Economy.XP_COST && hud.level < Economy.MAX_LEVEL) 1f else 0.45f,
+                ),
+            )
+            PrimaryButton("⚔ Kampf!", viewModel::fight, Modifier.weight(1.2f))
+        } else {
+            Box(
+                Modifier
+                    .weight(2f)
+                    .height(54.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Kampf läuft …", style = MaterialTheme.typography.titleMedium, color = ArcadeTextMuted)
+            }
+            SecondaryButton("Tempo ${viewModel.speed}×", viewModel::toggleSpeed, Modifier.weight(1.2f))
         }
-        Text(
-            def.name,
-            style = MaterialTheme.typography.labelSmall,
-            color = ArcadeText,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            "${def.origin.title.take(3)}·${def.role.title.take(3)}",
-            style = MaterialTheme.typography.labelSmall,
-            color = originColor(def.origin),
-            maxLines = 1,
-        )
-        Text("● ${def.cost}", style = MaterialTheme.typography.labelSmall, color = StarGold)
     }
 }
 
@@ -686,29 +646,54 @@ private fun ItemBar(items: List<String>, selected: Int?, enabled: Boolean, onSel
 
 @Composable
 private fun ItemCard(item: ItemDef, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(14.dp)
     Column(
         modifier
             .fillMaxWidth()
             .clip(shape)
             .background(ArcadeSurface.copy(alpha = 0.96f))
             .border(1.dp, StarGold, shape)
-            .padding(12.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Text(item.name, style = MaterialTheme.typography.titleMedium, color = StarGold)
-        Text(item.statLine, style = MaterialTheme.typography.bodySmall, color = ArcadeTextMuted)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Canvas(Modifier.size(24.dp)) { drawItemIcon(Offset(size.width / 2f, size.height / 2f), size.width, item) }
+            Spacer(Modifier.width(8.dp))
+            Column {
+                Text(item.name, style = MaterialTheme.typography.titleSmall, color = StarGold)
+                Text(item.statLine, style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted)
+            }
+        }
         if (!item.isComponent) Text(item.description, style = MaterialTheme.typography.bodySmall, color = ArcadeText)
         if (item.isComponent) {
-            Text("Kombiniert mit:", style = MaterialTheme.typography.labelMedium, color = ArcadeText)
-            RuneTacticsItems.components.forEach { other ->
-                val result = RuneTacticsItems.combine(item.id, other.id) ?: return@forEach
-                Text(
-                    "+ ${other.name} → ${result.name}: ${result.description}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = ArcadeTextMuted,
-                )
-            }
+            // Kombinationen als Raster: Partner-Komponente → fertiges Item
+            RuneTacticsItems.components.mapNotNull { other -> RuneTacticsItems.combine(item.id, other.id)?.let { other to it } }
+                .chunked(2)
+                .forEach { pair ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        pair.forEach { (other, result) ->
+                            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                Canvas(Modifier.size(16.dp)) {
+                                    drawItemIcon(Offset(size.width / 2f, size.height / 2f), size.width, other)
+                                }
+                                Text(" → ", style = MaterialTheme.typography.labelSmall, color = ArcadeTextMuted)
+                                Canvas(Modifier.size(16.dp)) {
+                                    drawItemIcon(Offset(size.width / 2f, size.height / 2f), size.width, result)
+                                }
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    result.name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = ArcadeText,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
         }
         Text(
             "Tippe auf eine eigene Einheit zum Ausrüsten (max. ${RuneTacticsItems.MAX_PER_UNIT}).",
@@ -856,8 +841,7 @@ private data class HudState(
     val xp: Int,
     val boardCount: Int,
     val boardCap: Int,
-    val shop: List<String?>,
-    val combinable: Set<String>,
+    val offers: List<ShopOffer>,
     val items: List<String>,
     val freeRerolls: Int,
 )
@@ -872,8 +856,7 @@ private fun RuneTacticsEngine.hudState() = HudState(
     xp = xp,
     boardCount = board.size,
     boardCap = boardCap,
-    shop = shop.toList(),
-    combinable = shop.filterNotNull().filter(::wouldCombine).toSet(),
+    offers = shopOffers(),
     items = items.toList(),
     freeRerolls = freeRerolls,
 )

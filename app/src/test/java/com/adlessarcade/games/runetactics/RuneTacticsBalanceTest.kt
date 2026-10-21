@@ -16,7 +16,7 @@ class RuneTacticsBalanceTest {
             // Kopien bevorzugen, dann teure Einheiten
             val owned = (board.values + bench.filterNotNull()).map { it.defId }.toSet()
             val index = shop.indices
-                .filter { i -> shop[i]?.let { RuneTacticsUnits.byId(it).cost <= gold } == true }
+                .filter { i -> shopPrice(i)?.let { it <= gold } == true }
                 .maxByOrNull { i ->
                     val def = RuneTacticsUnits.byId(shop[i]!!)
                     (if (def.id in owned) 10 else 0) + def.cost

@@ -142,6 +142,8 @@ data class UnitInstance(
     val star: Int = 1,
     /** Item-IDs (max. 3). */
     val items: List<String> = emptyList(),
+    /** Gesparte Gold aus vergünstigten ★2-Käufen; wird beim Verkauf abgezogen. */
+    val discount: Int = 0,
 ) {
     val def: UnitDef get() = RuneTacticsUnits.byId(defId)
 }

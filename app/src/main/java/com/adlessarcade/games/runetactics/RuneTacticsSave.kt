@@ -32,6 +32,9 @@ data class RuneTacticsSnapshot(
     val pendingAugments: List<String> = emptyList(),
     val curse: String? = null,
     val freeRerolls: Int = 0,
+    /** Sternstufe je Shop-Platz; fehlt in älteren Ständen (dann alle ★1). */
+    val shopStars: List<Int> = emptyList(),
+    val shopLocked: List<Boolean> = emptyList(),
 )
 
 @Serializable
